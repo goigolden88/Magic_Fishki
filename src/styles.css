@@ -176,6 +176,69 @@ button.del {
   min-height: 44px;
 }
 
+button.icon {
+  min-width: 48px;
+  min-height: 48px;
+  font-size: 1.2rem;
+}
+
+.items li {
+  border-top: 1px solid var(--line);
+  padding: 6px 0;
+}
+
+.item {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 1.1rem;
+}
+
+/* Галочки участников новой игры: вся строка — касание */
+.players-pick {
+  border: none;
+  padding: 0;
+  margin: 0 0 10px;
+}
+
+.players-pick legend {
+  padding: 0 0 6px;
+}
+
+.players-pick p {
+  margin: 8px 0 0;
+}
+
+.check {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  min-height: 52px;
+  border-top: 1px solid var(--line);
+  font-size: 1.1rem;
+}
+
+.check input {
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+
+/* Быстрые суммы у «Закуп», «Докуп», «Выход» */
+.amounts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.player .pick-title {
+  margin-top: 10px;
+}
+
 .player-head {
   display: flex;
   justify-content: space-between;

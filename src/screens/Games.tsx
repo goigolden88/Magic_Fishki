@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { balance, playerTotals } from '../calc/totals'
 import { formatNumber, formatRate, parseRate } from '../calc/format'
-import type { Game } from '../model'
+import { playersFromNames, type Game } from '../model'
 import { getSettings, listGames, saveGame } from '../store/db'
 import { formatDate, today } from '../dates'
 import { ulid } from '../ulid'
@@ -17,6 +17,8 @@ export function GamesScreen() {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [rateText, setRateText] = useState('')
+  const [regulars, setRegulars] = useState<string[]>([]) // постоянные игроки из настроек
+  const [picked, setPicked] = useState<Set<string>>(new Set()) // отмеченные — участники игры
 
   useEffect(() => {
     void listGames().then(setGames)
@@ -26,7 +28,15 @@ export function GamesScreen() {
     const settings = await getSettings()
     setName(formatDate(today()))
     setRateText(formatRate(settings.defaultRate))
+    setRegulars(settings.players)
+    setPicked(new Set(settings.players))
     setCreating(true)
+  }
+
+  function toggle(player: string) {
+    const next = new Set(picked)
+    if (!next.delete(player)) next.add(player)
+    setPicked(next)
   }
 
   const rate = parseRate(rateText)
@@ -39,7 +49,10 @@ export function GamesScreen() {
       name: name.trim() || formatDate(date),
       date,
       rate,
-      players: [],
+      players: playersFromNames(
+        regulars.filter((p) => picked.has(p)),
+        () => ulid(),
+      ),
       entries: [],
       updatedAt: new Date().toISOString(),
     }
@@ -68,6 +81,20 @@ export function GamesScreen() {
             <input inputMode="decimal" value={rateText} onChange={(e) => setRateText(e.target.value)} />
           </label>
           {rate === null && <p className="warn">Курс — число больше нуля, например 0,5</p>}
+          {regulars.length > 0 && (
+            <fieldset className="players-pick">
+              <legend className="muted">
+                Участники: {picked.size} из {regulars.length}
+              </legend>
+              {regulars.map((p) => (
+                <label key={p} className="check">
+                  <input type="checkbox" checked={picked.has(p)} onChange={() => toggle(p)} />
+                  {p}
+                </label>
+              ))}
+              <p className="muted">Гостя можно добавить на экране игры.</p>
+            </fieldset>
+          )}
           <div className="row">
             <button className="big primary" disabled={rate === null} onClick={() => void create()}>
               Создать
