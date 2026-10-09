@@ -1,5 +1,5 @@
 // Единственный вход в IndexedDB. База magic_fishki: хранилища games (ключ id) и settings (одна запись).
-import { DEFAULT_RATE, type Game, type Settings } from '../model'
+import { settingsWithDefaults, type Game, type Settings } from '../model'
 
 const DB_NAME = 'magic_fishki'
 const DB_VERSION = 1
@@ -69,7 +69,7 @@ export async function saveGame(game: Game): Promise<Game> {
 
 export async function getSettings(): Promise<Settings> {
   const stored = await run<Partial<Settings> | undefined>('settings', 'readonly', (s) => s.get(SETTINGS_KEY))
-  return { defaultRate: DEFAULT_RATE, ...stored }
+  return settingsWithDefaults(stored)
 }
 
 export async function saveSettings(settings: Settings): Promise<void> {

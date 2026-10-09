@@ -5,7 +5,7 @@ import { balance, playerTotals, type PlayerTotal } from '../calc/totals'
 import { transfers } from '../calc/transfers'
 import { formatDate, formatTime } from '../dates'
 import type { Entry, EntryKind, Game, Player } from '../model'
-import { getGame, saveGame } from '../store/db'
+import { getGame, getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 
 const KIND_LABEL: Record<EntryKind, string> = { buyin: 'Закуп', rebuy: 'Докуп', cashout: 'Выход' }
@@ -15,10 +15,12 @@ export function GameScreen({ id }: { id: string }) {
   const [game, setGame] = useState<Game | null | undefined>(undefined)
   const [newPlayer, setNewPlayer] = useState('')
   const [rateText, setRateText] = useState<string | null>(null) // не null — курс правится
+  const [quickAmounts, setQuickAmounts] = useState<number[]>([])
   const [shareNote, setShareNote] = useState<string | null>(null) // «Скопировано» под кнопкой
 
   useEffect(() => {
     void getGame(id).then((g) => setGame(g ?? null))
+    void getSettings().then((s) => setQuickAmounts(s.quickAmounts))
   }, [id])
 
   if (game === undefined) return <main className="screen" />
@@ -139,6 +141,7 @@ export function GameScreen({ id }: { id: string }) {
             entries={current.entries.filter((e) => e.playerId === p.id)}
             closed={!!current.closed}
             suggestIn={lastBuyin}
+            quickAmounts={quickAmounts}
             onAdd={(kind, chips) => addEntry(p.id, kind, chips)}
             onDelete={deleteEntry}
           />
@@ -226,25 +229,33 @@ type PlayerCardProps = {
   entries: Entry[]
   closed: boolean
   suggestIn?: number
+  quickAmounts: number[]
   onAdd: (kind: EntryKind, chips: number) => void
   onDelete: (entry: Entry) => void
 }
 
-function PlayerCard({ player, total, entries, closed, suggestIn, onAdd, onDelete }: PlayerCardProps) {
+function PlayerCard({ player, total, entries, closed, suggestIn, quickAmounts, onAdd, onDelete }: PlayerCardProps) {
   const [kind, setKind] = useState<EntryKind | null>(null)
+  const [custom, setCustom] = useState(false) // открыто поле своего числа
   const [text, setText] = useState('')
   const chips = parseChips(text)
 
+  // У «Выхода» поле открыто сразу: выход обычно не круглый (Р-07); без быстрых сумм — тоже
   function start(k: EntryKind) {
     setKind(k)
+    setCustom(k === 'cashout' || quickAmounts.length === 0)
     setText(k !== 'cashout' && suggestIn ? String(suggestIn) : '')
+  }
+
+  function add(k: EntryKind, n: number) {
+    onAdd(k, n)
+    setKind(null)
   }
 
   function submit(e: FormEvent) {
     e.preventDefault()
     if (kind === null || chips === null) return
-    onAdd(kind, chips)
-    setKind(null)
+    add(kind, chips)
   }
 
   return (
@@ -286,25 +297,48 @@ function PlayerCard({ player, total, entries, closed, suggestIn, onAdd, onDelete
             ))}
           </div>
         ) : (
-          <form className="row" onSubmit={submit}>
-            <input
-              className="grow"
-              autoFocus
-              inputMode="numeric"
-              pattern="[0-9 ]*"
-              placeholder={`${KIND_LABEL[kind]}, фишек`}
-              aria-label={`${KIND_LABEL[kind]}, фишек`}
-              value={text}
-              onFocus={(e) => e.target.select()}
-              onChange={(e) => setText(e.target.value)}
-            />
-            <button className="big primary" disabled={chips === null}>
-              {KIND_LABEL[kind]}
-            </button>
-            <button type="button" className="big" onClick={() => setKind(null)}>
-              ✕
-            </button>
-          </form>
+          <>
+            <p className="pick-title">{KIND_LABEL[kind]}, фишек:</p>
+            {quickAmounts.length > 0 && (
+              <div className="amounts">
+                {quickAmounts.map((a) => (
+                  <button key={a} className={'big ' + kind} onClick={() => add(kind, a)}>
+                    {formatNumber(a)}
+                  </button>
+                ))}
+              </div>
+            )}
+            {custom ? (
+              <form className="row" onSubmit={submit}>
+                <input
+                  className="grow"
+                  autoFocus
+                  inputMode="numeric"
+                  pattern="[0-9 ]*"
+                  placeholder="Своё число"
+                  aria-label={`${KIND_LABEL[kind]}, фишек`}
+                  value={text}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => setText(e.target.value)}
+                />
+                <button className="big primary" disabled={chips === null}>
+                  {KIND_LABEL[kind]}
+                </button>
+                <button type="button" className="big" aria-label="Отмена" onClick={() => setKind(null)}>
+                  ✕
+                </button>
+              </form>
+            ) : (
+              <div className="row">
+                <button className="big grow" onClick={() => setCustom(true)}>
+                  Другое…
+                </button>
+                <button className="big" aria-label="Отмена" onClick={() => setKind(null)}>
+                  ✕
+                </button>
+              </div>
+            )}
+          </>
         ))}
     </li>
   )
