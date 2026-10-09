@@ -1,0 +1,50 @@
+name: Выкладка
+
+# Пуш в main → сборка → GitHub Pages (Р-01). Источник Pages в настройках
+# репо — «GitHub Actions».
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Пока нет package.json (до первого PR) — выкладывать нечего.
+      - id: has
+        run: test -f package.json && echo app=yes >> "$GITHUB_OUTPUT" || echo "Нет package.json — пропуск"
+      - if: steps.has.outputs.app == 'yes'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - if: steps.has.outputs.app == 'yes'
+        run: npm ci && npm run build
+      - if: steps.has.outputs.app == 'yes'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+    outputs:
+      app: ${{ steps.has.outputs.app }}
+
+  deploy:
+    needs: build
+    if: needs.build.outputs.app == 'yes'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
