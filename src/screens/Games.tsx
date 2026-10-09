@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { balance, playerTotals } from '../calc/totals'
 import { formatNumber, formatRate, parseRate } from '../calc/format'
-import { playersFromNames, type Game } from '../model'
+import { createGame, DEFAULT_BUYIN, type Game } from '../model'
 import { getSettings, listGames, saveGame } from '../store/db'
 import { formatDate, today } from '../dates'
 import { ulid } from '../ulid'
@@ -19,6 +19,8 @@ export function GamesScreen() {
   const [rateText, setRateText] = useState('')
   const [regulars, setRegulars] = useState<string[]>([]) // постоянные игроки из настроек
   const [picked, setPicked] = useState<Set<string>>(new Set()) // отмеченные — участники игры
+  const [defaultBuyin, setDefaultBuyin] = useState(DEFAULT_BUYIN) // закуп по умолчанию из настроек (Р-09)
+  const [askBuyin, setAskBuyin] = useState(false) // вопрос «Записать всем закуп?»
 
   useEffect(() => {
     void listGames().then(setGames)
@@ -30,6 +32,8 @@ export function GamesScreen() {
     setRateText(formatRate(settings.defaultRate))
     setRegulars(settings.players)
     setPicked(new Set(settings.players))
+    setDefaultBuyin(settings.defaultBuyin)
+    setAskBuyin(false)
     setCreating(true)
   }
 
@@ -41,21 +45,22 @@ export function GamesScreen() {
 
   const rate = parseRate(rateText)
 
-  async function create() {
+  const players = regulars.filter((p) => picked.has(p))
+
+  // Участники выбраны — сначала вопрос про закуп; нет участников — сразу игра без записей
+  function startCreate() {
+    if (rate === null) return
+    if (players.length > 0) setAskBuyin(true)
+    else void create(null)
+  }
+
+  async function create(buyin: number | null) {
     if (rate === null) return
     const date = today()
-    const game: Game = {
-      id: ulid(),
-      name: name.trim() || formatDate(date),
-      date,
-      rate,
-      players: playersFromNames(
-        regulars.filter((p) => picked.has(p)),
-        () => ulid(),
-      ),
-      entries: [],
-      updatedAt: new Date().toISOString(),
-    }
+    const game = createGame(
+      { name: name.trim() || formatDate(date), date, rate, players, buyin, now: new Date().toISOString() },
+      () => ulid(),
+    )
     await saveGame(game)
     location.hash = `#/game/${game.id}`
   }
@@ -69,7 +74,23 @@ export function GamesScreen() {
         </a>
       </header>
 
-      {creating ? (
+      {creating && askBuyin ? (
+        <section className="card">
+          <h2>Записать всем закуп по {formatNumber(defaultBuyin)} фишек?</h2>
+          <p className="muted">Участников: {players.length}. Сумма меняется в настройках.</p>
+          <div className="row">
+            <button className="big primary grow" onClick={() => void create(defaultBuyin)}>
+              Да
+            </button>
+            <button className="big grow" onClick={() => void create(null)}>
+              Нет
+            </button>
+          </div>
+          <button className="big wide" onClick={() => setAskBuyin(false)}>
+            Назад
+          </button>
+        </section>
+      ) : creating ? (
         <section className="card">
           <h2>Новая игра</h2>
           <label className="field">
@@ -96,7 +117,7 @@ export function GamesScreen() {
             </fieldset>
           )}
           <div className="row">
-            <button className="big primary" disabled={rate === null} onClick={() => void create()}>
+            <button className="big primary" disabled={rate === null} onClick={startCreate}>
               Создать
             </button>
             <button className="big" onClick={() => setCreating(false)}>

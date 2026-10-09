@@ -6,18 +6,21 @@ import { getSettings, saveSettings } from '../store/db'
 export function SettingsScreen() {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [rateText, setRateText] = useState<string | null>(null)
+  const [buyinText, setBuyinText] = useState('')
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
     void getSettings().then((s) => {
       setSettings(s)
       setRateText(formatRate(s.defaultRate))
+      setBuyinText(String(s.defaultBuyin))
     })
   }, [])
 
   const rate = rateText === null ? null : parseRate(rateText)
+  const buyin = parseChips(buyinText)
 
-  // Списки сохраняются сразу, курс — кнопкой «Сохранить»
+  // Списки сохраняются сразу, курс и закуп — кнопкой «Сохранить»
   function update(next: Settings) {
     setSettings(next)
     void saveSettings(next)
@@ -25,8 +28,8 @@ export function SettingsScreen() {
 
   async function save(e: FormEvent) {
     e.preventDefault()
-    if (rate === null || settings === null) return
-    const next = { ...settings, defaultRate: rate }
+    if (rate === null || buyin === null || settings === null) return
+    const next = { ...settings, defaultRate: rate, defaultBuyin: buyin }
     setSettings(next)
     await saveSettings(next)
     setSaved(true)
@@ -57,8 +60,22 @@ export function SettingsScreen() {
             </label>
             <p className="muted">У начатых игр курс свой — он меняется на экране игры.</p>
             {rate === null && <p className="warn">Курс — число больше нуля, например 0,5</p>}
+            <label className="field">
+              Закуп по умолчанию, фишек
+              <input
+                inputMode="numeric"
+                pattern="[0-9 ]*"
+                value={buyinText}
+                onChange={(e) => {
+                  setBuyinText(e.target.value)
+                  setSaved(false)
+                }}
+              />
+            </label>
+            <p className="muted">При новой игре — вопрос, записать ли всем такой закуп.</p>
+            {buyin === null && <p className="warn">Закуп — целое число фишек больше нуля, например 1000</p>}
             {saved && <p className="ok">Сохранено</p>}
-            <button className="big primary wide" disabled={rate === null}>
+            <button className="big primary wide" disabled={rate === null || buyin === null}>
               Сохранить
             </button>
           </form>

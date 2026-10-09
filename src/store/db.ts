@@ -67,6 +67,11 @@ export async function saveGame(game: Game): Promise<Game> {
   return saved
 }
 
+// Окончательно: синхронизации нет, игру не вернуть (Р-09)
+export async function deleteGame(id: string): Promise<void> {
+  await run('games', 'readwrite', (s) => s.delete(id))
+}
+
 export async function getSettings(): Promise<Settings> {
   const stored = await run<Partial<Settings> | undefined>('settings', 'readonly', (s) => s.get(SETTINGS_KEY))
   return settingsWithDefaults(stored)
