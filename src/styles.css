@@ -1,0 +1,262 @@
+/* Крупно и контрастно: играют вечером, с телефона, одной рукой */
+:root {
+  --bg: #0f1a15;
+  --card: #18271f;
+  --line: #2a3f33;
+  --text: #f1f5f2;
+  --muted: #9bb0a3;
+  --green: #3ecf7a;
+  --red: #ff6b5e;
+  --accent: #2e9e5b;
+  --gold: #e7b84a;
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 18px;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.screen {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: calc(env(safe-area-inset-top) + 8px) 16px calc(env(safe-area-inset-bottom) + 32px);
+}
+
+h1 {
+  font-size: 1.6rem;
+  margin: 8px 0 4px;
+}
+
+h2 {
+  font-size: 1.2rem;
+  margin: 12px 0 8px;
+}
+
+a {
+  color: inherit;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+}
+
+.bar-link {
+  display: inline-block;
+  padding: 12px 4px;
+  color: var(--gold);
+  text-decoration: none;
+  font-size: 1.05rem;
+}
+
+.card {
+  display: block;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  margin: 12px 0;
+}
+
+.list,
+.entries,
+.transfers {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.game-link {
+  text-decoration: none;
+}
+
+.game-link strong {
+  display: block;
+  font-size: 1.15rem;
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+  margin-top: 10px;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.wide {
+  width: 100%;
+  margin: 12px 0;
+}
+
+.field {
+  display: block;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+input {
+  display: block;
+  width: 100%;
+  font: inherit;
+  font-size: 1.2rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 4px;
+  min-height: 56px;
+}
+
+.row input {
+  margin-top: 0;
+}
+
+button {
+  font: inherit;
+  color: var(--text);
+  background: var(--line);
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+button:disabled {
+  opacity: 0.4;
+}
+
+button.big {
+  min-height: 56px;
+  padding: 0 18px;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+button.primary {
+  background: var(--accent);
+}
+
+button.buyin,
+button.rebuy {
+  background: #24543a;
+}
+
+button.cashout {
+  background: #6b4a12;
+}
+
+button.link {
+  background: none;
+  color: var(--gold);
+  padding: 8px;
+  margin-left: 8px;
+}
+
+button.del {
+  background: none;
+  color: var(--muted);
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.player-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 1.15rem;
+}
+
+.player p {
+  margin: 4px 0 0;
+}
+
+.entries li {
+  display: grid;
+  grid-template-columns: 3.5em 1fr auto 44px;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  min-height: 44px;
+}
+
+.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.center {
+  text-align: center;
+}
+
+.ok {
+  color: var(--green);
+}
+
+.warn {
+  color: var(--red);
+}
+
+.plus {
+  color: var(--green);
+}
+
+.minus {
+  color: var(--red);
+}
+
+.rate {
+  margin: 4px 0;
+}
+
+.summary p {
+  margin: 0 0 8px;
+}
+
+.totals {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.totals td {
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+
+.totals td + td {
+  padding-left: 12px;
+}
+
+.transfers li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  font-size: 1.1rem;
+}
+
+.transfers strong {
+  white-space: nowrap;
+}
