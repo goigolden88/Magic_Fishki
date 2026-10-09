@@ -5,7 +5,7 @@ import { balance, playerTotals, type PlayerTotal } from '../calc/totals'
 import { transfers } from '../calc/transfers'
 import { formatDate, formatTime } from '../dates'
 import type { Entry, EntryKind, Game, Player } from '../model'
-import { getGame, getSettings, saveGame } from '../store/db'
+import { deleteGame, getGame, getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 
 const KIND_LABEL: Record<EntryKind, string> = { buyin: 'Закуп', rebuy: 'Докуп', cashout: 'Выход' }
@@ -17,6 +17,7 @@ export function GameScreen({ id }: { id: string }) {
   const [rateText, setRateText] = useState<string | null>(null) // не null — курс правится
   const [quickAmounts, setQuickAmounts] = useState<number[]>([])
   const [shareNote, setShareNote] = useState<string | null>(null) // «Скопировано» под кнопкой
+  const [deleting, setDeleting] = useState(false) // первое нажатие «Удалить игру» — ждём второго
 
   useEffect(() => {
     void getGame(id).then((g) => setGame(g ?? null))
@@ -91,6 +92,11 @@ export function GameScreen({ id }: { id: string }) {
       setShareNote('Не удалось скопировать')
     }
     setTimeout(() => setShareNote(null), 3000)
+  }
+
+  async function remove() {
+    await deleteGame(current.id)
+    location.hash = '#/'
   }
 
   const duplicate = current.players.some((p) => p.name === newPlayer.trim())
@@ -209,6 +215,22 @@ export function GameScreen({ id }: { id: string }) {
       <button className="big wide" onClick={() => update({ ...current, closed: !current.closed })}>
         {current.closed ? 'Открыть снова' : 'Закрыть игру'}
       </button>
+
+      {/* Удаление — вторым нажатием, окончательно (Р-09) */}
+      {deleting ? (
+        <div className="row">
+          <button className="big danger grow" onClick={() => void remove()}>
+            Точно удалить: {current.name}?
+          </button>
+          <button className="big" onClick={() => setDeleting(false)}>
+            Отмена
+          </button>
+        </div>
+      ) : (
+        <button className="big wide danger-text" onClick={() => setDeleting(true)}>
+          Удалить игру
+        </button>
+      )}
     </main>
   )
 }

@@ -28,10 +28,12 @@ export type Settings = {
   defaultRate: number // курс новой игры
   players: string[] // постоянные игроки: при новой игре отмечены (Р-07)
   quickAmounts: number[] // быстрые суммы фишек у «Закуп», «Докуп», «Выход» (Р-07)
+  defaultBuyin: number // закуп по умолчанию: при новой игре — вопрос «Записать всем закуп по N?» (Р-09)
 }
 
 export const DEFAULT_RATE = 0.5
 export const DEFAULT_QUICK_AMOUNTS = [500, 1000, 2000]
+export const DEFAULT_BUYIN = 1000
 
 // Запись settings прежних версий может не иметь новых полей — нет поля, значит умолчание
 export function settingsWithDefaults(stored?: Partial<Settings>): Settings {
@@ -39,6 +41,7 @@ export function settingsWithDefaults(stored?: Partial<Settings>): Settings {
     defaultRate: typeof stored?.defaultRate === 'number' ? stored.defaultRate : DEFAULT_RATE,
     players: Array.isArray(stored?.players) ? [...stored.players] : [],
     quickAmounts: Array.isArray(stored?.quickAmounts) ? [...stored.quickAmounts] : [...DEFAULT_QUICK_AMOUNTS],
+    defaultBuyin: typeof stored?.defaultBuyin === 'number' ? stored.defaultBuyin : DEFAULT_BUYIN,
   }
 }
 
@@ -46,6 +49,33 @@ export function settingsWithDefaults(stored?: Partial<Settings>): Settings {
 // так что правка постоянных игроков прошлые игры не трогает
 export function playersFromNames(names: string[], makeId: () => string): Player[] {
   return names.map((name) => ({ id: makeId(), name }))
+}
+
+export type NewGame = {
+  name: string
+  date: string // YYYY-MM-DD
+  rate: number
+  players: string[] // имена участников
+  buyin: number | null // «Да» на «Записать всем закуп?» — сумма; «Нет» — null (Р-09)
+  now: string // ISO 8601: время закупов и updatedAt
+}
+
+// Новая игра; с закупом — каждому участнику одна запись buyin на эту сумму
+export function createGame(input: NewGame, makeId: () => string): Game {
+  const id = makeId()
+  const players = playersFromNames(input.players, makeId)
+  const { buyin } = input
+  const entries: Entry[] =
+    buyin === null ? [] : players.map((p) => ({ id: makeId(), playerId: p.id, kind: 'buyin', chips: buyin, at: input.now }))
+  return {
+    id,
+    name: input.name,
+    date: input.date,
+    rate: input.rate,
+    players,
+    entries,
+    updatedAt: input.now,
+  }
 }
 
 // Сдвиг элемента на шаг вверх (−1) или вниз (+1); за край — список как был

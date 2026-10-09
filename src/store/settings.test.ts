@@ -5,22 +5,31 @@ import { getGame, getSettings, saveGame, saveSettings } from './db'
 
 describe('настройки: умолчания (Р-07)', () => {
   it('записи нет — все умолчания', () => {
-    expect(settingsWithDefaults(undefined)).toEqual({ defaultRate: 0.5, players: [], quickAmounts: [500, 1000, 2000] })
+    expect(settingsWithDefaults(undefined)).toEqual({
+      defaultRate: 0.5,
+      players: [],
+      quickAmounts: [500, 1000, 2000],
+      defaultBuyin: 1000,
+    })
   })
 
-  it('старая запись без новых полей — курс свой, игроки и суммы по умолчанию', () => {
+  it('старая запись без новых полей — курс свой, игроки, суммы и закуп по умолчанию', () => {
     expect(settingsWithDefaults({ defaultRate: 1 })).toEqual({
       defaultRate: 1,
       players: [],
       quickAmounts: [500, 1000, 2000],
+      defaultBuyin: 1000,
     })
   })
 
   it('заданные поля не подменяются, в том числе пустые списки', () => {
-    expect(settingsWithDefaults({ defaultRate: 0.25, players: ['Аня'], quickAmounts: [] })).toEqual({
+    expect(
+      settingsWithDefaults({ defaultRate: 0.25, players: ['Аня'], quickAmounts: [], defaultBuyin: 2000 }),
+    ).toEqual({
       defaultRate: 0.25,
       players: ['Аня'],
       quickAmounts: [],
+      defaultBuyin: 2000,
     })
   })
 
@@ -31,13 +40,18 @@ describe('настройки: умолчания (Р-07)', () => {
 
   it('из базы: запись прошлой версии читается с умолчаниями', async () => {
     await saveSettings({ defaultRate: 0.2 } as Settings)
-    expect(await getSettings()).toEqual({ defaultRate: 0.2, players: [], quickAmounts: [500, 1000, 2000] })
+    expect(await getSettings()).toEqual({
+      defaultRate: 0.2,
+      players: [],
+      quickAmounts: [500, 1000, 2000],
+      defaultBuyin: 1000,
+    })
   })
 })
 
 describe('постоянные игроки и прошлые игры', () => {
   it('удаление и переименование постоянного игрока не трогают сохранённую игру', async () => {
-    await saveSettings({ defaultRate: 0.5, players: ['Аня', 'Боря', 'Вера'], quickAmounts: [500] })
+    await saveSettings({ defaultRate: 0.5, players: ['Аня', 'Боря', 'Вера'], quickAmounts: [500], defaultBuyin: 1000 })
     const settings = await getSettings()
     let n = 0
     const game: Game = {

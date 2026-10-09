@@ -162,6 +162,15 @@ button.cashout {
   background: #6b4a12;
 }
 
+/* Удаление игры: первое нажатие — красный текст, второе — красная кнопка */
+button.danger {
+  background: #8a2a22;
+}
+
+button.danger-text {
+  color: var(--red);
+}
+
 button.link {
   background: none;
   color: var(--gold);
