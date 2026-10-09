@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { balanceText, formatChips, formatNumber, formatRate, formatRub, parseChips, parseRate } from '../calc/format'
+import { shareText } from '../calc/share'
 import { balance, playerTotals, type PlayerTotal } from '../calc/totals'
 import { transfers } from '../calc/transfers'
 import { formatDate, formatTime } from '../dates'
@@ -15,6 +16,7 @@ export function GameScreen({ id }: { id: string }) {
   const [newPlayer, setNewPlayer] = useState('')
   const [rateText, setRateText] = useState<string | null>(null) // не null — курс правится
   const [quickAmounts, setQuickAmounts] = useState<number[]>([])
+  const [shareNote, setShareNote] = useState<string | null>(null) // «Скопировано» под кнопкой
 
   useEffect(() => {
     void getGame(id).then((g) => setGame(g ?? null))
@@ -69,6 +71,26 @@ export function GameScreen({ id }: { id: string }) {
     if (newRate === null) return
     update({ ...current, rate: newRate })
     setRateText(null)
+  }
+
+  // Телефон — системное «Поделиться» (Телеграм и т. п.); где его нет — в буфер обмена
+  async function share() {
+    const text = shareText(current)
+    if ('share' in navigator) {
+      try {
+        await navigator.share({ text })
+        return
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return // передумали
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text)
+      setShareNote('Скопировано')
+    } catch {
+      setShareNote('Не удалось скопировать')
+    }
+    setTimeout(() => setShareNote(null), 3000)
   }
 
   const duplicate = current.players.some((p) => p.name === newPlayer.trim())
@@ -178,6 +200,11 @@ export function GameScreen({ id }: { id: string }) {
           </ul>
         )}
       </section>
+
+      <button className="big primary wide" onClick={() => void share()}>
+        Поделиться итогом
+      </button>
+      {shareNote && <p className={shareNote === 'Скопировано' ? 'ok center' : 'warn center'}>{shareNote}</p>}
 
       <button className="big wide" onClick={() => update({ ...current, closed: !current.closed })}>
         {current.closed ? 'Открыть снова' : 'Закрыть игру'}
