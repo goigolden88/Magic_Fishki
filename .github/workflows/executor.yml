@@ -34,7 +34,7 @@ jobs:
     with:
       node-version: "24"
       chrome: false
-      project-tools: "Bash(npm ci),Bash(npm test:*),Bash(npm run:*)"
+      project-tools: "Bash(npm ci),Bash(npm test:*),Bash(npm run:*),Bash(npm install:*)"
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
@@ -69,6 +69,6 @@ jobs:
     with:
       node-version: "24"
       chrome: false
-      project-tools: "Bash(npm ci),Bash(npm test:*),Bash(npm run:*)"
+      project-tools: "Bash(npm ci),Bash(npm test:*),Bash(npm run:*),Bash(npm install:*)"
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

@@ -25,14 +25,23 @@ jobs:
         with:
           submodules: true
 
-      - uses: actions/setup-node@v4
+      # Нового репо без кода (PR с одними документами) проверять нечем —
+      # зелёный пропуск, а не красный провал (Magic_Fishki#1, 09.10).
+      - id: has
+        run: test -f package.json && echo app=yes >> "$GITHUB_OUTPUT" || echo "::notice::Нет package.json — проверять нечего"
+
+      - if: steps.has.outputs.app == 'yes'
+        uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
 
       # ci, а не install: ставит ровно то, что в package-lock.json.
-      - run: npm ci
+      - if: steps.has.outputs.app == 'yes'
+        run: npm ci
 
-      - run: npm test
+      - if: steps.has.outputs.app == 'yes'
+        run: npm test
 
-      - run: npm run build --if-present
+      - if: steps.has.outputs.app == 'yes'
+        run: npm run build --if-present
