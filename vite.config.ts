@@ -37,14 +37,17 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       // По образцу манифеста семьи (FamilyCore, familyVite). id постоянный и не меняется
-      // никогда: другой id — для Chrome другое приложение (Р-06)
+      // никогда: другой id — для Chrome другое приложение (Р-06).
+      // Адрес манифеста и start_url — новые, чтобы Android поставил приложение заново
+      // без застрявшей записи; после этого тоже не меняются (Р-08)
+      manifestFilename: 'fishki.webmanifest',
       manifest: {
         id: '/Magic_Fishki/fishki',
         name: 'Фишки',
         short_name: 'Фишки',
         description: 'Учёт покерного вечера: закупы, выходы, итог и переводы',
         lang: 'ru',
-        start_url: BASE,
+        start_url: BASE + '?app=fishki',
         scope: BASE,
         display: 'standalone',
         background_color: '#0f1a15',
@@ -57,6 +60,10 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
+        // ?app=fishki в адресе запуска не мешает взять index.html из кеша без сети
+        // (первые два — значения Workbox по умолчанию)
+        ignoreURLParametersMatching: [/^utm_/, /^fbclid$/, /^app$/],
+        navigateFallback: 'index.html',
       },
     }),
   ],
