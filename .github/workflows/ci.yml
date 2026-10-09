@@ -1,0 +1,38 @@
+name: Проверки PR
+
+# Ворота конвейера «Штаб»: каждый PR в основную ветку проходит те же
+# проверки, что агент делает перед PR. Имя «Проверки PR» не менять — по нему
+# ревьюер узнаёт, что проверки закончились. Слить красный PR не даёт набор
+# правил основной ветки (scripts/connect-project.sh в Skills_Claude, --protect).
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+# Новый пуш в тот же PR отменяет недоделанную проверку прежнего.
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Тесты и сборка
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # ci, а не install: ставит ровно то, что в package-lock.json.
+      - run: npm ci
+
+      - run: npm test
+
+      - run: npm run build --if-present

@@ -1,0 +1,74 @@
+name: Агенты
+
+# Конвейер «Штаб»: агенты общие для проектов — в goigolden88/Skills_Claude
+# (Ш-33, Ш-49, Ш-51 Штаба); здесь — когда и с чем их звать.
+# Исполнитель — владелец ставит на issue метку «готово»: задача → PR.
+# Ревьюер — на PR бота закончились «Проверки PR»: вердикт комментарием и меткой.
+# Развязчик — слит PR: открытые PR бота с конфликтом догоняют основную ветку.
+# Сливает только человек. Остановить всех — Actions → «Агенты» → Disable workflow.
+
+on:
+  issues:
+    types: [labeled]
+  workflow_run:
+    workflows: ["Проверки PR"]
+    types: [completed]
+  pull_request:
+    types: [closed]
+
+jobs:
+  executor:
+    # Только «готово» и только от владельца: метки, которые ставит сам
+    # исполнитель, запуска не дают.
+    if: github.event_name == 'issues' && github.event.label.name == 'готово' && github.event.sender.login == github.repository_owner
+    # Один исполнитель на репо; следующая задача ждёт, а не отменяет.
+    concurrency:
+      group: executor
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    uses: goigolden88/Skills_Claude/.github/workflows/executor.yml@main
+    with:
+      node-version: "24"
+      chrome: false
+      project-tools: "Bash(npm ci),Bash(npm test:*),Bash(npm run:*)"
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+  reviewer:
+    # Чей PR и не проверен ли уже коммит — решает шаг ревьюера до Claude.
+    if: github.event_name == 'workflow_run' && github.event.workflow_run.event == 'pull_request'
+    # Новый коммит в PR — прошлое ревью этой ветки уже не нужно.
+    concurrency:
+      group: reviewer-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      id-token: write
+    uses: goigolden88/Skills_Claude/.github/workflows/reviewer.yml@main
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+  resolver:
+    if: github.event_name == 'pull_request' && github.event.pull_request.merged == true
+    # По одному слиянию за раз; следующее ждёт.
+    concurrency:
+      group: resolver
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    uses: goigolden88/Skills_Claude/.github/workflows/resolver.yml@main
+    with:
+      node-version: "24"
+      chrome: false
+      project-tools: "Bash(npm ci),Bash(npm test:*),Bash(npm run:*)"
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
