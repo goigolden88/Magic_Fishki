@@ -10,17 +10,17 @@ function chipIcons(): Plugin {
   return {
     name: 'chip-icons',
     generateBundle() {
-      for (const [fileName, size] of Object.entries(ICONS)) {
-        this.emitFile({ type: 'asset', fileName, source: chipIcon(size) })
+      for (const [fileName, spec] of Object.entries(ICONS)) {
+        this.emitFile({ type: 'asset', fileName, source: chipIcon(spec) })
       }
     },
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
         const name = req.url?.split('?')[0].replace(BASE, '')
-        const size = name ? ICONS[name] : undefined
-        if (!size) return next()
+        const spec = name ? ICONS[name] : undefined
+        if (!spec) return next()
         res.setHeader('Content-Type', 'image/png')
-        res.end(chipIcon(size))
+        res.end(chipIcon(spec))
       })
     },
     transformIndexHtml() {
@@ -36,23 +36,27 @@ export default defineConfig({
     chipIcons(),
     VitePWA({
       registerType: 'autoUpdate',
+      // По образцу манифеста семьи (FamilyCore, familyVite). id постоянный и не меняется
+      // никогда: другой id — для Chrome другое приложение (Р-06)
       manifest: {
+        id: '/Magic_Fishki/fishki',
         name: 'Фишки',
         short_name: 'Фишки',
         description: 'Учёт покерного вечера: закупы, выходы, итог и переводы',
         lang: 'ru',
+        start_url: BASE,
+        scope: BASE,
         display: 'standalone',
-        orientation: 'portrait',
         background_color: '#0f1a15',
         theme_color: '#0f1a15',
         icons: [
-          { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'icon-512.png', sizes: '512x512', type: 'image/png' },
-          { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: BASE + 'icon-192.png', sizes: '192x192', type: 'image/png' },
+          { src: BASE + 'icon-512.png', sizes: '512x512', type: 'image/png' },
+          { src: BASE + 'maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
       },
     }),
   ],

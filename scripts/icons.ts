@@ -8,12 +8,17 @@ type RGB = [number, number, number]
 const FELT: RGB = [15, 94, 61]
 const RED: RGB = [198, 40, 40]
 const WHITE: RGB = [245, 245, 240]
+// background_color манифеста — фон маскируемой иконки
+const BACKGROUND: RGB = [15, 26, 21]
 
-// Цвет точки; x, y — от −1 до 1 от центра. Фишка — в круге 0,78: целиком в «безопасной зоне»
-// маскируемой иконки Android (круг 0,8), так что одна картинка годится и для неё.
-function color(x: number, y: number): RGB {
+// Доля, до которой уменьшена фишка в маскируемой иконке: круглая маска Android
+// обрезает всё вне «безопасной зоны» (круг 0,8), фишка остаётся в ней с запасом
+const MASKABLE_SCALE = 0.8
+
+// Цвет точки; x, y — от −1 до 1 от центра. Фишка — в круге 0,78, вокруг — фон
+function color(x: number, y: number, background: RGB): RGB {
   const r = Math.hypot(x, y)
-  if (r > 0.78) return FELT
+  if (r > 0.78) return background
   if (r > 0.6) {
     // Обод: 6 белых и 6 красных долей
     const turn = (Math.atan2(y, x) / (2 * Math.PI) + 1 + 1 / 24) % 1
@@ -45,9 +50,14 @@ function chunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([length, body, crc])
 }
 
-// Квадратная PNG size×size, RGB; каждый пиксель — среднее 4×4 точек
-export function chipIcon(size: number): Buffer {
+export type IconSpec = { size: number; maskable?: boolean }
+
+// Квадратная PNG size×size, RGB; каждый пиксель — среднее 4×4 точек.
+// Маскируемая — фишка уменьшена до MASKABLE_SCALE в центре на фоне background_color
+export function chipIcon({ size, maskable = false }: IconSpec): Buffer {
   const SS = 4
+  const scale = maskable ? MASKABLE_SCALE : 1
+  const background = maskable ? BACKGROUND : FELT
   const row = 1 + size * 3
   const raw = Buffer.alloc(row * size)
   for (let py = 0; py < size; py++) {
@@ -58,7 +68,7 @@ export function chipIcon(size: number): Buffer {
         for (let sx = 0; sx < SS; sx++) {
           const x = ((px + (sx + 0.5) / SS) / size) * 2 - 1
           const y = ((py + (sy + 0.5) / SS) / size) * 2 - 1
-          const c = color(x, y)
+          const c = color(x / scale, y / scale, background)
           sum[0] += c[0]
           sum[1] += c[1]
           sum[2] += c[2]
@@ -82,9 +92,10 @@ export function chipIcon(size: number): Buffer {
   ])
 }
 
-// Имя файла → сторона в пикселях
-export const ICONS: Record<string, number> = {
-  'icon-192.png': 192,
-  'icon-512.png': 512,
-  'apple-touch-icon.png': 180,
+// Имя файла → сторона в пикселях и вид
+export const ICONS: Record<string, IconSpec> = {
+  'icon-192.png': { size: 192 },
+  'icon-512.png': { size: 512 },
+  'maskable-512.png': { size: 512, maskable: true },
+  'apple-touch-icon.png': { size: 180 },
 }
