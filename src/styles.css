@@ -332,3 +332,75 @@ button.icon {
 .transfers strong {
   white-space: nowrap;
 }
+
+/* Из Телеграма: поле вставки и сверка */
+textarea.paste {
+  display: block;
+  width: 100%;
+  min-height: 40vh;
+  font: inherit;
+  font-size: 1rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.draft-name {
+  margin-top: 0;
+}
+
+.draft-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+/* Докупы — во всю ширину: на узком телефоне три поля в ряд не помещаются */
+.draft-grid .rebuys {
+  grid-column: 1 / -1;
+}
+
+.draft-grid .field {
+  margin-bottom: 0;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  min-height: 56px;
+}
+
+.stepper strong {
+  min-width: 1.5em;
+  text-align: center;
+  font-size: 1.2rem;
+}
+
+input.bad {
+  border-color: var(--red);
+}
+
+select.merge {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 10px;
+  font: inherit;
+  color: var(--gold);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 12px;
+}
+
+.unparsed {
+  margin: 0;
+  padding-left: 1.2em;
+  color: var(--muted);
+  word-break: break-word;
+}

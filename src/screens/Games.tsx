@@ -126,9 +126,14 @@ export function GamesScreen() {
           </div>
         </section>
       ) : (
-        <button className="big primary wide" onClick={() => void openForm()}>
-          Новая игра
-        </button>
+        <>
+          <button className="big primary wide" onClick={() => void openForm()}>
+            Новая игра
+          </button>
+          <button className="big wide" onClick={() => (location.hash = '#/import')}>
+            Из Телеграма
+          </button>
+        </>
       )}
 
       {games?.length === 0 && <p className="muted center">Игр пока нет</p>}
