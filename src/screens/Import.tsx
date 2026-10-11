@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { balanceText, formatNumber, formatRate, parseChips, parseRate } from '../calc/format'
 import {
   addDraftPlayer,
+  assignRegular,
   cashoutTotal,
   draftFromChat,
   duplicateNames,
@@ -142,10 +143,12 @@ export function ImportScreen() {
             key={p.id}
             player={p}
             others={current.players.filter((x) => x.id !== p.id)}
+            regulars={regulars}
             onChange={(fn) => updatePlayer(p.id, fn)}
             onRebuys={(n) => updatePlayer(p.id, (x) => setRebuyCount(x, n, current.end))}
             onCashout={(chips) => updatePlayer(p.id, (x) => setCashout(x, chips, current.end))}
             onMerge={(intoId) => setDraft(mergeDraftPlayers(current, p.id, intoId))}
+            onRegular={(regular) => setDraft(assignRegular(current, p.id, regular))}
             onRemove={() => remove(p)}
           />
         ))}
@@ -221,15 +224,21 @@ function BackBar() {
 type DraftCardProps = {
   player: DraftPlayer
   others: DraftPlayer[]
+  regulars: string[]
   onChange: (fn: (p: DraftPlayer) => DraftPlayer) => void
   onRebuys: (count: number) => void
   onCashout: (chips: number) => void
   onMerge: (intoId: string) => void
+  onRegular: (name: string) => void
   onRemove: () => void
 }
 
-function DraftCard({ player, others, onChange, onRebuys, onCashout, onMerge, onRemove }: DraftCardProps) {
+function DraftCard({ player, others, regulars, onChange, onRebuys, onCashout, onMerge, onRegular, onRemove }: DraftCardProps) {
   const rebuys = player.rebuys.length
+  function pick(value: string) {
+    if (value.startsWith('r:')) onRegular(value.slice(2))
+    else if (value.startsWith('m:')) onMerge(value.slice(2))
+  }
   return (
     <li className="card player">
       <div className="row draft-name">
@@ -268,16 +277,30 @@ function DraftCard({ player, others, onChange, onRebuys, onCashout, onMerge, onR
         </div>
       </div>
 
-      {others.length > 0 && (
-        <select className="merge" value="" onChange={(e) => e.target.value && onMerge(e.target.value)}>
-          <option value="">Это тот же, что…</option>
-          {others.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name || 'без имени'} — объединить
-            </option>
-          ))}
-        </select>
-      )}
+      {/* Полный список, без оглядки на набранное в поле имени: r: — постоянный игрок, m: — игрок сверки */}
+      <select className="merge" value="" onChange={(e) => pick(e.target.value)}>
+        <option value="">Это тот же, что…</option>
+        {regulars.length > 0 ? (
+          <optgroup label="Постоянный игрок">
+            {regulars.map((r) => (
+              <option key={r} value={`r:${r}`}>
+                {r}
+              </option>
+            ))}
+          </optgroup>
+        ) : (
+          <option disabled>Постоянных игроков нет — их задают в настройках</option>
+        )}
+        {others.length > 0 && (
+          <optgroup label="Игрок этой игры — объединить">
+            {others.map((o) => (
+              <option key={o.id} value={`m:${o.id}`}>
+                {o.name || 'без имени'}
+              </option>
+            ))}
+          </optgroup>
+        )}
+      </select>
     </li>
   )
 }

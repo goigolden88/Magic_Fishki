@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { balance, playerTotals } from './totals'
 import {
   addDraftPlayer,
+  assignRegular,
   draftFromChat,
   duplicateNames,
   gameFromDraft,
@@ -147,6 +148,34 @@ describe('сверка', () => {
     const id = draft.players[0].id
     expect(mergeDraftPlayers(draft, id, id)).toBe(draft)
     expect(mergeDraftPlayers(draft, id, 'нет')).toBe(draft)
+  })
+
+  it('постоянный игрок: ник получает его имя, записи — те же', () => {
+    const draft = draftOf('[05.06.2026 22:10] Аня Б: #rebuy Erik\n[06.06.2026 3:00] Erik: #cashout 2000\n[06.06.2026 3:01] Аня Б: #cashout 1000')
+    const erik = draft.players[0]
+    const named = assignRegular(draft, erik.id, ' Эрик ')
+    expect(named.players.map((p) => p.name)).toEqual(['Эрик', 'Аня Б'])
+    expect(named.players[0]).toEqual({ ...erik, name: 'Эрик' })
+    expect(named.players[1]).toBe(draft.players[1])
+  })
+
+  it('постоянное имя уже у другого на сверке — двое объединяются', () => {
+    const text = '[05.06.2026 22:10] Аня Б: #rebuy эрик\n[06.06.2026 3:00] Erik: #cashout 2500\n[06.06.2026 3:01] Аня Б: #cashout 500'
+    const draft = draftOf(text)
+    const [eric, erik] = [draft.players[0], draft.players[1]]
+    const merged = assignRegular(draft, erik.id, 'Эрик')
+    expect(merged.players.map((p) => p.name)).toEqual(['Эрик', 'Аня Б'])
+    expect(merged.players[0]).toMatchObject({ id: eric.id, buyin: 1000, rebuys: eric.rebuys, cashouts: [{ chips: 2500 }] })
+    expect(duplicateNames(merged)).toEqual([])
+    expect(check(merged)).toMatchObject({ chipsIn: 3000, chipsOut: 3000, ok: true })
+  })
+
+  it('постоянное имя — своё же или нет игрока — без объединения', () => {
+    const draft = draftOf(CHAT)
+    const gosha = draft.players[0]
+    expect(assignRegular(draft, gosha.id, 'гоша').players.map((p) => p.name)).toEqual(['гоша', 'Дима', 'Ezh', 'Аня Б', 'Катя'])
+    expect(assignRegular(draft, 'нет', 'Гоша')).toBe(draft)
+    expect(assignRegular(draft, gosha.id, ' ')).toBe(draft)
   })
 
   it('число докупов: меньше — уходят последние, больше — со временем конца', () => {
