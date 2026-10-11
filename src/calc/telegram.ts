@@ -136,6 +136,17 @@ export function mergeDraftPlayers(draft: Draft, fromId: string, intoId: string):
   return { ...draft, players }
 }
 
+// «Это постоянный игрок …»: имя игрока — имя постоянного; такое имя уже у другого на сверке —
+// двое объединяются, остаётся тот, другой, с именем постоянного
+export function assignRegular(draft: Draft, playerId: string, regular: string): Draft {
+  const name = regular.trim()
+  if (!name || !draft.players.some((p) => p.id === playerId)) return draft
+  const same = draft.players.find((p) => p.id !== playerId && sameName(p.name, name))
+  const next = same ? mergeDraftPlayers(draft, playerId, same.id) : draft
+  const keepId = same ? same.id : playerId
+  return { ...next, players: next.players.map((p) => (p.id === keepId ? { ...p, name } : p)) }
+}
+
 // Число докупов: меньше — уходят последние, больше — новые со временем конца игры
 export function setRebuyCount(p: DraftPlayer, count: number, at: string): DraftPlayer {
   const n = Math.max(0, Math.trunc(count))
