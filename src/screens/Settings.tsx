@@ -1,7 +1,9 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { backupFileName, backupText, makeBackup, parseBackup, planRestore } from '../calc/backup'
 import { formatNumber, formatRate, parseChips, parseRate } from '../calc/format'
-import { moveItem, type Settings } from '../model'
-import { getSettings, saveSettings } from '../store/db'
+import { today } from '../dates'
+import { moveItem, type Game, type Settings } from '../model'
+import { getSettings, listGames, restoreGames, saveSettings } from '../store/db'
 
 export function SettingsScreen() {
   const [settings, setSettings] = useState<Settings | null>(null)
@@ -85,6 +87,7 @@ export function SettingsScreen() {
             amounts={settings.quickAmounts}
             onChange={(quickAmounts) => update({ ...settings, quickAmounts })}
           />
+          <BackupCard settings={settings} onPlayers={(players) => setSettings((s) => s && { ...s, players })} />
         </>
       )}
     </main>
@@ -250,6 +253,125 @@ function AmountsCard({ amounts, onChange }: { amounts: number[]; onChange: (amou
         </button>
       </form>
       {duplicate && <p className="warn">Такая сумма уже есть</p>}
+    </section>
+  )
+}
+
+// Телефон умеет отдать файл в системное «Поделиться»; Chrome на Android не делится .json — уходит .txt
+function canShareFiles(): boolean {
+  if (!('canShare' in navigator)) return false
+  try {
+    return navigator.canShare({ files: [new File([''], 'fishki.txt', { type: 'text/plain' })] })
+  } catch {
+    return false
+  }
+}
+
+function download(text: string, name: string) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  document.body.append(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+type Note = { ok: boolean; text: string }
+
+// Файл-копия (Р-11): игры живут только в браузере — копия переносит их на другое устройство и спасает при очистке
+function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (players: string[]) => void }) {
+  const [games, setGames] = useState<Game[] | null>(null)
+  const [note, setNote] = useState<Note | null>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const shareFiles = canShareFiles()
+
+  // Игры читаются заранее: Safari открывает «Поделиться» только сразу после касания, без ожидания базы
+  useEffect(() => {
+    void listGames().then(setGames)
+  }, [])
+
+  function backup(): string {
+    return backupText(makeBackup(games ?? [], settings, new Date().toISOString()))
+  }
+
+  function save() {
+    download(backup(), backupFileName(today()))
+    setNote({ ok: true, text: 'Копия сохранена' })
+  }
+
+  async function share() {
+    const file = new File([backup()], backupFileName(today(), 'txt'), { type: 'text/plain' })
+    try {
+      await navigator.share({ files: [file], title: 'Копия «Фишек»' })
+      setNote(null)
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return // закрыли меню
+      setNote({ ok: false, text: 'Не удалось поделиться — сохраните копию файлом' })
+    }
+  }
+
+  async function restore(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // тот же файл можно выбрать снова
+    if (!file) return
+    let text: string
+    try {
+      text = await file.text()
+    } catch {
+      setNote({ ok: false, text: 'Файл не читается' })
+      return
+    }
+    const parsed = parseBackup(text)
+    if (!parsed.ok) {
+      setNote({ ok: false, text: `${parsed.error}. Данные не изменились.` })
+      return
+    }
+    const current = await getSettings()
+    const plan = planRestore(
+      (await listGames()).map((g) => g.id),
+      current.players,
+      parsed.backup,
+    )
+    try {
+      await restoreGames(plan.added)
+      if (plan.players.length !== current.players.length) await saveSettings({ ...current, players: plan.players })
+    } catch {
+      setNote({ ok: false, text: 'Не удалось записать игры — попробуйте ещё раз' })
+      return
+    }
+    onPlayers(plan.players)
+    setGames(await listGames())
+    setNote({ ok: true, text: `Добавлено ${plan.added.length}, уже были ${plan.existing}` })
+  }
+
+  return (
+    <section className="card">
+      <h2>Копия игр</h2>
+      <p className="muted">
+        Игры хранятся только в этом браузере: очистка данных сайта или новый телефон их сотрут. Копия — файл со всеми
+        играми и настройками; восстановление добавляет недостающие игры и ничего не перезаписывает.
+      </p>
+      <button type="button" className="big primary wide" disabled={games === null} onClick={save}>
+        Сохранить копию
+      </button>
+      {shareFiles && (
+        <button type="button" className="big wide" disabled={games === null} onClick={() => void share()}>
+          Поделиться копией
+        </button>
+      )}
+      <button type="button" className="big wide" onClick={() => fileInput.current?.click()}>
+        Восстановить из копии
+      </button>
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".json,.txt,application/json,text/plain"
+        hidden
+        onChange={(e) => void restore(e)}
+      />
+      {note && <p className={note.ok ? 'ok' : 'warn'}>{note.text}</p>}
     </section>
   )
 }
