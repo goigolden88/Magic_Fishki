@@ -5,26 +5,7 @@ import { createGame, DEFAULT_BUYIN, type Game, type Regular } from '../model'
 import { getSettings, listGames, saveGame } from '../store/db'
 import { formatDate, today } from '../dates'
 import { ulid } from '../ulid'
-
-// Какие годы раскрыты — состояние экрана, а не данные игр: в localStorage, не в IndexedDB и не в копию
-const OPEN_YEARS_KEY = 'fishki.gamesOpenYears'
-
-function loadOpenYears(): Record<string, boolean> {
-  try {
-    const parsed: unknown = JSON.parse(localStorage.getItem(OPEN_YEARS_KEY) ?? '{}')
-    return parsed && typeof parsed === 'object' ? (parsed as Record<string, boolean>) : {}
-  } catch {
-    return {}
-  }
-}
-
-function saveOpenYears(saved: Record<string, boolean>) {
-  try {
-    localStorage.setItem(OPEN_YEARS_KEY, JSON.stringify(saved))
-  } catch {
-    // нет места или запрещено — просто не запомним
-  }
-}
+import { loadOpenYears, openGameYear, saveOpenYears } from './openYears'
 
 export function GamesScreen() {
   const [games, setGames] = useState<Game[] | null>(null)
@@ -86,7 +67,7 @@ export function GamesScreen() {
       () => ulid(),
     )
     await saveGame(game)
-    saveOpenYears({ ...openYears, [date.slice(0, 4)]: true }) // новая игра — её год раскрыт
+    openGameYear(date)
     location.hash = `#/game/${game.id}`
   }
 
