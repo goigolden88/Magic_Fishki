@@ -1,14 +1,15 @@
 import { formatDate } from '../dates'
 import type { Game } from '../model'
+import { gameResult, type PlayerResult } from './casino'
 import { chipsGenitive, formatNumber, formatRate } from './format'
-import { balance, playerTotals } from './totals'
-import { transfers } from './transfers'
 
 const NBSP = ' '
 const MINUS = '−'
 
 // Название игры, если своё не задано (по умолчанию игра называется датой)
 export const DEFAULT_TITLE = 'Покер'
+// То же для игры только с казино (Р-13)
+export const CASINO_TITLE = 'Казино'
 
 // Числа для чата: до 4 знаков слитно (1475), длиннее — с пробелами (11 000)
 function chatNumber(n: number): string {
@@ -32,26 +33,47 @@ function shortDate(date: string): string {
   return `${d}.${m}`
 }
 
-function title(game: Game): string {
+function title(game: Game, fallback: string): string {
   const name = game.name.trim()
-  return name === '' || name === formatDate(game.date) ? DEFAULT_TITLE : name
+  return name === '' || name === formatDate(game.date) ? fallback : name
 }
 
 // Текст итога для мессенджера: заголовок, итоги от большего выигрыша к большему проигрышу, переводы.
 // Расчёт — тот же, что на экране; меняется только порядок переводов: должники от большего
 // проигрыша, у каждого получатели от большего выигрыша — как в строке итогов.
+// С казино (Р-13) — строки «Покер:», «Казино:», «Итого:»; только казино — одна строка «Казино:»
 export function shareText(game: Game): string {
-  const totals = playerTotals(game.players, game.entries, game.rate)
+  const result = gameResult(game)
   const nameById = new Map(game.players.map((p) => [p.id, p.name]))
-  const sorted = [...totals].sort((x, y) => y.chips - x.chips)
+  const onlyCasino = result.hasCasino && game.entries.length === 0
+  const sorted = result.hasCasino
+    ? [...result.players].sort((x, y) => y.kopecks - x.kopecks)
+    : [...result.players].sort((x, y) => y.poker.chips - x.poker.chips)
   const rank = new Map(sorted.map((t, i) => [t.playerId, i]))
+  const line = (list: PlayerResult[], kopecks: (r: PlayerResult) => number) =>
+    list.map((r) => `${nameById.get(r.playerId)} ${chatRub(kopecks(r), true)}`).join(' · ')
+  const row = (list: PlayerResult[], kopecks: (r: PlayerResult) => number) =>
+    line([...list].sort((x, y) => kopecks(y) - kopecks(x)), kopecks)
 
-  const lines = [`${title(game)} · ${shortDate(game.date)} · курс ${formatRate(game.rate)}${NBSP}₽`]
-  if (sorted.length > 0) {
-    lines.push(sorted.map((t) => `${nameById.get(t.playerId)} ${chatRub(t.kopecks, true)}`).join(' · '))
+  const lines = [
+    onlyCasino
+      ? `${title(game, CASINO_TITLE)} · ${shortDate(game.date)}`
+      : `${title(game, DEFAULT_TITLE)} · ${shortDate(game.date)} · курс ${formatRate(game.rate)}${NBSP}₽`,
+  ]
+  if (!result.hasCasino) {
+    if (sorted.length > 0) lines.push(line(sorted, (r) => r.poker.kopecks))
+  } else {
+    const casinoRow = 'Казино: ' + row(result.players.filter((r) => r.inCasino), (r) => r.casino)
+    if (onlyCasino) {
+      lines.push(casinoRow)
+    } else {
+      lines.push('Покер: ' + row(result.players.filter((r) => r.inPoker), (r) => r.poker.kopecks))
+      lines.push(casinoRow)
+      lines.push('Итого: ' + line(sorted, (r) => r.kopecks))
+    }
   }
 
-  const b = balance(totals)
+  const b = result.balance
   if (b.diff > 0) {
     lines.push(`Не хватает ${chatNumber(b.diff)} ${chipsGenitive(b.diff)} — переводы не посчитаны`)
     return lines.join('\n')
@@ -62,8 +84,12 @@ export function shareText(game: Game): string {
     )
     return lines.join('\n')
   }
+  if (!result.casinoOk) {
+    lines.push('Казино не сходится — переводы не посчитаны')
+    return lines.join('\n')
+  }
 
-  const list = transfers(totals, game.rate).sort(
+  const list = [...result.transfers].sort(
     (x, y) => rank.get(y.from)! - rank.get(x.from)! || rank.get(x.to)! - rank.get(y.to)!,
   )
   if (list.length === 0) {

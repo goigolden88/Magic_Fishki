@@ -2,6 +2,8 @@ import {
   linkRegulars,
   regularsFromNames,
   settingsWithDefaults,
+  type CasinoAmount,
+  type CasinoRound,
   type Entry,
   type Game,
   type Player,
@@ -82,6 +84,23 @@ function isEntry(v: unknown): v is Entry {
   )
 }
 
+function isCasinoAmount(v: unknown): v is CasinoAmount {
+  return isObject(v) && isText(v.playerId) && Number.isSafeInteger(v.kopecks) && v.kopecks !== 0
+}
+
+// Раунд казино (Р-13): доли — целые копейки, в сумме ноль
+function isCasinoRound(v: unknown): v is CasinoRound {
+  return (
+    isObject(v) &&
+    isText(v.id) &&
+    v.id !== '' &&
+    isText(v.at) &&
+    Array.isArray(v.amounts) &&
+    v.amounts.every(isCasinoAmount) &&
+    v.amounts.reduce((s: number, a: CasinoAmount) => s + a.kopecks, 0) === 0
+  )
+}
+
 function isGame(v: unknown): v is Game {
   return (
     isObject(v) &&
@@ -97,6 +116,7 @@ function isGame(v: unknown): v is Game {
     v.players.every(isPlayer) &&
     Array.isArray(v.entries) &&
     v.entries.every(isEntry) &&
+    (v.casino === undefined || (Array.isArray(v.casino) && v.casino.every(isCasinoRound))) &&
     (v.closed === undefined || typeof v.closed === 'boolean') &&
     (v.demo === undefined || typeof v.demo === 'boolean') &&
     isText(v.updatedAt)
