@@ -1,19 +1,34 @@
 import { useEffect, useState } from 'react'
-import { balance, playerTotals } from '../calc/totals'
 import { formatNumber, formatRate, parseRate } from '../calc/format'
+import { defaultOpenYear, gameSummary, groupByYear, isYearOpen } from '../calc/gameList'
 import { createGame, DEFAULT_BUYIN, type Game, type Regular } from '../model'
 import { getSettings, listGames, saveGame } from '../store/db'
 import { formatDate, today } from '../dates'
 import { ulid } from '../ulid'
 
-function gameSummary(game: Game): string {
-  const b = balance(playerTotals(game.players, game.entries, game.rate))
-  const status = game.closed ? 'закрыта' : b.chipsIn === 0 ? 'записей нет' : b.ok ? 'сходится' : 'не сходится'
-  return `${formatDate(game.date)} · игроков ${game.players.length} · закуплено ${formatNumber(b.chipsIn)} · ${status}`
+// Какие годы раскрыты — состояние экрана, а не данные игр: в localStorage, не в IndexedDB и не в копию
+const OPEN_YEARS_KEY = 'fishki.gamesOpenYears'
+
+function loadOpenYears(): Record<string, boolean> {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(OPEN_YEARS_KEY) ?? '{}')
+    return parsed && typeof parsed === 'object' ? (parsed as Record<string, boolean>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveOpenYears(saved: Record<string, boolean>) {
+  try {
+    localStorage.setItem(OPEN_YEARS_KEY, JSON.stringify(saved))
+  } catch {
+    // нет места или запрещено — просто не запомним
+  }
 }
 
 export function GamesScreen() {
   const [games, setGames] = useState<Game[] | null>(null)
+  const [openYears, setOpenYears] = useState<Record<string, boolean>>(loadOpenYears)
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [rateText, setRateText] = useState('')
@@ -43,6 +58,15 @@ export function GamesScreen() {
     setPicked(next)
   }
 
+  const groups = groupByYear(games ?? [])
+  const openByDefault = defaultOpenYear(groups, today().slice(0, 4))
+
+  function toggleYear(year: string) {
+    const next = { ...openYears, [year]: !isYearOpen(year, openYears, openByDefault) }
+    setOpenYears(next)
+    saveOpenYears(next)
+  }
+
   const rate = parseRate(rateText)
 
   const players = regulars.filter((r) => picked.has(r.id))
@@ -62,6 +86,7 @@ export function GamesScreen() {
       () => ulid(),
     )
     await saveGame(game)
+    saveOpenYears({ ...openYears, [date.slice(0, 4)]: true }) // новая игра — её год раскрыт
     location.hash = `#/game/${game.id}`
   }
 
@@ -142,16 +167,31 @@ export function GamesScreen() {
       )}
 
       {games?.length === 0 && <p className="muted center">Игр пока нет</p>}
-      <ul className="list">
-        {games?.map((g) => (
-          <li key={g.id}>
-            <a className="card game-link" href={`#/game/${g.id}`}>
-              <strong>{g.name}</strong>
-              <span className="muted">{gameSummary(g)}</span>
-            </a>
-          </li>
-        ))}
-      </ul>
+      {groups.map(({ year, games: yearGames }) => {
+        const open = isYearOpen(year, openYears, openByDefault)
+        return (
+          <section key={year} className="year">
+            <button className="year-head" aria-expanded={open} onClick={() => toggleYear(year)}>
+              <span>
+                {year} · игр {yearGames.length}
+              </span>
+              <span className="muted">{open ? '▾' : '▸'}</span>
+            </button>
+            {open && (
+              <ul className="list">
+                {yearGames.map((g) => (
+                  <li key={g.id}>
+                    <a className="card game-link" href={`#/game/${g.id}`}>
+                      <strong>{g.name}</strong>
+                      <span className="muted">{gameSummary(g)}</span>
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )
+      })}
     </main>
   )
 }
