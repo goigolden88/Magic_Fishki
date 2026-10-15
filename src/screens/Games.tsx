@@ -69,9 +69,14 @@ export function GamesScreen() {
     <main className="screen">
       <header className="bar">
         <h1>Фишки</h1>
-        <a className="bar-link" href="#/settings">
-          Настройки
-        </a>
+        <nav className="bar-links">
+          <a className="bar-link" href="#/players">
+            Игроки
+          </a>
+          <a className="bar-link" href="#/settings">
+            Настройки
+          </a>
+        </nav>
       </header>
 
       {creating && askBuyin ? (

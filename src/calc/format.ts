@@ -37,6 +37,11 @@ export function formatRate(rate: number): string {
   return String(rate).replace('.', ',')
 }
 
+// Один знак после запятой: 1.25 → «1,3», 2 → «2,0»
+export function formatTenths(n: number): string {
+  return (Math.round(n * 10) / 10).toFixed(1).replace('.', ',')
+}
+
 // «из 1 фишки», «из 21 фишки», «из 5 фишек», «из 11 фишек»
 export function chipsGenitive(n: number): string {
   const abs = Math.abs(n)
