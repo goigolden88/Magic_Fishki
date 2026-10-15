@@ -1,24 +1,51 @@
 // Единственный вход в IndexedDB. База magic_fishki: хранилища games (ключ id) и settings (одна запись).
-import { settingsWithDefaults, type Game, type Settings } from '../model'
+import { linkRegulars, regularsFromNames, settingsWithDefaults, type Game, type Regular, type Settings } from '../model'
+import { ulid } from '../ulid'
 
 const DB_NAME = 'magic_fishki'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const SETTINGS_KEY = 'settings'
 
 let opening: Promise<IDBDatabase> | null = null
 
 // Миграции — по шагам от старой версии к новой; записи прежних версий не теряются
-function migrate(db: IDBDatabase, oldVersion: number): void {
+function migrate(db: IDBDatabase, tx: IDBTransaction, oldVersion: number): void {
   if (oldVersion < 1) {
     db.createObjectStore('games', { keyPath: 'id' })
     db.createObjectStore('settings')
+  }
+  if (oldVersion < 2) toRegularIds(tx)
+}
+
+// Версия 2 (Р-12): постоянные игроки — из строк в { id, name } с новыми id в прежнем порядке;
+// участникам сохранённых игр с точно тем же именем — regularId. Остальное в играх не меняется
+function toRegularIds(tx: IDBTransaction): void {
+  const settings = tx.objectStore('settings')
+  const read = settings.get(SETTINGS_KEY)
+  read.onsuccess = () => {
+    const stored: unknown = read.result
+    let regulars: Regular[] = []
+    if (typeof stored === 'object' && stored !== null && 'players' in stored && Array.isArray(stored.players)) {
+      const names = stored.players.filter((p): p is string => typeof p === 'string')
+      regulars = regularsFromNames(names, () => ulid())
+      settings.put({ ...stored, players: regulars }, SETTINGS_KEY)
+    }
+    const cursor = tx.objectStore('games').openCursor()
+    cursor.onsuccess = () => {
+      const c = cursor.result
+      if (!c) return
+      const game = c.value as Game
+      const players = linkRegulars(game.players, regulars)
+      if (players.some((p, i) => p !== game.players[i])) c.update({ ...game, players })
+      c.continue()
+    }
   }
 }
 
 function open(): Promise<IDBDatabase> {
   opening ??= new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION)
-    req.onupgradeneeded = (e) => migrate(req.result, e.oldVersion)
+    req.onupgradeneeded = (e) => migrate(req.result, req.transaction!, e.oldVersion)
     req.onsuccess = () => {
       const db = req.result
       // Открылась новая версия в другой вкладке — уступаем ей базу

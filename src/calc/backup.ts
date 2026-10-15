@@ -1,8 +1,18 @@
-import { settingsWithDefaults, type Entry, type Game, type Player, type Settings } from '../model'
+import {
+  linkRegulars,
+  regularsFromNames,
+  settingsWithDefaults,
+  type Entry,
+  type Game,
+  type Player,
+  type Regular,
+  type Settings,
+} from '../model'
 
-// Файл-копия (Р-11): все игры без демо и настройки, с пометкой приложения и версии формата
+// Файл-копия (Р-11): все игры без демо и настройки, с пометкой приложения и версии формата.
+// Формат 2 (Р-12): постоянные игроки — { id, name }, у участников — regularId; формат 1 — игроки строками
 export const BACKUP_APP = 'magic_fishki'
-export const BACKUP_FORMAT = 1
+export const BACKUP_FORMAT = 2
 
 export type Backup = {
   app: typeof BACKUP_APP
@@ -17,7 +27,7 @@ export type ParsedBackup = { ok: true; backup: Backup } | { ok: false; error: st
 export type RestorePlan = {
   added: Game[] // игр нет по id — записать как есть
   existing: number // игры с тем же id уже есть — не трогаются
-  players: string[] // постоянные игроки после восстановления
+  players: Regular[] // постоянные игроки после восстановления
 }
 
 // Демо-игры в копию не идут (Р-04)
@@ -50,8 +60,12 @@ function isText(v: unknown): v is string {
   return typeof v === 'string'
 }
 
-function isPlayer(v: unknown): v is Player {
+function isRegular(v: unknown): v is Regular {
   return isObject(v) && isText(v.id) && v.id !== '' && isText(v.name)
+}
+
+function isPlayer(v: unknown): v is Player {
+  return isObject(v) && (v.regularId === undefined || (isText(v.regularId) && v.regularId !== '')) && isRegular(v)
 }
 
 function isEntry(v: unknown): v is Entry {
@@ -89,8 +103,9 @@ function isGame(v: unknown): v is Game {
   )
 }
 
-// Текст файла → копия или понятная ошибка; .json и .txt разбираются одинаково
-export function parseBackup(text: string): ParsedBackup {
+// Текст файла → копия или понятная ошибка; .json и .txt разбираются одинаково.
+// Копия формата 1 приводится к формату 2: постоянным — новые id, участникам — связь по точному имени (Р-12)
+export function parseBackup(text: string, makeId: () => string): ParsedBackup {
   let data: unknown
   try {
     data = JSON.parse(text.replace(/^﻿/, ''))
@@ -114,8 +129,24 @@ export function parseBackup(text: string): ParsedBackup {
     return { ok: false, error: `Копия повреждена: игра № ${bad + 1} не читается` }
   }
   const settings = data.settings
-  if (!isObject(settings) || !Array.isArray(settings.players) || !settings.players.every(isText)) {
+  const oldFormat = data.format === 1
+  if (
+    !isObject(settings) ||
+    !Array.isArray(settings.players) ||
+    !settings.players.every(oldFormat ? isText : isRegular)
+  ) {
     return { ok: false, error: 'Копия повреждена: нет настроек' }
+  }
+  let games = data.games as Game[]
+  let players = settings.players as Regular[]
+  if (oldFormat) {
+    const names: string[] = []
+    for (const raw of settings.players as string[]) {
+      const name = raw.trim()
+      if (name !== '' && !names.includes(name)) names.push(name)
+    }
+    players = regularsFromNames(names, makeId)
+    games = games.map((g) => ({ ...g, players: linkRegulars(g.players, players) }))
   }
   return {
     ok: true,
@@ -123,15 +154,42 @@ export function parseBackup(text: string): ParsedBackup {
       app: BACKUP_APP,
       format: BACKUP_FORMAT,
       savedAt: isText(data.savedAt) ? data.savedAt : '',
-      games: data.games as Game[],
-      settings: settingsWithDefaults(settings as Partial<Settings>),
+      games,
+      settings: settingsWithDefaults({ ...settings, players } as Partial<Settings>),
     },
   }
 }
 
 // Восстановление ничего не перезаписывает: игры, которых нет по id, добавляются; с тем же id — как были.
-// Постоянные игроки из копии дописываются в конец без повторов по имени; прочие настройки не применяются.
-export function planRestore(existingIds: Iterable<string>, players: string[], backup: Backup): RestorePlan {
+// Постоянные игроки из копии: тот же id — уже есть, остаётся свой; то же имя — один человек, связи
+// в добавленных играх переводятся на здешний id; иначе дописываются в конец со своим id.
+// Прочие настройки не применяются.
+export function planRestore(existingIds: Iterable<string>, regulars: Regular[], backup: Backup): RestorePlan {
+  const players = [...regulars]
+  const ids = new Set(players.map((r) => r.id))
+  const sameAs = new Map<string, string>() // id постоянного в копии → id постоянного здесь с тем же именем
+  for (const r of backup.settings.players) {
+    const name = r.name.trim()
+    if (name === '' || ids.has(r.id)) continue
+    const same = players.find((p) => p.name === name)
+    if (same) {
+      sameAs.set(r.id, same.id)
+    } else {
+      players.push({ id: r.id, name })
+      ids.add(r.id)
+    }
+  }
+  const relink = (game: Game): Game =>
+    sameAs.size === 0
+      ? game
+      : {
+          ...game,
+          players: game.players.map((p) => {
+            const id = p.regularId === undefined ? undefined : sameAs.get(p.regularId)
+            return id === undefined ? p : { ...p, regularId: id }
+          }),
+        }
+
   const seen = new Set(existingIds)
   const added: Game[] = []
   let existing = 0
@@ -141,12 +199,7 @@ export function planRestore(existingIds: Iterable<string>, players: string[], ba
       continue
     }
     seen.add(game.id)
-    added.push(game)
+    added.push(relink(game))
   }
-  const names = [...players]
-  for (const raw of backup.settings.players) {
-    const name = raw.trim()
-    if (name !== '' && !names.includes(name)) names.push(name)
-  }
-  return { added, existing, players: names }
+  return { added, existing, players }
 }

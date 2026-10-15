@@ -3,8 +3,13 @@ import { describe, expect, it } from 'vitest'
 import { backupText, makeBackup, parseBackup, planRestore } from '../calc/backup'
 import { playerTotals } from '../calc/totals'
 import { transfers } from '../calc/transfers'
-import type { Game } from '../model'
+import { linkRegulars, type Game, type Regular } from '../model'
 import { deleteGame, getSettings, listGames, restoreGames, saveGame, saveSettings } from './db'
+
+// Постоянные игроки с id «r-Имя»
+function regulars(names: string[]): Regular[] {
+  return names.map((name) => ({ id: `r-${name}`, name }))
+}
 
 function game(id: string, date: string, names: string[], rows: [number, number][]): Game {
   const players = names.map((name, i) => ({ id: `${id}-p${i}`, name }))
@@ -19,7 +24,8 @@ function game(id: string, date: string, names: string[], rows: [number, number][
 
 // Сохранить копию → «очистить данные» → восстановить, как это делает экран «Настройки»
 async function restore(text: string) {
-  const parsed = parseBackup(text)
+  let n = 0
+  const parsed = parseBackup(text, () => `new${++n}`)
   if (!parsed.ok) throw new Error(parsed.error)
   const settings = await getSettings()
   const plan = planRestore(
@@ -38,11 +44,13 @@ async function clearAll() {
 }
 
 describe('файл-копия через базу (Р-11)', () => {
-  it('после очистки — те же игры, записи, итоги, переводы и время правки; игроки в настройках', async () => {
-    const g1 = await saveGame(game('01A', '2026-10-02', ['Аня', 'Боря', 'Вера'], [[1000, 2500], [1000, 0], [1000, 500]]))
+  it('после очистки — те же игры, записи, итоги, переводы и время правки; игроки и связи', async () => {
+    const regs = regulars(['Аня', 'Боря'])
+    const linked = (g: Game) => ({ ...g, players: linkRegulars(g.players, regs) })
+    const g1 = await saveGame(linked(game('01A', '2026-10-02', ['Аня', 'Боря', 'Вера'], [[1000, 2500], [1000, 0], [1000, 500]])))
     const g2 = await saveGame(game('01B', '2026-10-09', ['Гоша', 'Даша'], [[2000, 1000], [2000, 3000]]))
     await saveGame({ ...game('01C', '2026-10-09', ['Демо'], [[500, 500]]), demo: true })
-    await saveSettings({ defaultRate: 0.25, players: ['Аня', 'Боря'], quickAmounts: [500], defaultBuyin: 2000 })
+    await saveSettings({ defaultRate: 0.25, players: regs, quickAmounts: [500], defaultBuyin: 2000 })
 
     const before = (await listGames()).filter((g) => !g.demo)
     const text = backupText(makeBackup(await listGames(), await getSettings(), '2026-10-14T19:00:00.000Z'))
@@ -62,21 +70,23 @@ describe('файл-копия через базу (Р-11)', () => {
       expect(ta).toEqual(playerTotals(b.players, b.entries, b.rate))
       expect(transfers(ta, a.rate)).toEqual(transfers(playerTotals(b.players, b.entries, b.rate), b.rate))
     }
-    expect((await getSettings()).players).toEqual(['Аня', 'Боря'])
+    expect(after[1].players.map((p) => p.regularId)).toEqual(['r-Аня', 'r-Боря', undefined])
+    expect((await getSettings()).players).toEqual(regs)
   })
 
   it('на устройстве с играми: своё не перезаписывается, недостающее добавляется', async () => {
     await clearAll()
     const mine = await saveGame({ ...game('02A', '2026-10-09', ['Аня'], [[1000, 1000]]), name: 'Своя правка' })
     await saveGame(game('02X', '2026-10-01', ['Ира'], [[1000, 1000]]))
-    await saveSettings({ ...(await getSettings()), players: ['Ира'], defaultRate: 1 })
+    const ira = { id: 'my-ira', name: 'Ира' }
+    await saveSettings({ ...(await getSettings()), players: [ira], defaultRate: 1 })
 
     const other = makeBackup(
       [
         { ...game('02A', '2026-10-09', ['Аня'], [[1000, 1000]]), name: 'Старое имя' },
         game('02B', '2026-10-10', ['Боря'], [[500, 500]]),
       ],
-      { defaultRate: 0.1, players: ['Боря', 'Ира'], quickAmounts: [], defaultBuyin: 5 },
+      { defaultRate: 0.1, players: regulars(['Боря', 'Ира']), quickAmounts: [], defaultBuyin: 5 },
       '2026-10-14T19:00:00.000Z',
     )
     const plan = await restore(backupText(other))
@@ -87,9 +97,30 @@ describe('файл-копия через базу (Р-11)', () => {
     expect(games.map((g) => g.id)).toEqual(['02B', '02A', '02X'])
     expect(games.find((g) => g.id === '02A')).toEqual(mine)
     const settings = await getSettings()
-    expect(settings.players).toEqual(['Ира', 'Боря'])
+    expect(settings.players).toEqual([ira, { id: 'r-Боря', name: 'Боря' }])
     expect(settings.defaultRate).toBe(1)
     expect(settings.quickAmounts).toEqual([500, 1000, 2000])
+  })
+
+  it('копия прежней версии (формат 1): игроки и связи — по имени (Р-12)', async () => {
+    await clearAll()
+    const old = {
+      app: 'magic_fishki',
+      format: 1,
+      savedAt: '2026-10-14T19:00:00.000Z',
+      games: [game('04A', '2026-10-11', ['Аня', 'Ира'], [[1000, 1500], [1000, 500]])],
+      settings: { defaultRate: 0.5, players: ['Аня', 'Боря'], quickAmounts: [500], defaultBuyin: 1000 },
+    }
+    await restore(JSON.stringify(old))
+
+    const settings = await getSettings()
+    expect(settings.players.map((r) => r.name)).toEqual(['Аня', 'Боря'])
+    const [restored] = await listGames()
+    expect(restored.players).toEqual([
+      { id: '04A-p0', name: 'Аня', regularId: settings.players[0].id },
+      { id: '04A-p1', name: 'Ира' },
+    ])
+    expect(restored.entries).toEqual(old.games[0].entries)
   })
 
   it('копия пустой базы ничего не стирает', async () => {

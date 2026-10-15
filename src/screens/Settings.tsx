@@ -2,8 +2,9 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'r
 import { backupFileName, backupText, makeBackup, parseBackup, planRestore } from '../calc/backup'
 import { formatNumber, formatRate, parseChips, parseRate } from '../calc/format'
 import { today } from '../dates'
-import { moveItem, type Game, type Settings } from '../model'
+import { moveItem, type Game, type Regular, type Settings } from '../model'
 import { getSettings, listGames, restoreGames, saveSettings } from '../store/db'
+import { ulid } from '../ulid'
 
 export function SettingsScreen() {
   const [settings, setSettings] = useState<Settings | null>(null)
@@ -115,32 +116,33 @@ function MoveButtons({ index, length, onMove }: MoveButtonsProps) {
   )
 }
 
-function PlayersCard({ players, onChange }: { players: string[]; onChange: (players: string[]) => void }) {
+// Переименование оставляет id — связь с прошлыми играми не рвётся; имена в самих играх — как были (Р-12)
+function PlayersCard({ players, onChange }: { players: Regular[]; onChange: (players: Regular[]) => void }) {
   const [newName, setNewName] = useState('')
   const [editing, setEditing] = useState<number | null>(null)
   const [editText, setEditText] = useState('')
 
   const name = newName.trim()
-  const duplicate = players.includes(name)
+  const duplicate = players.some((p) => p.name === name)
   const editName = editText.trim()
-  const editDuplicate = editing !== null && players.some((p, i) => i !== editing && p === editName)
+  const editDuplicate = editing !== null && players.some((p, i) => i !== editing && p.name === editName)
 
   function add(e: FormEvent) {
     e.preventDefault()
     if (!name || duplicate) return
-    onChange([...players, name])
+    onChange([...players, { id: ulid(), name }])
     setNewName('')
   }
 
   function rename(e: FormEvent) {
     e.preventDefault()
     if (editing === null || !editName || editDuplicate) return
-    onChange(players.map((p, i) => (i === editing ? editName : p)))
+    onChange(players.map((p, i) => (i === editing ? { ...p, name: editName } : p)))
     setEditing(null)
   }
 
   function remove(index: number) {
-    if (!confirm(`Убрать «${players[index]}» из постоянных? Прошлые игры не изменятся.`)) return
+    if (!confirm(`Убрать «${players[index].name}» из постоянных? Прошлые игры не изменятся.`)) return
     onChange(players.filter((_, i) => i !== index))
     setEditing(null)
   }
@@ -153,7 +155,7 @@ function PlayersCard({ players, onChange }: { players: string[]; onChange: (play
         <ul className="list items">
           {players.map((p, i) =>
             editing === i ? (
-              <li key={i}>
+              <li key={p.id}>
                 <form className="row" onSubmit={rename}>
                   <input
                     className="grow"
@@ -172,8 +174,8 @@ function PlayersCard({ players, onChange }: { players: string[]; onChange: (play
                 {editDuplicate && <p className="warn">Такой игрок уже есть</p>}
               </li>
             ) : (
-              <li key={i} className="item">
-                <span className="grow">{p}</span>
+              <li key={p.id} className="item">
+                <span className="grow">{p.name}</span>
                 <MoveButtons index={i} length={players.length} onMove={(d) => onChange(moveItem(players, i, d))} />
                 <button
                   type="button"
@@ -181,7 +183,7 @@ function PlayersCard({ players, onChange }: { players: string[]; onChange: (play
                   aria-label="Переименовать"
                   onClick={() => {
                     setEditing(i)
-                    setEditText(p)
+                    setEditText(p.name)
                   }}
                 >
                   ✎
@@ -281,7 +283,7 @@ function download(text: string, name: string) {
 type Note = { ok: boolean; text: string }
 
 // Файл-копия (Р-11): игры живут только в браузере — копия переносит их на другое устройство и спасает при очистке
-function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (players: string[]) => void }) {
+function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (players: Regular[]) => void }) {
   const [games, setGames] = useState<Game[] | null>(null)
   const [note, setNote] = useState<Note | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -323,7 +325,7 @@ function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (p
       setNote({ ok: false, text: 'Файл не читается' })
       return
     }
-    const parsed = parseBackup(text)
+    const parsed = parseBackup(text, () => ulid())
     if (!parsed.ok) {
       setNote({ ok: false, text: `${parsed.error}. Данные не изменились.` })
       return

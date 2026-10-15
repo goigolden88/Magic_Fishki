@@ -16,6 +16,7 @@ import {
 } from '../calc/telegram'
 import { balance, playerTotals } from '../calc/totals'
 import { formatDate } from '../dates'
+import type { Regular } from '../model'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 
@@ -27,12 +28,12 @@ export function ImportScreen() {
   const [unparsed, setUnparsed] = useState<string[]>([])
   const [name, setName] = useState('')
   const [rateText, setRateText] = useState('')
-  const [regulars, setRegulars] = useState<string[]>([]) // подсказка имён — постоянные игроки
+  const [regularList, setRegularList] = useState<Regular[]>([]) // постоянные игроки: подсказка имён и связь (Р-12)
   const [newPlayer, setNewPlayer] = useState('')
 
   useEffect(() => {
     void getSettings().then((s) => {
-      setRegulars(s.players)
+      setRegularList(s.players)
       setRateText(formatRate(s.defaultRate))
     })
   }, [])
@@ -75,7 +76,8 @@ export function ImportScreen() {
   }
 
   const current = draft
-  const preview = gameFromDraft(current, { name: '', rate: 1, now: '' }, counter())
+  const regulars = regularList.map((r) => r.name)
+  const preview = gameFromDraft(current, { name: '', rate: 1, now: '' }, counter(), [])
   const b = balance(playerTotals(preview.players, preview.entries, preview.rate))
   const dups = duplicateNames(current)
   const empty = current.players.some((p) => !p.name.trim())
@@ -106,6 +108,7 @@ export function ImportScreen() {
       current,
       { name: name.trim() || formatDate(current.date), rate, now: new Date().toISOString() },
       () => ulid(),
+      regularList,
     )
     await saveGame(game)
     location.hash = `#/game/${game.id}`
