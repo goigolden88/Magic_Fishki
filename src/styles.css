@@ -403,6 +403,11 @@ select.merge {
   padding: 0 12px;
 }
 
+.guest {
+  margin: 6px 0 0;
+  font-size: 0.9rem;
+}
+
 .unparsed {
   margin: 0;
   padding-left: 1.2em;

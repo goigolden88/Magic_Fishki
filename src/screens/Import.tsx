@@ -16,7 +16,7 @@ import {
 } from '../calc/telegram'
 import { balance, playerTotals } from '../calc/totals'
 import { formatDate } from '../dates'
-import type { Regular } from '../model'
+import { playerByName, type Regular } from '../model'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 
@@ -84,6 +84,12 @@ export function ImportScreen() {
   const rate = parseRate(rateText)
   const canCreate = rate !== null && current.players.length > 0 && dups.length === 0 && !empty
 
+  // С кем из постоянных участник свяжется при сохранении — то же правило, что в gameFromDraft (Р-12)
+  function linkedRegular(p: DraftPlayer): string | undefined {
+    const { regularId } = playerByName(p.name.trim(), regularList, p.id)
+    return regularList.find((r) => r.id === regularId)?.name
+  }
+
   function updatePlayer(id: string, fn: (p: DraftPlayer) => DraftPlayer) {
     setDraft({ ...current, players: current.players.map((p) => (p.id === id ? fn(p) : p)) })
   }
@@ -147,6 +153,7 @@ export function ImportScreen() {
             player={p}
             others={current.players.filter((x) => x.id !== p.id)}
             regulars={regulars}
+            regular={linkedRegular(p)}
             onChange={(fn) => updatePlayer(p.id, fn)}
             onRebuys={(n) => updatePlayer(p.id, (x) => setRebuyCount(x, n, current.end))}
             onCashout={(chips) => updatePlayer(p.id, (x) => setCashout(x, chips, current.end))}
@@ -228,6 +235,7 @@ type DraftCardProps = {
   player: DraftPlayer
   others: DraftPlayer[]
   regulars: string[]
+  regular?: string // постоянный, с кем участник будет связан; нет — гость
   onChange: (fn: (p: DraftPlayer) => DraftPlayer) => void
   onRebuys: (count: number) => void
   onCashout: (chips: number) => void
@@ -236,7 +244,7 @@ type DraftCardProps = {
   onRemove: () => void
 }
 
-function DraftCard({ player, others, regulars, onChange, onRebuys, onCashout, onMerge, onRegular, onRemove }: DraftCardProps) {
+function DraftCard({ player, others, regulars, regular, onChange, onRebuys, onCashout, onMerge, onRegular, onRemove }: DraftCardProps) {
   const rebuys = player.rebuys.length
   function pick(value: string) {
     if (value.startsWith('r:')) onRegular(value.slice(2))
@@ -280,8 +288,9 @@ function DraftCard({ player, others, regulars, onChange, onRebuys, onCashout, on
         </div>
       </div>
 
-      {/* Полный список, без оглядки на набранное в поле имени: r: — постоянный игрок, m: — игрок сверки */}
-      <select className="merge" value="" onChange={(e) => pick(e.target.value)}>
+      {/* Полный список, без оглядки на набранное в поле имени: r: — постоянный игрок, m: — игрок сверки.
+          Выбранным показан постоянный, с кем участник свяжется при сохранении */}
+      <select className="merge" value={regular === undefined ? '' : `r:${regular}`} onChange={(e) => pick(e.target.value)}>
         <option value="">Это тот же, что…</option>
         {regulars.length > 0 ? (
           <optgroup label="Постоянный игрок">
@@ -304,6 +313,7 @@ function DraftCard({ player, others, regulars, onChange, onRebuys, onCashout, on
           </optgroup>
         )}
       </select>
+      {regular === undefined && <p className="muted guest">Гость — не из постоянных игроков</p>}
     </li>
   )
 }
