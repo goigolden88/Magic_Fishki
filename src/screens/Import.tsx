@@ -1,21 +1,33 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { balanceText, formatNumber, formatRate, parseChips, parseRate } from '../calc/format'
+import { parseRound } from '../calc/casino'
+import { balanceText, formatNumber, formatRate, formatRub, parseChips, parseRate } from '../calc/format'
 import {
+  addCasinoPlayer,
   addDraftPlayer,
   assignRegular,
+  badRounds,
+  casinoNames,
+  casinoOnly,
+  casinoPlayer,
   cashoutTotal,
   draftFromChat,
   duplicateNames,
   gameFromDraft,
+  linkCasinoName,
   mergeDraftPlayers,
+  nameKey,
   parseChat,
+  removeRound,
   setCashout,
   setRebuyCount,
+  setRoundText,
+  type CasinoName,
   type Draft,
   type DraftPlayer,
+  type DraftRound,
 } from '../calc/telegram'
 import { balance, playerTotals } from '../calc/totals'
-import { formatDate } from '../dates'
+import { formatDate, formatTime } from '../dates'
 import { playerByName, type Regular } from '../model'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
@@ -56,7 +68,7 @@ export function ImportScreen() {
         <BackBar />
         <h1>Из Телеграма</h1>
         <p className="muted">
-          Выделите в чате сообщения #rebuy и #cashout, нажмите «Копировать» и вставьте сюда.
+          Выделите в чате сообщения #rebuy, #cashout, раунды казино и #debt, нажмите «Копировать» и вставьте сюда.
         </p>
         <textarea
           className="paste"
@@ -67,7 +79,7 @@ export function ImportScreen() {
             setNotFound(false)
           }}
         />
-        {notFound && <p className="warn">Не нашёл записей #rebuy и #cashout</p>}
+        {notFound && <p className="warn">Не нашёл записей #rebuy, #cashout и раундов казино</p>}
         <button className="big primary wide" disabled={!text.trim()} onClick={() => void parse()}>
           Разобрать
         </button>
@@ -82,7 +94,11 @@ export function ImportScreen() {
   const dups = duplicateNames(current)
   const empty = current.players.some((p) => !p.name.trim())
   const rate = parseRate(rateText)
-  const canCreate = rate !== null && current.players.length > 0 && dups.length === 0 && !empty
+  const names = casinoNames(current)
+  const unresolved = names.filter((n) => n.player === null)
+  const bad = badRounds(current)
+  const canCreate =
+    rate !== null && current.players.length > 0 && dups.length === 0 && !empty && unresolved.length === 0 && bad.length === 0
 
   // С кем из постоянных участник свяжется при сохранении — то же правило, что в gameFromDraft (Р-12)
   function linkedRegular(p: DraftPlayer): string | undefined {
@@ -178,9 +194,51 @@ export function ImportScreen() {
       </form>
       {taken && <p className="warn">Такой игрок уже есть</p>}
 
+      {current.rounds.length > 0 && (
+        <>
+          <section className="card casino">
+            <h2>Казино: кто есть кто</h2>
+            <p className="muted">Имена из раундов — как в чате; у каждого — участник игры</p>
+            <ul className="list casino-names">
+              {names.map((n) => (
+                <CasinoNameRow
+                  key={nameKey(n.name)}
+                  item={n}
+                  players={current.players}
+                  onLink={(id) => setDraft(linkCasinoName(current, n.name, id))}
+                  onNew={() => setDraft(addCasinoPlayer(current, n.name, () => ulid()))}
+                />
+              ))}
+            </ul>
+          </section>
+
+          <h2>Раунды казино: {current.rounds.length}</h2>
+          <ul className="list">
+            {current.rounds.map((r) => (
+              <RoundCard
+                key={r.id}
+                round={r}
+                draft={current}
+                onText={(text) => setDraft(setRoundText(current, r.id, text))}
+                onRemove={() => {
+                  if (confirm('Убрать раунд из игры?')) setDraft(removeRound(current, r.id))
+                }}
+              />
+            ))}
+          </ul>
+        </>
+      )}
+
       <section className="card summary">
         <h2>Проверка</h2>
         <p className={b.ok ? 'ok' : 'warn'}>{balanceText(b)}</p>
+        {current.rounds.length > 0 && bad.length === 0 && (
+          <p className="ok">Казино: все раунды сходятся ({current.rounds.length})</p>
+        )}
+        {bad.length > 0 && <p className="warn">Казино: раундов с ошибкой — {bad.length}; поправьте или уберите</p>}
+        {unresolved.length > 0 && (
+          <p className="warn">Не разобраны имена: {unresolved.map((n) => n.name).join(', ')} — выберите, кто это</p>
+        )}
         {dups.length > 0 && <p className="warn">Одинаковые имена: {dups.join(', ')} — объедините или переименуйте</p>}
         {empty && <p className="warn">У игрока нет имени</p>}
       </section>
@@ -314,6 +372,104 @@ function DraftCard({ player, others, regulars, regular, onChange, onRebuys, onCa
         )}
       </select>
       {regular === undefined && <p className="muted guest">Гость — не из постоянных игроков</p>}
+      {casinoOnly(player) && <p className="muted guest">Только казино — без закупа и выхода</p>}
+    </li>
+  )
+}
+
+type CasinoNameRowProps = {
+  item: CasinoName
+  players: DraftPlayer[]
+  onLink: (playerId: string) => void
+  onNew: () => void
+}
+
+// Имя из раундов → участник: подошёл один — выбран сам; двое или никого — выбрать руками
+function CasinoNameRow({ item, players, onLink, onNew }: CasinoNameRowProps) {
+  const { name, player, candidates } = item
+  return (
+    <li>
+      <strong>{name}</strong>
+      <select
+        className="merge"
+        aria-label={`Кто это: ${name}`}
+        value={player?.id ?? ''}
+        onChange={(e) => (e.target.value === 'new' ? onNew() : e.target.value && onLink(e.target.value))}
+      >
+        <option value="">Кто это?</option>
+        {players.length > 0 && (
+          <optgroup label="Игрок этой игры">
+            {players.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name || 'без имени'}
+              </option>
+            ))}
+          </optgroup>
+        )}
+        <option value="new">Новый участник, только казино: {name}</option>
+      </select>
+      {player === null && (
+        <p className="warn">
+          {candidates.length > 1
+            ? `Подходит к ${candidates.length}: ${candidates.map((p) => p.name).join(', ')} — выберите`
+            : 'Нет такого игрока — выберите или добавьте нового'}
+        </p>
+      )}
+    </li>
+  )
+}
+
+type RoundCardProps = {
+  round: DraftRound
+  draft: Draft
+  onText: (text: string) => void
+  onRemove: () => void
+}
+
+// Раунд казино: доли с участником для каждого имени; не сходится — пометка, правка строками или «Убрать»
+function RoundCard({ round, draft, onText, onRemove }: RoundCardProps) {
+  const [editing, setEditing] = useState(false)
+  const parsed = parseRound(round.text)
+  return (
+    <li className="card">
+      <div className="row round-head">
+        <span className="muted grow">{formatTime(round.at)}</span>
+        <button className="big" onClick={() => setEditing(!editing)}>
+          {editing ? 'Готово' : 'Править'}
+        </button>
+        <button className="big" aria-label="Убрать раунд" onClick={onRemove}>
+          ✕
+        </button>
+      </div>
+      {editing && (
+        <textarea
+          className="round"
+          aria-label="Раунд казино"
+          placeholder={'Гоша, Дима +150\nКатя -300'}
+          value={round.text}
+          onChange={(e) => onText(e.target.value)}
+        />
+      )}
+      {parsed.amounts.length > 0 && (
+        <ul className="transfers">
+          {parsed.amounts.map((a) => {
+            const p = casinoPlayer(draft, a.name)
+            return (
+              <li key={a.name}>
+                <span>
+                  {p ? p.name || 'без имени' : a.name}
+                  {p && nameKey(p.name) !== nameKey(a.name) && <span className="muted"> · в чате «{a.name}»</span>}
+                  {!p && <span className="warn"> · кто это?</span>}
+                </span>
+                <strong className={a.kopecks > 0 ? 'plus' : 'minus'}>{formatRub(a.kopecks, true)}</strong>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {parsed.amounts.length === 0 && <p className="warn">Раунд пустой — уберите или впишите строки</p>}
+      {parsed.bad.length > 0 && <p className="warn">Не разобрано: {parsed.bad.map((l) => `«${l}»`).join(', ')}</p>}
+      {parsed.sum !== 0 && <p className="warn">Не сходится на {formatRub(Math.abs(parsed.sum))}</p>}
     </li>
   )
 }
