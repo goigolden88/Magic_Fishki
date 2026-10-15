@@ -379,6 +379,48 @@ textarea.round {
   margin-bottom: 8px;
 }
 
+/* Карточка игрока: последние 5 игр рядом с предыдущими */
+.windows {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.windows thead th {
+  text-align: left;
+  font-size: 1.05rem;
+  padding-bottom: 4px;
+}
+
+.windows th + th,
+.windows td + td {
+  padding-left: 10px;
+}
+
+.windows th.label {
+  text-align: left;
+  font-weight: normal;
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.windows td {
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+  padding-bottom: 4px;
+}
+
+.windows .diff {
+  display: block;
+  font-size: 0.9rem;
+}
+
+.trend p {
+  margin: 10px 0 0;
+}
+
 /* Из Телеграма: поле вставки и сверка */
 textarea.paste {
   display: block;
