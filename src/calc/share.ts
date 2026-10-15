@@ -2,6 +2,7 @@ import { formatDate } from '../dates'
 import type { Game } from '../model'
 import { gameResult, type PlayerResult } from './casino'
 import { chipsGenitive, formatNumber, formatRate } from './format'
+import { basisText, type Stats } from './stats'
 
 const NBSP = ' '
 const MINUS = '−'
@@ -98,5 +99,17 @@ export function shareText(game: Game): string {
   }
   lines.push('Переводы:')
   for (const t of list) lines.push(`${nameById.get(t.from)} → ${nameById.get(t.to)} ${chatRub(t.kopecks, false)}`)
+  return lines.join('\n')
+}
+
+// Статистика игроков для мессенджера: заголовок с основанием, по строке на игрока в порядке экрана.
+// Игроки без закрытых игр не входят; казино не в ноль — в скобках «покер …, казино …»
+export function statsShareText(stats: Stats): string {
+  const lines = [`Статистика · ${basisText(stats)}`]
+  for (const s of stats.rows) {
+    if (s.games === 0) continue
+    const split = s.casino === 0 ? '' : ` (покер ${chatRub(s.poker, true)}, казино ${chatRub(s.casino, true)})`
+    lines.push(`${s.name} ${chatRub(s.kopecks, true)} · игр ${chatNumber(s.games)}, в плюсе ${chatNumber(s.wins)}${split}`)
+  }
   return lines.join('\n')
 }

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { formatDate } from '../dates'
 import type { Entry, EntryKind, Game } from '../model'
-import { shareText } from './share'
+import { shareText, statsShareText } from './share'
+import type { RegularStat, Stats } from './stats'
 
 // Пример со скриншота (тот же, что в calc.test.ts): курс 0,5; закуп / выход
 const EXAMPLE: [string, number, number][] = [
@@ -87,5 +88,54 @@ describe('текст итога для мессенджера', () => {
   it('все при своих — переводы не нужны', () => {
     const text = plain(shareText(makeGame([['А', 1000, 1000], ['Б', 500, 500]])))
     expect(text).toBe(['Покер · 09.10 · курс 0,5 ₽', 'А 0 ₽ · Б 0 ₽', 'Переводы не нужны'].join('\n'))
+  })
+})
+
+// Строка статистики — выдуманный игрок; итого = покер + казино
+function stat(name: string, games: number, wins: number, poker: number, casino = 0): RegularStat {
+  return {
+    regularId: `r-${name}`,
+    name,
+    games,
+    wins,
+    chips: 0,
+    poker,
+    casino,
+    kopecks: poker + casino,
+    best: null,
+    worst: null,
+    rebuys: 0,
+  }
+}
+
+describe('статистика игроков для мессенджера', () => {
+  it('заголовок с основанием, игроки в порядке экрана, казино — в скобках', () => {
+    const stats: Stats = {
+      closedGames: 3,
+      totalGames: 4,
+      rows: [
+        stat('Анна', 3, 2, 147500),
+        stat('Борис', 2, 1, 10000, 8250),
+        stat('Вера', 3, 0, -150000, -5005),
+      ],
+    }
+    expect(plain(statsShareText(stats))).toBe(
+      [
+        'Статистика · По 3 закрытым играм из 4',
+        'Анна +1475 ₽ · игр 3, в плюсе 2',
+        'Борис +182,5 ₽ · игр 2, в плюсе 1 (покер +100 ₽, казино +82,5 ₽)',
+        'Вера −1550,05 ₽ · игр 3, в плюсе 0 (покер −1500 ₽, казино −50,05 ₽)',
+      ].join('\n'),
+    )
+  })
+
+  it('игроки без закрытых игр не входят', () => {
+    const stats: Stats = { closedGames: 1, totalGames: 2, rows: [stat('Анна', 1, 0, 0), stat('Борис', 0, 0, 0)] }
+    expect(plain(statsShareText(stats))).toBe(['Статистика · По 1 закрытой игре из 2', 'Анна 0 ₽ · игр 1, в плюсе 0'].join('\n'))
+  })
+
+  it('крупные суммы — с пробелами', () => {
+    const stats: Stats = { closedGames: 12, totalGames: 12, rows: [stat('Анна', 12, 7, 2100105)] }
+    expect(plain(statsShareText(stats)).split('\n')[1]).toBe('Анна +21 001,05 ₽ · игр 12, в плюсе 7')
   })
 })

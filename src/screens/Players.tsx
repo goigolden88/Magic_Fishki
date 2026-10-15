@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { formatChips, formatNumber, formatRub, formatTenths } from '../calc/format'
+import { statsShareText } from '../calc/share'
 import { basisText, rebuysPerGame, regularStats, type Evening, type RegularStat, type Stats } from '../calc/stats'
 import { formatDate } from '../dates'
 import { getSettings, listGames } from '../store/db'
@@ -57,12 +58,33 @@ function StatCard({ stat }: { stat: RegularStat }) {
 
 export function PlayersScreen() {
   const [stats, setStats] = useState<Stats | null>(null)
+  const [shareNote, setShareNote] = useState<string | null>(null) // «Скопировано» под кнопкой
 
   useEffect(() => {
     void Promise.all([getSettings(), listGames()]).then(([settings, games]) =>
       setStats(regularStats(settings.players, games)),
     )
   }, [])
+
+  // Как «Поделиться итогом» в игре: системное «Поделиться»; где его нет — в буфер обмена
+  async function share(stats: Stats) {
+    const text = statsShareText(stats)
+    if ('share' in navigator) {
+      try {
+        await navigator.share({ text })
+        return
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return // передумали
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(text)
+      setShareNote('Скопировано')
+    } catch {
+      setShareNote('Не удалось скопировать')
+    }
+    setTimeout(() => setShareNote(null), 3000)
+  }
 
   return (
     <main className="screen">
@@ -87,6 +109,14 @@ export function PlayersScreen() {
                 <StatCard key={s.regularId} stat={s} />
               ))}
             </ul>
+            {stats.rows.some((s) => s.games > 0) && (
+              <>
+                <button className="big primary wide" onClick={() => void share(stats)}>
+                  Поделиться статистикой
+                </button>
+                {shareNote && <p className={shareNote === 'Скопировано' ? 'ok center' : 'warn center'}>{shareNote}</p>}
+              </>
+            )}
           </>
         ))}
     </main>
