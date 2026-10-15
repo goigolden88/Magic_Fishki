@@ -92,6 +92,26 @@ a {
   font-size: 1.15rem;
 }
 
+/* Год в списке игр: заголовок на всю ширину, нажатие сворачивает */
+.year-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  min-height: 52px;
+  margin-top: 12px;
+  padding: 8px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 1.2rem;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
 .row {
   display: flex;
   gap: 8px;
