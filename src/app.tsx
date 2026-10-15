@@ -4,19 +4,24 @@ import { GameScreen } from './screens/Game'
 import { SettingsScreen } from './screens/Settings'
 import { ImportScreen } from './screens/Import'
 import { PlayersScreen } from './screens/Players'
+import { PlayerScreen } from './screens/Player'
 
-// Маршруты: #/ — игры, #/game/:id — игра, #/settings — настройки, #/import — из Телеграма, #/players — игроки
+// Маршруты: #/ — игры, #/game/:id — игра, #/settings — настройки, #/import — из Телеграма, #/players — игроки,
+// #/players/:id — карточка постоянного игрока
 type Route =
   | { screen: 'games' }
   | { screen: 'game'; id: string }
   | { screen: 'settings' }
   | { screen: 'import' }
   | { screen: 'players' }
+  | { screen: 'player'; id: string }
 
 function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, '')
   const game = path.match(/^\/game\/([^/]+)$/)
   if (game) return { screen: 'game', id: decodeURIComponent(game[1]) }
+  const player = path.match(/^\/players\/([^/]+)$/)
+  if (player) return { screen: 'player', id: decodeURIComponent(player[1]) }
   if (path === '/settings') return { screen: 'settings' }
   if (path === '/import') return { screen: 'import' }
   if (path === '/players') return { screen: 'players' }
@@ -44,6 +49,8 @@ export function App() {
       return <ImportScreen />
     case 'players':
       return <PlayersScreen />
+    case 'player':
+      return <PlayerScreen key={route.id} id={route.id} />
     default:
       return <GamesScreen />
   }

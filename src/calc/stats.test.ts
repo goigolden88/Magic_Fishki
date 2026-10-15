@@ -165,4 +165,10 @@ describe('один знак после запятой', () => {
     expect(formatTenths(2 / 3)).toBe('0,7')
     expect(formatTenths(0)).toBe('0,0')
   })
+
+  it('со знаком: плюс, минус, ноль без знака', () => {
+    expect(formatTenths(1, true)).toBe('+1,0')
+    expect(formatTenths(-0.44, true)).toBe('−0,4')
+    expect(formatTenths(0.04, true)).toBe('0,0')
+  })
 })

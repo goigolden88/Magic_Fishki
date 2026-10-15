@@ -4,26 +4,25 @@ import { basisText, rebuysPerGame, regularStats, type Evening, type RegularStat,
 import { formatDate } from '../dates'
 import { getSettings, listGames } from '../store/db'
 
-const sign = (n: number) => (n > 0 ? 'plus' : n < 0 ? 'minus' : '')
+export const sign = (n: number) => (n > 0 ? 'plus' : n < 0 ? 'minus' : '')
 
 // «+500 ₽ — 1 сентября 2026, Пятница»
 function eveningText(e: Evening): string {
   return `${formatRub(e.kopecks, true)} — ${formatDate(e.date)}, ${e.name}`
 }
 
-function StatCard({ stat }: { stat: RegularStat }) {
+// Итоги за всё время — в списке и в карточке игрока
+export function StatBody({ stat }: { stat: RegularStat }) {
   if (stat.games === 0) {
     return (
-      <li className="card player">
-        <div className="player-head">
-          <strong>{stat.name}</strong>
-          <span className="muted">игр нет</span>
-        </div>
-      </li>
+      <div className="player-head">
+        <strong>{stat.name}</strong>
+        <span className="muted">игр нет</span>
+      </div>
     )
   }
   return (
-    <li className="card player">
+    <>
       <div className="player-head">
         <strong>{stat.name}</strong>
         <span className={sign(stat.kopecks)}>{formatRub(stat.kopecks, true)}</span>
@@ -41,6 +40,17 @@ function StatCard({ stat }: { stat: RegularStat }) {
       <p className="muted">
         докупов {formatNumber(stat.rebuys)}, в среднем {formatTenths(rebuysPerGame(stat))} за игру
       </p>
+    </>
+  )
+}
+
+// Касание — карточка игрока с динамикой
+function StatCard({ stat }: { stat: RegularStat }) {
+  return (
+    <li>
+      <a className="card player game-link" href={`#/players/${encodeURIComponent(stat.regularId)}`}>
+        <StatBody stat={stat} />
+      </a>
     </li>
   )
 }
