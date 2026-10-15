@@ -67,6 +67,21 @@ export async function saveGame(game: Game): Promise<Game> {
   return saved
 }
 
+// Восстановление из файла-копии (Р-11): игры пишутся как есть, со своим updatedAt; одной транзакцией —
+// либо все, либо ни одной. Игры с тем же id уже отсеяны (calc/backup.ts, planRestore).
+export async function restoreGames(games: Game[]): Promise<void> {
+  if (games.length === 0) return
+  const db = await open()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('games', 'readwrite')
+    const store = tx.objectStore('games')
+    for (const game of games) store.put(game)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error)
+  })
+}
+
 // Окончательно: синхронизации нет, игру не вернуть (Р-09)
 export async function deleteGame(id: string): Promise<void> {
   await run('games', 'readwrite', (s) => s.delete(id))
