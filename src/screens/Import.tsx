@@ -31,6 +31,7 @@ import { formatDate, formatTime } from '../dates'
 import { playerByName, type Regular } from '../model'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
+import { openGameYear } from './openYears'
 
 // Игра из Телеграма (Р-10): вставка текста → сверка → обычная игра
 export function ImportScreen() {
@@ -133,6 +134,7 @@ export function ImportScreen() {
       regularList,
     )
     await saveGame(game)
+    openGameYear(game.date)
     location.hash = `#/game/${game.id}`
   }
 
