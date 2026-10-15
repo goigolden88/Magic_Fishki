@@ -77,6 +77,13 @@ export function regularStats(regulars: Regular[], games: Game[]): Stats {
   return { closedGames: closed.length, totalGames: real.length, rows: [...played, ...idle] }
 }
 
+// Основание статистики: «По 2 закрытым играм из 3», «По 1 закрытой игре из 1»
+export function basisText(stats: Stats): string {
+  const n = stats.closedGames
+  const one = n % 10 === 1 && n % 100 !== 11
+  return `По ${n} ${one ? 'закрытой игре' : 'закрытым играм'} из ${stats.totalGames}`
+}
+
 // Докупов в среднем за игру; игр нет — 0
 export function rebuysPerGame(stat: RegularStat): number {
   return stat.games === 0 ? 0 : stat.rebuys / stat.games

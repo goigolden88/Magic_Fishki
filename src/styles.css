@@ -61,6 +61,11 @@ a {
   font-size: 1.05rem;
 }
 
+.bar-links {
+  display: flex;
+  gap: 16px;
+}
+
 .card {
   display: block;
   background: var(--card);

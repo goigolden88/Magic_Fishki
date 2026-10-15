@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Entry, EntryKind, Game, Player, Regular } from '../model'
 import { formatTenths } from './format'
-import { rebuysPerGame, regularStats } from './stats'
+import { basisText, rebuysPerGame, regularStats } from './stats'
 
 // Выдуманные игроки и игры
 const REGULARS: Regular[] = [
@@ -144,6 +144,17 @@ describe('статистика постоянных игроков', () => {
     const a = regularStats(REGULARS, [later, G1]).rows.find((r) => r.regularId === 'r-anna')!
     expect(a.best!.gameId).toBe('g1')
     expect(a.worst!.gameId).toBe('g1')
+  })
+})
+
+describe('основание статистики', () => {
+  const basis = (closedGames: number, totalGames: number) => basisText({ closedGames, totalGames, rows: [] })
+
+  it('число закрытых из всех, падеж по числу', () => {
+    expect(basis(2, 3)).toBe('По 2 закрытым играм из 3')
+    expect(basis(1, 1)).toBe('По 1 закрытой игре из 1')
+    expect(basis(21, 30)).toBe('По 21 закрытой игре из 30')
+    expect(basis(11, 12)).toBe('По 11 закрытым играм из 12')
   })
 })
 
