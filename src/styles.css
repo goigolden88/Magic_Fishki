@@ -455,3 +455,18 @@ select.merge {
   color: var(--muted);
   word-break: break-word;
 }
+
+/* Сверка казино: имена из раундов и раунды */
+.casino-names li {
+  border-top: 1px solid var(--line);
+  padding: 10px 0;
+}
+
+.casino-names p {
+  margin: 6px 0 0;
+}
+
+.round-head {
+  margin-top: 0;
+  align-items: center;
+}
