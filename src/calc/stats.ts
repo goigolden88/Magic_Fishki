@@ -1,12 +1,12 @@
 import type { Game, Regular } from '../model'
-import { playerTotals } from './totals'
+import { gameResult } from './casino'
 
 // Вечер игрока — для «лучший» и «худший»
 export type Evening = {
   gameId: string
   name: string
   date: string // YYYY-MM-DD
-  kopecks: number
+  kopecks: number // итого: покер + казино (Р-13)
 }
 
 // Итог постоянного игрока по всем закрытым играм
@@ -14,9 +14,11 @@ export type RegularStat = {
   regularId: string
   name: string // имя из настроек: переименование — та же строка
   games: number // сыграно закрытых игр
-  wins: number // из них в плюсе
-  chips: number // сумма итогов в фишках
-  kopecks: number // сумма итогов в копейках — по курсу каждой игры
+  wins: number // из них в плюсе по итого
+  chips: number // покер: сумма итогов в фишках
+  poker: number // покер: сумма итогов в копейках — по курсу каждой игры
+  casino: number // казино: сумма в копейках
+  kopecks: number // итого: покер + казино (Р-13)
   best: Evening | null // нет игр — null
   worst: Evening | null
   rebuys: number // записей «Докуп» всего
@@ -38,6 +40,8 @@ export function regularStats(regulars: Regular[], games: Game[]): Stats {
     games: 0,
     wins: 0,
     chips: 0,
+    poker: 0,
+    casino: 0,
     kopecks: 0,
     best: null,
     worst: null,
@@ -46,14 +50,16 @@ export function regularStats(regulars: Regular[], games: Game[]): Stats {
   const byId = new Map(rows.map((row) => [row.regularId, row]))
 
   for (const game of closed) {
-    const totals = playerTotals(game.players, game.entries, game.rate)
+    const results = gameResult(game).players
     // Один постоянный — один вечер, даже если в игре он записан дважды
-    const evenings = new Map<string, { chips: number; kopecks: number; rebuys: number }>()
+    const evenings = new Map<string, { chips: number; poker: number; casino: number; kopecks: number; rebuys: number }>()
     game.players.forEach((p, i) => {
       if (p.regularId === undefined || !byId.has(p.regularId)) return
-      const sum = evenings.get(p.regularId) ?? { chips: 0, kopecks: 0, rebuys: 0 }
-      sum.chips += totals[i].chips
-      sum.kopecks += totals[i].kopecks
+      const sum = evenings.get(p.regularId) ?? { chips: 0, poker: 0, casino: 0, kopecks: 0, rebuys: 0 }
+      sum.chips += results[i].poker.chips
+      sum.poker += results[i].poker.kopecks
+      sum.casino += results[i].casino
+      sum.kopecks += results[i].kopecks
       sum.rebuys += game.entries.filter((e) => e.playerId === p.id && e.kind === 'rebuy').length
       evenings.set(p.regularId, sum)
     })
@@ -63,6 +69,8 @@ export function regularStats(regulars: Regular[], games: Game[]): Stats {
       row.games += 1
       if (sum.kopecks > 0) row.wins += 1
       row.chips += sum.chips
+      row.poker += sum.poker
+      row.casino += sum.casino
       row.kopecks += sum.kopecks
       row.rebuys += sum.rebuys
       // Равные вечера — первый по дате

@@ -26,10 +26,13 @@ function StatCard({ stat }: { stat: RegularStat }) {
     <li className="card player">
       <div className="player-head">
         <strong>{stat.name}</strong>
-        <span className={sign(stat.kopecks)}>
-          {formatRub(stat.kopecks, true)} · {formatChips(stat.chips, true)}
-        </span>
+        <span className={sign(stat.kopecks)}>{formatRub(stat.kopecks, true)}</span>
       </div>
+      {/* Три итога (Р-13); в шапке — итого */}
+      <p className="muted">
+        покер {formatRub(stat.poker, true)} ({formatChips(stat.chips, true)} в фишках) · казино{' '}
+        {formatRub(stat.casino, true)} · итого {formatRub(stat.kopecks, true)}
+      </p>
       <p className="muted">
         игр {formatNumber(stat.games)}, в плюсе {formatNumber(stat.wins)}
       </p>

@@ -17,6 +17,16 @@ export type Entry = {
   at: string // ISO 8601, ставится само
 }
 
+// Доля участника в раунде казино: плюс — выиграл, минус — проиграл
+export type CasinoAmount = { playerId: string; kopecks: number } // целое, не 0
+
+// Раунд казино (Р-13): сумма долей — ноль
+export type CasinoRound = {
+  id: string
+  amounts: CasinoAmount[]
+  at: string // ISO 8601, ставится само
+}
+
 export type Game = {
   id: string // ULID
   name: string // по умолчанию — дата
@@ -24,6 +34,7 @@ export type Game = {
   rate: number // рублей за фишку: 0.5 — фишка по 50 копеек
   players: Player[]
   entries: Entry[]
+  casino?: CasinoRound[] // раунды казино (Р-13); нет — казино не было
   closed?: boolean // игра закрыта: записи не правятся без «Открыть снова»
   demo?: boolean // демо-данные — удаляются одной кнопкой
   updatedAt: string // ISO 8601

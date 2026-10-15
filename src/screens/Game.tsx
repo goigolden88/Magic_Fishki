@@ -1,15 +1,24 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { addRound, gameResult, newNames, parseRound, type PlayerResult } from '../calc/casino'
 import { balanceText, formatChips, formatNumber, formatRate, formatRub, parseChips, parseRate } from '../calc/format'
 import { shareText } from '../calc/share'
-import { balance, playerTotals, type PlayerTotal } from '../calc/totals'
-import { transfers } from '../calc/transfers'
 import { formatDate, formatTime } from '../dates'
-import { playerByName, type Entry, type EntryKind, type Game, type Player, type Regular } from '../model'
+import {
+  playerByName,
+  type CasinoRound,
+  type Entry,
+  type EntryKind,
+  type Game,
+  type Player,
+  type Regular,
+} from '../model'
 import { deleteGame, getGame, getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 
 const KIND_LABEL: Record<EntryKind, string> = { buyin: 'Закуп', rebuy: 'Докуп', cashout: 'Выход' }
 const KINDS: EntryKind[] = ['buyin', 'rebuy', 'cashout']
+
+const sign = (n: number) => (n > 0 ? 'plus' : n < 0 ? 'minus' : '')
 
 export function GameScreen({ id }: { id: string }) {
   const [game, setGame] = useState<Game | null | undefined>(undefined)
@@ -44,11 +53,12 @@ export function GameScreen({ id }: { id: string }) {
     void saveGame(next)
   }
 
-  const totals = playerTotals(current.players, current.entries, current.rate)
-  const totalById = new Map(totals.map((t) => [t.playerId, t]))
+  const result = gameResult(current)
+  const resultById = new Map(result.players.map((r) => [r.playerId, r]))
   const nameById = new Map(current.players.map((p) => [p.id, p.name]))
-  const b = balance(totals)
-  const list = transfers(totals, current.rate)
+  const b = result.balance
+  const list = result.transfers
+  const rounds = current.casino ?? []
   const lastBuyin = [...current.entries].reverse().find((e) => e.kind === 'buyin')?.chips
 
   function addPlayer(e: FormEvent) {
@@ -103,8 +113,27 @@ export function GameScreen({ id }: { id: string }) {
     location.hash = '#/'
   }
 
+  // Раунд казино (Р-13): новые имена — участниками только казино, после подтверждения
+  function saveRound(text: string): boolean {
+    const round = parseRound(text)
+    const fresh = newNames(round, current.players)
+    if (fresh.length > 0 && !confirm(`Нет в игре: ${fresh.join(', ')}. Добавить участниками только казино?`)) {
+      return false
+    }
+    update(addRound(current, round, regulars, ulid, new Date().toISOString()))
+    return true
+  }
+
+  function deleteRound(round: CasinoRound) {
+    update({ ...current, casino: rounds.filter((r) => r.id !== round.id) })
+  }
+
   const duplicate = current.players.some((p) => p.name === newPlayer.trim())
-  const sorted = [...totals].sort((x, y) => y.chips - x.chips)
+  // С казино — по «итого», без него — по фишкам, как было
+  const sorted = result.hasCasino
+    ? [...result.players].sort((x, y) => y.kopecks - x.kopecks)
+    : [...result.players].sort((x, y) => y.poker.chips - x.poker.chips)
+  const onlyCasino = result.hasCasino && current.entries.length === 0
 
   return (
     <main className="screen">
@@ -147,7 +176,7 @@ export function GameScreen({ id }: { id: string }) {
           <PlayerCard
             key={p.id}
             player={p}
-            total={totalById.get(p.id)!}
+            result={resultById.get(p.id)!}
             entries={current.entries.filter((e) => e.playerId === p.id)}
             closed={!!current.closed}
             suggestIn={lastBuyin}
@@ -173,27 +202,67 @@ export function GameScreen({ id }: { id: string }) {
       )}
       {duplicate && <p className="warn">Такой участник уже есть</p>}
 
+      {(!current.closed || rounds.length > 0) && (
+        <CasinoBlock
+          rounds={rounds}
+          nameById={nameById}
+          players={current.players}
+          closed={!!current.closed}
+          onAdd={saveRound}
+          onDelete={deleteRound}
+        />
+      )}
+
       <section className="card summary">
         <h2>Итог</h2>
-        <p className={b.ok ? 'ok' : 'warn'}>{balanceText(b)}</p>
-        {current.players.length > 0 && (
-          <table className="totals">
-            <tbody>
-              {sorted.map((t) => (
-                <tr key={t.playerId}>
-                  <td>{nameById.get(t.playerId)}</td>
-                  <td className="num">{formatChips(t.chips, true)}</td>
-                  <td className={'num ' + (t.kopecks > 0 ? 'plus' : t.kopecks < 0 ? 'minus' : '')}>
-                    {formatRub(t.kopecks, true)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        {!onlyCasino && <p className={b.ok ? 'ok' : 'warn'}>{balanceText(b)}</p>}
+        {result.hasCasino && (
+          <p className={result.casinoOk ? 'ok' : 'warn'}>
+            {result.casinoOk
+              ? `Казино сходится: все раунды в ноль (раундов: ${formatNumber(rounds.length)})`
+              : 'Казино не сходится — проверьте раунды'}
+          </p>
         )}
+        {current.players.length > 0 &&
+          (result.hasCasino ? (
+            <table className="totals three">
+              <thead>
+                <tr>
+                  <th />
+                  <th className="num">покер</th>
+                  <th className="num">казино</th>
+                  <th className="num">итого</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((r) => (
+                  <tr key={r.playerId}>
+                    <td>{nameById.get(r.playerId)}</td>
+                    <td className="num">{r.inPoker ? formatRub(r.poker.kopecks, true) : '—'}</td>
+                    <td className="num">{r.inCasino ? formatRub(r.casino, true) : '—'}</td>
+                    <td className={'num ' + sign(r.kopecks)}>
+                      <strong>{formatRub(r.kopecks, true)}</strong>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <table className="totals">
+              <tbody>
+                {sorted.map(({ poker: t }) => (
+                  <tr key={t.playerId}>
+                    <td>{nameById.get(t.playerId)}</td>
+                    <td className="num">{formatChips(t.chips, true)}</td>
+                    <td className={'num ' + sign(t.kopecks)}>{formatRub(t.kopecks, true)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ))}
 
         <h2>Переводы</h2>
-        {!b.ok ? (
+        {!result.ok ? (
           <p className="muted">Появятся, когда игра сойдётся</p>
         ) : list.length === 0 ? (
           <p className="muted">Переводить никому не нужно</p>
@@ -249,9 +318,118 @@ function BackBar() {
   )
 }
 
+// Доли раунда одной строкой: «Эрик +150 ₽ · Арман −250 ₽»
+function roundText(round: CasinoRound, nameById: Map<string, string>): string {
+  return round.amounts.map((a) => `${nameById.get(a.playerId) ?? '?'} ${formatRub(a.kopecks, true)}`).join(' · ')
+}
+
+type CasinoBlockProps = {
+  rounds: CasinoRound[]
+  nameById: Map<string, string>
+  players: Player[]
+  closed: boolean
+  onAdd: (text: string) => boolean // false — передумали добавлять новых участников
+  onDelete: (round: CasinoRound) => void
+}
+
+// Казино (Р-13): раунды строками «Эрик, Артём +150» — каждый названный получает число в рублях
+function CasinoBlock({ rounds, nameById, players, closed, onAdd, onDelete }: CasinoBlockProps) {
+  const [text, setText] = useState<string | null>(null) // не null — вводится раунд
+  const [deleting, setDeleting] = useState<string | null>(null) // id раунда после первого нажатия (Р-09)
+
+  const parsed = text === null ? null : parseRound(text)
+  const fresh = parsed === null ? [] : newNames(parsed, players)
+  const canAdd = parsed !== null && parsed.amounts.length > 0 && parsed.sum === 0 && parsed.bad.length === 0
+
+  function submit(e: FormEvent) {
+    e.preventDefault()
+    if (!canAdd || text === null) return
+    if (onAdd(text)) setText(null)
+  }
+
+  return (
+    <section className="card casino">
+      <h2>Казино</h2>
+      {rounds.length > 0 && (
+        <ul className="entries rounds">
+          {rounds.map((r) =>
+            deleting === r.id && !closed ? (
+              <li key={r.id} className="row">
+                <button className="big danger grow" onClick={() => onDelete(r)}>
+                  Точно удалить раунд?
+                </button>
+                <button className="big" onClick={() => setDeleting(null)}>
+                  Отмена
+                </button>
+              </li>
+            ) : (
+              <li key={r.id}>
+                <span className="muted">{formatTime(r.at)}</span>
+                <span>{roundText(r, nameById)}</span>
+                {!closed && (
+                  <button className="del" aria-label="Удалить раунд" onClick={() => setDeleting(r.id)}>
+                    ✕
+                  </button>
+                )}
+              </li>
+            ),
+          )}
+        </ul>
+      )}
+      {rounds.length === 0 && text === null && <p className="muted">Раундов нет</p>}
+
+      {!closed &&
+        (text === null ? (
+          <button className="big wide" onClick={() => setText('')}>
+            Добавить раунд
+          </button>
+        ) : (
+          <form onSubmit={submit}>
+            <textarea
+              className="round"
+              autoFocus
+              aria-label="Раунд казино"
+              placeholder={'Эрик, Артём +150\nЭдик 550\nАрман, Аскар -250'}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
+            <p className="muted">Каждый названный получает число строки в рублях; без знака — плюс</p>
+            {parsed !== null && parsed.amounts.length > 0 && (
+              <ul className="transfers">
+                {parsed.amounts.map((a) => (
+                  <li key={a.name}>
+                    <span>
+                      {a.name}
+                      {fresh.includes(a.name) && <span className="muted"> · новый, только казино</span>}
+                    </span>
+                    <strong className={sign(a.kopecks)}>→ {formatRub(a.kopecks, true)}</strong>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {parsed !== null && parsed.bad.length > 0 && (
+              <p className="warn">Не разобрано: {parsed.bad.map((l) => `«${l}»`).join(', ')}</p>
+            )}
+            {parsed !== null && parsed.sum !== 0 && (
+              <p className="warn">Раунд не сходится на {formatRub(Math.abs(parsed.sum))}</p>
+            )}
+            <div className="row">
+              <button className="big primary grow" disabled={!canAdd}>
+                Добавить раунд
+              </button>
+              <button type="button" className="big" aria-label="Отмена" onClick={() => setText(null)}>
+                ✕
+              </button>
+            </div>
+          </form>
+        ))}
+    </section>
+  )
+}
+
 type PlayerCardProps = {
   player: Player
-  total: PlayerTotal
+  result: PlayerResult
   entries: Entry[]
   closed: boolean
   suggestIn?: number
@@ -260,7 +438,9 @@ type PlayerCardProps = {
   onDelete: (entry: Entry) => void
 }
 
-function PlayerCard({ player, total, entries, closed, suggestIn, quickAmounts, onAdd, onDelete }: PlayerCardProps) {
+function PlayerCard({ player, result, entries, closed, suggestIn, quickAmounts, onAdd, onDelete }: PlayerCardProps) {
+  const total = result.poker
+  const onlyCasino = !result.inPoker && result.inCasino // покерных записей нет — без «выхода нет» (Р-13)
   const [kind, setKind] = useState<EntryKind | null>(null)
   const [custom, setCustom] = useState(false) // открыто поле своего числа
   const [text, setText] = useState('')
@@ -288,13 +468,21 @@ function PlayerCard({ player, total, entries, closed, suggestIn, quickAmounts, o
     <li className="card player">
       <div className="player-head">
         <strong>{player.name}</strong>
-        <span className={total.chips > 0 ? 'plus' : total.chips < 0 ? 'minus' : ''}>
-          {formatChips(total.chips, true)} · {formatRub(total.kopecks, true)}
-        </span>
+        {onlyCasino ? (
+          <span className={sign(result.casino)}>{formatRub(result.casino, true)}</span>
+        ) : (
+          <span className={sign(total.chips)}>
+            {formatChips(total.chips, true)} · {formatRub(total.kopecks, true)}
+          </span>
+        )}
       </div>
-      <p className="muted">
-        закуп {formatNumber(total.chipsIn)} · {total.hasCashout ? `выход ${formatNumber(total.chipsOut)}` : 'выхода нет'}
-      </p>
+      {onlyCasino ? (
+        <p className="muted">только казино</p>
+      ) : (
+        <p className="muted">
+          закуп {formatNumber(total.chipsIn)} · {total.hasCashout ? `выход ${formatNumber(total.chipsOut)}` : 'выхода нет'}
+        </p>
+      )}
 
       {entries.length > 0 && (
         <ul className="entries">

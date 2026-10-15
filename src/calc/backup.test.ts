@@ -110,6 +110,21 @@ describe('файл-копия: разбор', () => {
     expect(parse(JSON.stringify({ ...backupOf([]), games: [badLink] })).ok).toBe(false)
   })
 
+  it('раунды казино (Р-13): целые — восстанавливаются, раунд не в ноль — ошибка', () => {
+    const amounts = [
+      { playerId: 'p1', kopecks: 30000 },
+      { playerId: 'p2', kopecks: -30000 },
+    ]
+    const withCasino = game('g1', { casino: [{ id: 'c1', amounts, at: NOW }] })
+    const ok = parse(backupText(backupOf([withCasino])))
+    expect(ok.ok && ok.backup.games[0].casino).toEqual(withCasino.casino)
+    const notZero = game('g2', { casino: [{ id: 'c1', amounts: amounts.slice(0, 1), at: NOW }] })
+    expect(parse(JSON.stringify({ ...backupOf([]), games: [notZero] })).ok).toBe(false)
+    // Копия без поля — игра без казино
+    const old = parse(backupText(backupOf([game('g3')])))
+    expect(old.ok && old.backup.games[0].casino).toBeUndefined()
+  })
+
   it('нет списка игр или настроек — ошибка', () => {
     const { games: _games, ...noGames } = backupOf([])
     expect(parse(JSON.stringify(noGames)).ok).toBe(false)
