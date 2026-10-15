@@ -1,15 +1,24 @@
 import { describe, expect, it } from 'vitest'
+import { gameResult } from './casino'
 import { balance, playerTotals } from './totals'
 import {
+  addCasinoPlayer,
   addDraftPlayer,
   assignRegular,
+  badRounds,
+  casinoNames,
+  casinoOnly,
   draftFromChat,
   duplicateNames,
   gameFromDraft,
+  linkCasinoName,
   mergeDraftPlayers,
+  nameFits,
   parseChat,
+  removeRound,
   setCashout,
   setRebuyCount,
+  setRoundText,
   type Draft,
 } from './telegram'
 
@@ -265,5 +274,166 @@ describe('игра из сверки', () => {
     expect(gameFromDraft(draft, { name: 'И', rate: 0.5, now: 'now' }, ids(), []).players.every((p) => !('regularId' in p))).toBe(
       true,
     )
+  })
+})
+
+// Казино в том же чате; имена и числа выдуманы
+const POKER = '[05.06.2026 22:10] Аня Б: #rebuy Лёша\n[06.06.2026 3:00] Аня Б: #cashout Дима 1000'
+
+describe('казино из Телеграма: разбор', () => {
+  it('одно сообщение — один раунд; «Казино:» первой строкой — не доля', () => {
+    const text = [
+      '[05.06.2026 23:00] Аня Б: Казино:',
+      'Гоша, Лёша +150',
+      'Дима 300',
+      'Катя, Аня Б -300',
+      '[05.06.2026 23:30] Катя: Гоша 200',
+      'Дима -200',
+    ].join('\n')
+    const chat = parseChat(text)
+    expect(chat.records).toEqual([])
+    expect(chat.unparsed).toEqual([])
+    expect(chat.rounds).toEqual([
+      { text: 'Гоша, Лёша +150\nДима 300\nКатя, Аня Б -300', at: local(2026, 6, 5, 23, 0) },
+      { text: 'Гоша 200\nДима -200', at: local(2026, 6, 5, 23, 30) },
+    ])
+  })
+
+  it('#debt: эта и следующие строки без тега — каждая раунд из двух, первый −N, второй +N', () => {
+    const text = '[06.06.2026 2:00] Катя: #debt Гоша Диме 500\nЛёша Диме 200,50\nспасибо\n[06.06.2026 2:10] Катя: #debt\nВова Кате 100'
+    const chat = parseChat(text)
+    expect(chat.rounds.map((r) => r.text)).toEqual(['Гоша -500\nДиме +500', 'Лёша -200,50\nДиме +200,50', 'Вова -100\nКате +100'])
+    expect(chat.unparsed).toEqual(['Катя: спасибо'])
+  })
+
+  it('долг без второго имени, с минусом или нулём — в «не разобрано»', () => {
+    const chat = parseChat('[06.06.2026 2:00] Катя: #debt Гоша 500\nГоша Диме -500\nГоша Диме 0\n#debt Гоша, Лёша Диме 100')
+    expect(chat.rounds).toEqual([])
+    expect(chat.unparsed).toHaveLength(4)
+  })
+
+  it('покер и казино в одном тексте: #rebuy / #cashout — как раньше, непонятное — в «не разобрано»', () => {
+    const text = [POKER, '[05.06.2026 23:00] Аня Б: Гоша 100', 'Дима -100', 'ну что, ещё?', '[05.06.2026 23:05] Дима: #ставка 5'].join('\n')
+    const chat = parseChat(text)
+    expect(chat.records.map((r) => [r.kind, r.name])).toEqual([
+      ['rebuy', 'Лёша'],
+      ['cashout', 'Дима'],
+    ])
+    expect(chat.rounds.map((r) => r.text)).toEqual(['Гоша 100\nДима -100'])
+    expect(chat.unparsed).toEqual(['Аня Б: ну что, ещё?', 'Дима: #ставка 5'])
+  })
+
+  it('только казино — черновик есть, игроков из раундов нет', () => {
+    const draft = draftOf('[05.06.2026 23:00] Аня Б: Гоша 100\nДима -100')
+    expect(draft.players).toEqual([])
+    expect(draft.rounds).toHaveLength(1)
+    expect(draft.start).toBe(local(2026, 6, 5, 23, 0))
+  })
+})
+
+describe('казино из Телеграма: сверка', () => {
+  it('имя — полное или первое слово, с «ё» как «е» и в дательном', () => {
+    expect(nameFits('Леша', 'Лёша')).toBe(true)
+    expect(nameFits('Семёну', 'Семен')).toBe(true)
+    expect(nameFits('ДИМЕ', 'Дима')).toBe(false) // окончание не дописано к имени, а заменено
+    expect(nameFits('Гоше', 'Гош')).toBe(true)
+    expect(nameFits('Тимуру', 'Тимур Jun')).toBe(true)
+    expect(nameFits('Тимур Jun', 'Тимур')).toBe(false)
+    expect(nameFits('Тимура', 'Тимур')).toBe(false)
+    expect(nameFits('Тим', 'Тимур')).toBe(false)
+  })
+
+  it('дательный и «ё»/«е» — связаны с участником', () => {
+    const draft = draftOf(POKER + '\n[06.06.2026 2:00] Катя: #debt Леша Диме 500')
+    const names = casinoNames(draft)
+    const lesha = draft.players[0]
+    expect(names.map((n) => [n.name, n.player?.name])).toEqual([
+      ['Леша', 'Лёша'],
+      ['Диме', undefined], // «Дима» + «е» — не «Диме»: имя выбирается руками
+    ])
+    expect(names[0].player).toBe(lesha)
+  })
+
+  it('имя у двоих или ни у кого — не разобрано; выбор руками и новый участник только казино', () => {
+    const text = [
+      '[05.06.2026 22:10] Аня Б: #rebuy Тимур',
+      '[05.06.2026 22:11] Аня Б: #rebuy Тимур Jun',
+      '[05.06.2026 23:00] Аня Б: Тимур 100\nТимур Jun 50\nМарат -150',
+      '[05.06.2026 23:10] Аня Б: #debt Тимур Марату 70',
+    ].join('\n')
+    const draft = draftOf(text)
+    const [timur, jun] = draft.players
+    let names = casinoNames(draft)
+    expect(names.map((n) => [n.name, n.player?.name, n.candidates.length])).toEqual([
+      ['Тимур', undefined, 2],
+      ['Тимур Jun', 'Тимур Jun', 1],
+      ['Марат', undefined, 0],
+      ['Марату', undefined, 0],
+    ])
+
+    const linked = linkCasinoName(draft, 'тимур', timur.id)
+    expect(casinoNames(linked)[0].player).toBe(timur)
+    expect(linkCasinoName(draft, 'Тимур', 'нет')).toBe(draft)
+
+    const marat = addCasinoPlayer(linked, 'Марат', () => 'marat')
+    expect(marat.players[2]).toEqual({ id: 'marat', name: 'Марат', buyin: 0, rebuys: [], cashouts: [] })
+    expect(casinoOnly(marat.players[2])).toBe(true)
+    expect(casinoOnly(jun)).toBe(false)
+    names = casinoNames(marat)
+    expect(names.every((n) => n.player !== null)).toBe(true)
+    expect(names[3].player?.id).toBe('marat') // «Марату» — к новому участнику сам
+
+    const game = gameFromDraft(marat, { name: 'И', rate: 0.5, now: 'now' }, ids(), [])
+    expect(game.casino?.map((r) => r.amounts)).toEqual([
+      [
+        { playerId: timur.id, kopecks: 10000 },
+        { playerId: jun.id, kopecks: 5000 },
+        { playerId: 'marat', kopecks: -15000 },
+      ],
+      [
+        { playerId: timur.id, kopecks: -7000 },
+        { playerId: 'marat', kopecks: 7000 },
+      ],
+    ])
+    expect(game.entries.some((e) => e.playerId === 'marat')).toBe(false)
+    expect(gameResult(game).casinoOk).toBe(true)
+  })
+
+  it('объединение игроков переносит выбранное имя', () => {
+    const draft = draftOf(POKER + '\n[05.06.2026 23:00] Аня Б: Тимур 100\nДима -100')
+    const withTimur = addCasinoPlayer(draft, 'Тимур', () => 'timur')
+    const lesha = draft.players[0]
+    const merged = mergeDraftPlayers(withTimur, 'timur', lesha.id)
+    expect(casinoNames(merged)[0].player).toBe(merged.players[0])
+    expect(merged.players.map((p) => p.name)).toEqual(['Лёша', 'Дима'])
+  })
+
+  it('раунд не в ноль — помечен; поправить или убрать', () => {
+    const draft = draftOf(POKER + '\n[05.06.2026 23:00] Аня Б: Лёша 100\nДима -50\n[05.06.2026 23:10] Аня Б: Лёша 10\nДима -10')
+    const [bad, good] = draft.rounds
+    expect(badRounds(draft)).toEqual([bad])
+    expect(badRounds(setRoundText(draft, bad.id, 'Лёша 100\nДима -100'))).toEqual([])
+    expect(badRounds(setRoundText(draft, bad.id, ''))).toHaveLength(1)
+    expect(badRounds(setRoundText(draft, bad.id, 'Лёша 100\nДима -100\nкто-то'))).toHaveLength(1)
+    const removed = removeRound(draft, bad.id)
+    expect(removed.rounds).toEqual([good])
+    expect(badRounds(removed)).toEqual([])
+  })
+
+  it('доли одного участника под двумя именами — сложены, ноль не пишется; раундов нет — нет и казино', () => {
+    const chat = draftOf(POKER + '\n[05.06.2026 23:00] Аня Б: Лёша 100\nКоля -100\n[05.06.2026 23:10] Аня Б: Лёша 30\nДима -30')
+    const draft = linkCasinoName(chat, 'Коля', chat.players[0].id)
+    const game = gameFromDraft(draft, { name: 'И', rate: 0.5, now: 'now' }, ids(), [])
+    expect(game.casino).toEqual([
+      {
+        id: expect.any(String),
+        amounts: [
+          { playerId: draft.players[0].id, kopecks: 3000 },
+          { playerId: draft.players[1].id, kopecks: -3000 },
+        ],
+        at: local(2026, 6, 5, 23, 10),
+      },
+    ])
+    expect('casino' in gameFromDraft(draftOf(POKER), { name: 'И', rate: 0.5, now: 'now' }, ids(), [])).toBe(false)
   })
 })
