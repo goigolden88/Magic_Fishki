@@ -11,8 +11,8 @@ function game(id: string, over: Partial<Game> = {}): Game {
     date: '2026-10-09',
     rate: 0.5,
     players: [
-      { id: `${id}-a`, name: 'Аня' },
-      { id: `${id}-b`, name: 'Боря' },
+      { id: `${id}-a`, name: 'Аня', regularId: 'r-anya' },
+      { id: `${id}-b`, name: 'Боря', regularId: 'r-borya' },
     ],
     entries: [
       { id: `${id}-1`, playerId: `${id}-a`, kind: 'buyin', chips: 1000, at: '2026-10-09T20:00:00.000Z' },
@@ -26,10 +26,25 @@ function game(id: string, over: Partial<Game> = {}): Game {
   }
 }
 
-const SETTINGS: Settings = { defaultRate: 0.25, players: ['Аня', 'Боря'], quickAmounts: [500], defaultBuyin: 2000 }
+const ANYA = { id: 'r-anya', name: 'Аня' }
+const BORYA = { id: 'r-borya', name: 'Боря' }
+const SETTINGS: Settings = { defaultRate: 0.25, players: [ANYA, BORYA], quickAmounts: [500], defaultBuyin: 2000 }
 
 function backupOf(games: Game[], settings: Settings = SETTINGS): Backup {
   return makeBackup(games, settings, NOW)
+}
+
+function ids() {
+  let n = 0
+  return () => `new${++n}`
+}
+
+const parse = (text: string) => parseBackup(text, ids())
+
+// Копия формата 1 (до Р-12): игроки в настройках — строки, у участников нет regularId
+function oldText(games: Game[], players: string[]): string {
+  const plain = games.map((g) => ({ ...g, players: g.players.map(({ id, name }) => ({ id, name })) }))
+  return JSON.stringify({ ...backupOf([]), format: 1, games: plain, settings: { ...SETTINGS, players } })
 }
 
 describe('файл-копия: сохранение (Р-11)', () => {
@@ -37,7 +52,7 @@ describe('файл-копия: сохранение (Р-11)', () => {
     const real = game('g1')
     const backup = backupOf([real, game('demo1', { demo: true }), game('g2')])
     expect(backup.app).toBe('magic_fishki')
-    expect(backup.format).toBe(1)
+    expect(backup.format).toBe(2)
     expect(backup.savedAt).toBe(NOW)
     expect(backup.games.map((g) => g.id)).toEqual(['g1', 'g2'])
     expect(backup.games[0]).toEqual(real)
@@ -47,7 +62,7 @@ describe('файл-копия: сохранение (Р-11)', () => {
   it('пустая база — копия с нулём игр', () => {
     const backup = backupOf([], settingsWithDefaults())
     expect(backup.games).toEqual([])
-    const parsed = parseBackup(backupText(backup))
+    const parsed = parse(backupText(backup))
     expect(parsed).toEqual({ ok: true, backup })
   })
 
@@ -58,59 +73,99 @@ describe('файл-копия: сохранение (Р-11)', () => {
 })
 
 describe('файл-копия: разбор', () => {
-  it('текст копии читается обратно без потерь', () => {
-    const backup = backupOf([game('g1'), game('g2', { closed: undefined, name: 'Суббота' })])
-    expect(parseBackup(backupText(backup))).toEqual({ ok: true, backup })
+  it('текст копии читается обратно без потерь: id постоянных и связи участников', () => {
+    const guest = { id: 'g2-c', name: 'Ира' }
+    const g2 = game('g2', { closed: undefined, name: 'Суббота' })
+    const backup = backupOf([game('g1'), { ...g2, players: [...g2.players, guest] }])
+    expect(parse(backupText(backup))).toEqual({ ok: true, backup })
   })
 
   it('метка BOM в начале файла не мешает', () => {
     const backup = backupOf([game('g1')])
-    expect(parseBackup('﻿' + backupText(backup)).ok).toBe(true)
+    expect(parse('﻿' + backupText(backup)).ok).toBe(true)
   })
 
   it('не JSON — ошибка', () => {
-    const parsed = parseBackup('Аня 1000, Боря 500')
+    const parsed = parse('Аня 1000, Боря 500')
     expect(parsed.ok).toBe(false)
     expect(!parsed.ok && parsed.error).toMatch(/не копия «Фишек»/)
   })
 
   it('JSON другого приложения — ошибка', () => {
-    expect(parseBackup('{"games": []}')).toEqual({ ok: false, error: 'Это не копия «Фишек»' })
-    expect(parseBackup('[1, 2]')).toEqual({ ok: false, error: 'Это не копия «Фишек»' })
-    expect(parseBackup('null')).toEqual({ ok: false, error: 'Это не копия «Фишек»' })
+    expect(parse('{"games": []}')).toEqual({ ok: false, error: 'Это не копия «Фишек»' })
+    expect(parse('[1, 2]')).toEqual({ ok: false, error: 'Это не копия «Фишек»' })
+    expect(parse('null')).toEqual({ ok: false, error: 'Это не копия «Фишек»' })
   })
 
   it('копия из более новой версии — ошибка', () => {
-    const text = JSON.stringify({ ...backupOf([]), format: 2 })
-    expect(parseBackup(text)).toEqual({ ok: false, error: 'Копия из более новой версии «Фишек» — обновите приложение' })
+    const text = JSON.stringify({ ...backupOf([]), format: 3 })
+    expect(parse(text)).toEqual({ ok: false, error: 'Копия из более новой версии «Фишек» — обновите приложение' })
   })
 
   it('битая игра — ошибка с номером игры', () => {
     const broken = { ...game('g2'), entries: [{ id: 'e', playerId: 'p', kind: 'buyin', chips: -5, at: NOW }] }
     const text = JSON.stringify({ ...backupOf([]), games: [game('g1'), broken] })
-    expect(parseBackup(text)).toEqual({ ok: false, error: 'Копия повреждена: игра № 2 не читается' })
+    expect(parse(text)).toEqual({ ok: false, error: 'Копия повреждена: игра № 2 не читается' })
+    const badLink = { ...game('g3'), players: [{ id: 'p', name: 'Аня', regularId: '' }] }
+    expect(parse(JSON.stringify({ ...backupOf([]), games: [badLink] })).ok).toBe(false)
   })
 
   it('нет списка игр или настроек — ошибка', () => {
     const { games: _games, ...noGames } = backupOf([])
-    expect(parseBackup(JSON.stringify(noGames)).ok).toBe(false)
+    expect(parse(JSON.stringify(noGames)).ok).toBe(false)
     const { settings: _settings, ...noSettings } = backupOf([])
-    expect(parseBackup(JSON.stringify(noSettings)).ok).toBe(false)
+    expect(parse(JSON.stringify(noSettings)).ok).toBe(false)
+  })
+
+  it('игроки не того вида для версии — ошибка', () => {
+    const strings = { ...backupOf([]), settings: { ...SETTINGS, players: ['Аня'] } }
+    expect(parse(JSON.stringify(strings))).toEqual({ ok: false, error: 'Копия повреждена: нет настроек' })
+    const objects = { ...backupOf([]), format: 1 }
+    expect(parse(JSON.stringify(objects))).toEqual({ ok: false, error: 'Копия повреждена: нет настроек' })
   })
 
   it('обрезанный файл — ошибка', () => {
     const text = backupText(backupOf([game('g1')]))
-    expect(parseBackup(text.slice(0, text.length / 2)).ok).toBe(false)
+    expect(parse(text.slice(0, text.length / 2)).ok).toBe(false)
+  })
+})
+
+describe('файл-копия прежней версии (формат 1): игроки и связи — по имени (Р-12)', () => {
+  it('постоянным — новые id в прежнем порядке; участникам с тем же именем — связь, прочим — нет', () => {
+    const g = game('g1', { players: [...game('g1').players, { id: 'g1-c', name: 'Ира' }] })
+    const parsed = parse(oldText([g], ['Боря', ' Аня ', '', 'Боря']))
+    if (!parsed.ok) throw new Error(parsed.error)
+    expect(parsed.backup.format).toBe(2)
+    expect(parsed.backup.settings.players).toEqual([
+      { id: 'new1', name: 'Боря' },
+      { id: 'new2', name: 'Аня' },
+    ])
+    expect(parsed.backup.games[0]).toEqual({
+      ...g,
+      players: [
+        { id: 'g1-a', name: 'Аня', regularId: 'new2' },
+        { id: 'g1-b', name: 'Боря', regularId: 'new1' },
+        { id: 'g1-c', name: 'Ира' },
+      ],
+    })
+  })
+
+  it('на устройстве с теми же постоянными — связи на здешние id, список не растёт', () => {
+    const parsed = parse(oldText([game('g1')], ['Аня', 'Боря', 'Вера']))
+    if (!parsed.ok) throw new Error(parsed.error)
+    const plan = planRestore([], [BORYA, ANYA], parsed.backup)
+    expect(plan.players).toEqual([BORYA, ANYA, { id: 'new3', name: 'Вера' }])
+    expect(plan.added[0].players.map((p) => p.regularId)).toEqual(['r-anya', 'r-borya'])
   })
 })
 
 describe('файл-копия: восстановление ничего не перезаписывает', () => {
-  it('на пустом устройстве — добавляются все игры и игроки', () => {
+  it('на пустом устройстве — добавляются все игры и игроки с их id', () => {
     const backup = backupOf([game('g1'), game('g2')])
     const plan = planRestore([], [], backup)
     expect(plan.added).toEqual(backup.games)
     expect(plan.existing).toBe(0)
-    expect(plan.players).toEqual(['Аня', 'Боря'])
+    expect(plan.players).toEqual([ANYA, BORYA])
   })
 
   it('игры с тем же id остаются как есть, новых добавляется только недостающее', () => {
@@ -121,12 +176,32 @@ describe('файл-копия: восстановление ничего не п
   })
 
   it('игроки из копии — в конец, без повторов по имени; порядок своих не меняется', () => {
-    const backup = backupOf([], { ...SETTINGS, players: ['Аня', 'Вера', ' Гоша ', 'Вера', ''] })
-    expect(planRestore([], ['Боря', 'Аня'], backup).players).toEqual(['Боря', 'Аня', 'Вера', 'Гоша'])
+    const players = [ANYA, { id: 'r-vera', name: 'Вера' }, { id: 'r-gosha', name: ' Гоша ' }, { id: 'r-x', name: '' }]
+    const backup = backupOf([], { ...SETTINGS, players })
+    const mine = [{ id: 'my-borya', name: 'Боря' }, { id: 'my-anya', name: 'Аня' }]
+    expect(planRestore([], mine, backup).players).toEqual([...mine, { id: 'r-vera', name: 'Вера' }, { id: 'r-gosha', name: 'Гоша' }])
+  })
+
+  it('тот же постоянный уже есть по id, хоть и переименован, — остаётся свой, связи не меняются', () => {
+    const backup = backupOf([game('g1')])
+    const mine = [{ id: 'r-anya', name: 'Анна' }, BORYA]
+    const plan = planRestore([], mine, backup)
+    expect(plan.players).toEqual(mine)
+    expect(plan.added).toEqual(backup.games)
+  })
+
+  it('постоянный с тем же именем, но другим id — один человек: связи в добавленных играх — на здешний id', () => {
+    const backup = backupOf([game('g1'), game('g2')])
+    const mine = [{ id: 'my-anya', name: 'Аня' }]
+    const plan = planRestore(['g2'], mine, backup)
+    expect(plan.players).toEqual([...mine, BORYA])
+    expect(plan.added.map((g) => g.id)).toEqual(['g1'])
+    expect(plan.added[0].players.map((p) => p.regularId)).toEqual(['my-anya', 'r-borya'])
+    expect(plan.added[0].entries).toEqual(game('g1').entries)
   })
 
   it('копия с нулём игр ничего не меняет', () => {
     const backup = backupOf([], settingsWithDefaults())
-    expect(planRestore(['g1'], ['Аня'], backup)).toEqual({ added: [], existing: 0, players: ['Аня'] })
+    expect(planRestore(['g1'], [ANYA], backup)).toEqual({ added: [], existing: 0, players: [ANYA] })
   })
 })

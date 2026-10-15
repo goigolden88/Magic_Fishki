@@ -40,7 +40,7 @@ function draftOf(text: string, buyin = 1000): Draft {
 }
 
 function check(draft: Draft) {
-  const game = gameFromDraft(draft, { name: 'Игра', rate: 0.5, now: '2026-06-06T10:00:00.000Z' }, ids())
+  const game = gameFromDraft(draft, { name: 'Игра', rate: 0.5, now: '2026-06-06T10:00:00.000Z' }, ids(), [])
   return balance(playerTotals(game.players, game.entries, game.rate))
 }
 
@@ -206,7 +206,7 @@ describe('сверка', () => {
 describe('игра из сверки', () => {
   it('обычная игра: закупы — временем первого сообщения, записи по времени, курс и название', () => {
     const draft = draftOf(CHAT)
-    const game = gameFromDraft(draft, { name: '5 июня', rate: 0.5, now: 'now' }, () => 'e')
+    const game = gameFromDraft(draft, { name: '5 июня', rate: 0.5, now: 'now' }, () => 'e', [])
     expect(game).toMatchObject({ name: '5 июня', date: '2026-06-05', rate: 0.5, updatedAt: 'now' })
     expect(game.players.map((p) => p.name)).toEqual(['Гоша', 'Дима', 'Ezh', 'Аня Б', 'Катя'])
     expect(game.entries).toHaveLength(5 + 5 + 4)
@@ -225,14 +225,14 @@ describe('игра из сверки', () => {
 
   it('закуп 0 — записи закупа нет; закуп по умолчанию из настроек — и докуп той же суммой', () => {
     const draft = draftOf('[05.06.2026 22:10] Аня Б: #rebuy\n[06.06.2026 3:00] Аня Б: #cashout 3000', 1500)
-    const game = gameFromDraft(draft, { name: 'И', rate: 1, now: 'now' }, ids())
+    const game = gameFromDraft(draft, { name: 'И', rate: 1, now: 'now' }, ids(), [])
     expect(game.entries.map((e) => [e.kind, e.chips])).toEqual([
       ['buyin', 1500],
       ['rebuy', 1500],
       ['cashout', 3000],
     ])
     const noBuyin = { ...draft, players: [{ ...draft.players[0], buyin: 0 }] }
-    expect(gameFromDraft(noBuyin, { name: 'И', rate: 1, now: 'now' }, ids()).entries.map((e) => e.kind)).toEqual([
+    expect(gameFromDraft(noBuyin, { name: 'И', rate: 1, now: 'now' }, ids(), []).entries.map((e) => e.kind)).toEqual([
       'rebuy',
       'cashout',
     ])
@@ -240,8 +240,30 @@ describe('игра из сверки', () => {
 
   it('один текст дважды — две разные игры', () => {
     const make = ids()
-    const a = gameFromDraft(draftOf(CHAT), { name: 'И', rate: 0.5, now: 'now' }, make)
-    const b = gameFromDraft(draftOf(CHAT), { name: 'И', rate: 0.5, now: 'now' }, make)
+    const a = gameFromDraft(draftOf(CHAT), { name: 'И', rate: 0.5, now: 'now' }, make, [])
+    const b = gameFromDraft(draftOf(CHAT), { name: 'И', rate: 0.5, now: 'now' }, make, [])
     expect(a.id).not.toBe(b.id)
+  })
+
+  it('участник с именем постоянного игрока связан с ним; ник и другое написание — гости (Р-12)', () => {
+    const regulars = [
+      { id: 'r-gosha', name: 'Гоша' },
+      { id: 'r-katya', name: 'Катя' },
+      { id: 'r-anya', name: 'Аня' },
+    ]
+    const draft = draftOf(CHAT)
+    const ezh = draft.players.find((p) => p.name === 'Ezh')!
+    const named = assignRegular(draft, ezh.id, 'Аня')
+    const game = gameFromDraft(named, { name: 'И', rate: 0.5, now: 'now' }, ids(), regulars)
+    expect(game.players.map((p) => [p.name, p.regularId])).toEqual([
+      ['Гоша', 'r-gosha'],
+      ['Дима', undefined],
+      ['Аня', 'r-anya'],
+      ['Аня Б', undefined],
+      ['Катя', 'r-katya'],
+    ])
+    expect(gameFromDraft(draft, { name: 'И', rate: 0.5, now: 'now' }, ids(), []).players.every((p) => !('regularId' in p))).toBe(
+      true,
+    )
   })
 })

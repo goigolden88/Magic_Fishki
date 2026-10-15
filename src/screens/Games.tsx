@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { balance, playerTotals } from '../calc/totals'
 import { formatNumber, formatRate, parseRate } from '../calc/format'
-import { createGame, DEFAULT_BUYIN, type Game } from '../model'
+import { createGame, DEFAULT_BUYIN, type Game, type Regular } from '../model'
 import { getSettings, listGames, saveGame } from '../store/db'
 import { formatDate, today } from '../dates'
 import { ulid } from '../ulid'
@@ -17,8 +17,8 @@ export function GamesScreen() {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [rateText, setRateText] = useState('')
-  const [regulars, setRegulars] = useState<string[]>([]) // постоянные игроки из настроек
-  const [picked, setPicked] = useState<Set<string>>(new Set()) // отмеченные — участники игры
+  const [regulars, setRegulars] = useState<Regular[]>([]) // постоянные игроки из настроек
+  const [picked, setPicked] = useState<Set<string>>(new Set()) // id отмеченных — участники игры
   const [defaultBuyin, setDefaultBuyin] = useState(DEFAULT_BUYIN) // закуп по умолчанию из настроек (Р-09)
   const [askBuyin, setAskBuyin] = useState(false) // вопрос «Записать всем закуп?»
 
@@ -31,21 +31,21 @@ export function GamesScreen() {
     setName(formatDate(today()))
     setRateText(formatRate(settings.defaultRate))
     setRegulars(settings.players)
-    setPicked(new Set(settings.players))
+    setPicked(new Set(settings.players.map((r) => r.id)))
     setDefaultBuyin(settings.defaultBuyin)
     setAskBuyin(false)
     setCreating(true)
   }
 
-  function toggle(player: string) {
+  function toggle(id: string) {
     const next = new Set(picked)
-    if (!next.delete(player)) next.add(player)
+    if (!next.delete(id)) next.add(id)
     setPicked(next)
   }
 
   const rate = parseRate(rateText)
 
-  const players = regulars.filter((p) => picked.has(p))
+  const players = regulars.filter((r) => picked.has(r.id))
 
   // Участники выбраны — сначала вопрос про закуп; нет участников — сразу игра без записей
   function startCreate() {
@@ -107,10 +107,10 @@ export function GamesScreen() {
               <legend className="muted">
                 Участники: {picked.size} из {regulars.length}
               </legend>
-              {regulars.map((p) => (
-                <label key={p} className="check">
-                  <input type="checkbox" checked={picked.has(p)} onChange={() => toggle(p)} />
-                  {p}
+              {regulars.map((r) => (
+                <label key={r.id} className="check">
+                  <input type="checkbox" checked={picked.has(r.id)} onChange={() => toggle(r.id)} />
+                  {r.name}
                 </label>
               ))}
               <p className="muted">Гостя можно добавить на экране игры.</p>

@@ -1,5 +1,5 @@
 // Вставка из Телеграма (Р-10): текст «Копировать» → записи #rebuy / #cashout → черновик игры на сверке
-import type { Entry, Game, Player } from '../model'
+import { linkRegulars, type Entry, type Game, type Player, type Regular } from '../model'
 
 export type ChatRecord =
   | { kind: 'rebuy'; name: string; at: string } // name — кому докуп
@@ -177,9 +177,13 @@ export function duplicateNames(draft: Draft): string[] {
 
 export type DraftMeta = { name: string; rate: number; now: string }
 
-// Черновик → обычная игра: записи со временем сообщений, по порядку времени
-export function gameFromDraft(draft: Draft, meta: DraftMeta, makeId: () => string): Game {
-  const players: Player[] = draft.players.map((p) => ({ id: p.id, name: p.name.trim() }))
+// Черновик → обычная игра: записи со временем сообщений, по порядку времени;
+// участник с именем постоянного игрока связан с ним (Р-12)
+export function gameFromDraft(draft: Draft, meta: DraftMeta, makeId: () => string, regulars: Regular[]): Game {
+  const players: Player[] = linkRegulars(
+    draft.players.map((p) => ({ id: p.id, name: p.name.trim() })),
+    regulars,
+  )
   const entries: Entry[] = []
   for (const p of draft.players) {
     if (p.buyin > 0) entries.push({ id: makeId(), playerId: p.id, kind: 'buyin', chips: p.buyin, at: draft.start })

@@ -1,6 +1,6 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, it } from 'vitest'
-import { moveItem, playersFromNames, settingsWithDefaults, type Game, type Settings } from '../model'
+import { moveItem, playersFromRegulars, settingsWithDefaults, type Game, type Settings } from '../model'
 import { getGame, getSettings, saveGame, saveSettings } from './db'
 
 describe('настройки: умолчания (Р-07)', () => {
@@ -24,10 +24,10 @@ describe('настройки: умолчания (Р-07)', () => {
 
   it('заданные поля не подменяются, в том числе пустые списки', () => {
     expect(
-      settingsWithDefaults({ defaultRate: 0.25, players: ['Аня'], quickAmounts: [], defaultBuyin: 2000 }),
+      settingsWithDefaults({ defaultRate: 0.25, players: [{ id: 'r1', name: 'Аня' }], quickAmounts: [], defaultBuyin: 2000 }),
     ).toEqual({
       defaultRate: 0.25,
-      players: ['Аня'],
+      players: [{ id: 'r1', name: 'Аня' }],
       quickAmounts: [],
       defaultBuyin: 2000,
     })
@@ -50,8 +50,13 @@ describe('настройки: умолчания (Р-07)', () => {
 })
 
 describe('постоянные игроки и прошлые игры', () => {
-  it('удаление и переименование постоянного игрока не трогают сохранённую игру', async () => {
-    await saveSettings({ defaultRate: 0.5, players: ['Аня', 'Боря', 'Вера'], quickAmounts: [500], defaultBuyin: 1000 })
+  it('удаление и переименование постоянного игрока не трогают сохранённую игру; связь по id остаётся (Р-12)', async () => {
+    const [anya, borya, vera] = [
+      { id: 'r1', name: 'Аня' },
+      { id: 'r2', name: 'Боря' },
+      { id: 'r3', name: 'Вера' },
+    ]
+    await saveSettings({ defaultRate: 0.5, players: [anya, borya, vera], quickAmounts: [500], defaultBuyin: 1000 })
     const settings = await getSettings()
     let n = 0
     const game: Game = {
@@ -59,22 +64,26 @@ describe('постоянные игроки и прошлые игры', () => {
       name: 'Пятница',
       date: '2026-10-09',
       rate: settings.defaultRate,
-      players: playersFromNames(settings.players, () => `p${++n}`),
+      players: playersFromRegulars(settings.players, () => `p${++n}`),
       entries: [{ id: 'e1', playerId: 'p2', kind: 'buyin', chips: 1000, at: '2026-10-09T20:00:00.000Z' }],
       updatedAt: '2026-10-09T20:00:00.000Z',
     }
     await saveGame(game)
 
-    await saveSettings({ ...settings, players: ['Аня', 'Вера Н.'] })
+    // Как «Настройки»: переименование — то же id, новое имя; удаление — без записи
+    await saveSettings({ ...settings, players: [anya, { ...vera, name: 'Вера Н.' }] })
 
     const stored = await getGame('g1')
     expect(stored?.players).toEqual([
-      { id: 'p1', name: 'Аня' },
-      { id: 'p2', name: 'Боря' },
-      { id: 'p3', name: 'Вера' },
+      { id: 'p1', name: 'Аня', regularId: 'r1' },
+      { id: 'p2', name: 'Боря', regularId: 'r2' },
+      { id: 'p3', name: 'Вера', regularId: 'r3' },
     ])
     expect(stored?.entries).toEqual(game.entries)
-    expect((await getSettings()).players).toEqual(['Аня', 'Вера Н.'])
+    expect((await getSettings()).players).toEqual([
+      { id: 'r1', name: 'Аня' },
+      { id: 'r3', name: 'Вера Н.' },
+    ])
   })
 })
 

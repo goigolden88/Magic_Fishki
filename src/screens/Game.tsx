@@ -4,7 +4,7 @@ import { shareText } from '../calc/share'
 import { balance, playerTotals, type PlayerTotal } from '../calc/totals'
 import { transfers } from '../calc/transfers'
 import { formatDate, formatTime } from '../dates'
-import type { Entry, EntryKind, Game, Player } from '../model'
+import { playerByName, type Entry, type EntryKind, type Game, type Player, type Regular } from '../model'
 import { deleteGame, getGame, getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 
@@ -16,12 +16,16 @@ export function GameScreen({ id }: { id: string }) {
   const [newPlayer, setNewPlayer] = useState('')
   const [rateText, setRateText] = useState<string | null>(null) // не null — курс правится
   const [quickAmounts, setQuickAmounts] = useState<number[]>([])
+  const [regulars, setRegulars] = useState<Regular[]>([]) // постоянные игроки — для связи с участником (Р-12)
   const [shareNote, setShareNote] = useState<string | null>(null) // «Скопировано» под кнопкой
   const [deleting, setDeleting] = useState(false) // первое нажатие «Удалить игру» — ждём второго
 
   useEffect(() => {
     void getGame(id).then((g) => setGame(g ?? null))
-    void getSettings().then((s) => setQuickAmounts(s.quickAmounts))
+    void getSettings().then((s) => {
+      setQuickAmounts(s.quickAmounts)
+      setRegulars(s.players)
+    })
   }, [id])
 
   if (game === undefined) return <main className="screen" />
@@ -51,7 +55,7 @@ export function GameScreen({ id }: { id: string }) {
     e.preventDefault()
     const name = newPlayer.trim()
     if (!name || current.players.some((p) => p.name === name)) return
-    update({ ...current, players: [...current.players, { id: ulid(), name }] })
+    update({ ...current, players: [...current.players, playerByName(name, regulars, ulid())] })
     setNewPlayer('')
   }
 
