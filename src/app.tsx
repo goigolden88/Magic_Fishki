@@ -5,9 +5,10 @@ import { SettingsScreen } from './screens/Settings'
 import { ImportScreen } from './screens/Import'
 import { PlayersScreen } from './screens/Players'
 import { PlayerScreen } from './screens/Player'
+import { HelpScreen } from './screens/Help'
 
 // Маршруты: #/ — игры, #/game/:id — игра, #/settings — настройки, #/import — из Телеграма, #/players — игроки,
-// #/players/:id — карточка постоянного игрока
+// #/players/:id — карточка постоянного игрока, #/help — справка
 type Route =
   | { screen: 'games' }
   | { screen: 'game'; id: string }
@@ -15,6 +16,7 @@ type Route =
   | { screen: 'import' }
   | { screen: 'players' }
   | { screen: 'player'; id: string }
+  | { screen: 'help' }
 
 function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, '')
@@ -25,6 +27,7 @@ function parseRoute(hash: string): Route {
   if (path === '/settings') return { screen: 'settings' }
   if (path === '/import') return { screen: 'import' }
   if (path === '/players') return { screen: 'players' }
+  if (path === '/help') return { screen: 'help' }
   return { screen: 'games' }
 }
 
@@ -51,6 +54,8 @@ export function App() {
       return <PlayersScreen />
     case 'player':
       return <PlayerScreen key={route.id} id={route.id} />
+    case 'help':
+      return <HelpScreen />
     default:
       return <GamesScreen />
   }
