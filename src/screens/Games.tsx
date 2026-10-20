@@ -82,6 +82,9 @@ export function GamesScreen() {
           <a className="bar-link" href="#/settings">
             Настройки
           </a>
+          <a className="bar-link" href="#/help" aria-label="Справка">
+            ?
+          </a>
         </nav>
       </header>
 
