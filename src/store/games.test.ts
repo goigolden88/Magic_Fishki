@@ -21,7 +21,7 @@ function input(over: Partial<NewGame> = {}): NewGame {
 
 describe('новая игра: закуп всем (Р-09)', () => {
   it('«Да» — у каждого участника один закуп на сумму из настроек, время — сейчас', async () => {
-    await saveSettings({ defaultRate: 0.5, players: [], quickAmounts: [500], defaultBuyin: 2000 })
+    await saveSettings({ defaultRate: 0.5, players: [], quickAmounts: [500], defaultBuyin: 2000, compareWindow: 5 })
     const settings = await getSettings()
     const names = ['Аня', 'Боря', 'Вера', 'Гоша', 'Даша', 'Егор']
     const game = createGame(input({ players: regulars(names), buyin: settings.defaultBuyin }), counter())

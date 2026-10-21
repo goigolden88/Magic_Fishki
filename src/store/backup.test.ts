@@ -40,7 +40,7 @@ async function restore(text: string) {
 
 async function clearAll() {
   for (const g of await listGames()) await deleteGame(g.id)
-  await saveSettings({ defaultRate: 0.5, players: [], quickAmounts: [500, 1000, 2000], defaultBuyin: 1000 })
+  await saveSettings({ defaultRate: 0.5, players: [], quickAmounts: [500, 1000, 2000], defaultBuyin: 1000, compareWindow: 5 })
 }
 
 describe('файл-копия через базу (Р-11)', () => {
@@ -50,7 +50,7 @@ describe('файл-копия через базу (Р-11)', () => {
     const g1 = await saveGame(linked(game('01A', '2026-10-02', ['Аня', 'Боря', 'Вера'], [[1000, 2500], [1000, 0], [1000, 500]])))
     const g2 = await saveGame(game('01B', '2026-10-09', ['Гоша', 'Даша'], [[2000, 1000], [2000, 3000]]))
     await saveGame({ ...game('01C', '2026-10-09', ['Демо'], [[500, 500]]), demo: true })
-    await saveSettings({ defaultRate: 0.25, players: regs, quickAmounts: [500], defaultBuyin: 2000 })
+    await saveSettings({ defaultRate: 0.25, players: regs, quickAmounts: [500], defaultBuyin: 2000, compareWindow: 7 })
 
     const before = (await listGames()).filter((g) => !g.demo)
     const text = backupText(makeBackup(await listGames(), await getSettings(), '2026-10-14T19:00:00.000Z'))
@@ -86,7 +86,7 @@ describe('файл-копия через базу (Р-11)', () => {
         { ...game('02A', '2026-10-09', ['Аня'], [[1000, 1000]]), name: 'Старое имя' },
         game('02B', '2026-10-10', ['Боря'], [[500, 500]]),
       ],
-      { defaultRate: 0.1, players: regulars(['Боря', 'Ира']), quickAmounts: [], defaultBuyin: 5 },
+      { defaultRate: 0.1, players: regulars(['Боря', 'Ира']), quickAmounts: [], defaultBuyin: 5, compareWindow: 9 },
       '2026-10-14T19:00:00.000Z',
     )
     const plan = await restore(backupText(other))
@@ -100,6 +100,7 @@ describe('файл-копия через базу (Р-11)', () => {
     expect(settings.players).toEqual([ira, { id: 'r-Боря', name: 'Боря' }])
     expect(settings.defaultRate).toBe(1)
     expect(settings.quickAmounts).toEqual([500, 1000, 2000])
+    expect(settings.compareWindow).toBe(5)
   })
 
   it('копия прежней версии (формат 1): игроки и связи — по имени (Р-12)', async () => {

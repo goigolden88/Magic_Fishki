@@ -462,6 +462,23 @@ textarea.round {
   margin: 10px 0 0;
 }
 
+.spans p {
+  margin: 0;
+}
+
+.spans p + p {
+  margin-top: 8px;
+}
+
+/* Окно сравнения в настройках: − число + */
+.stepper-value {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Из Телеграма: поле вставки и сверка */
 textarea.paste {
   display: block;

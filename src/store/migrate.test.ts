@@ -103,7 +103,13 @@ describe('миграция базы 1 → 2: постоянный игрок —
 
   it('пустая база версии 1 — миграция без ошибок', async () => {
     ;(await openV1(undefined, [])).close()
-    expect(await getSettings()).toEqual({ defaultRate: 0.5, players: [], quickAmounts: [500, 1000, 2000], defaultBuyin: 1000 })
+    expect(await getSettings()).toEqual({
+      defaultRate: 0.5,
+      players: [],
+      quickAmounts: [500, 1000, 2000],
+      defaultBuyin: 1000,
+      compareWindow: 5,
+    })
     expect(await listGames()).toEqual([])
   })
 

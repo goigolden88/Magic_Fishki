@@ -8,8 +8,8 @@ const PLACEHOLDERS: HelpValues = {
   buyin: '‹закуп›',
   amounts: '‹суммы›',
   window: '‹окно›',
-  recent: '‹последние›',
-  previous: '‹предыдущие›',
+  minWindow: '‹окно от›',
+  maxWindow: '‹окно до›',
 }
 
 describe('справка', () => {
@@ -47,8 +47,8 @@ describe('справка', () => {
       buyin: formatNumber(1000),
       amounts: [500, 1000, 2000].map(formatNumber).join(', '),
       window: '5',
-      recent: 'Последние 5 игр',
-      previous: 'Предыдущие 5 игр',
+      minWindow: '3',
+      maxWindow: '10',
     })
   })
 })

@@ -45,19 +45,30 @@ export type Settings = {
   players: Regular[] // постоянные игроки: при новой игре отмечены (Р-07, Р-12)
   quickAmounts: number[] // быстрые суммы фишек у «Закуп», «Докуп», «Выход» (Р-07)
   defaultBuyin: number // закуп по умолчанию: при новой игре — вопрос «Записать всем закуп по N?» (Р-09)
+  compareWindow: number // окно сравнения на карточке игрока: игр в тренде и в промежутке, MIN_WINDOW–MAX_WINDOW (Р-15)
 }
 
 export const DEFAULT_RATE = 0.5
 export const DEFAULT_QUICK_AMOUNTS = [500, 1000, 2000]
 export const DEFAULT_BUYIN = 1000
+export const DEFAULT_WINDOW = 5
+export const MIN_WINDOW = 3
+export const MAX_WINDOW = 10
 
-// Запись settings прежних версий может не иметь новых полей — нет поля, значит умолчание
+// Окно — целое от MIN_WINDOW до MAX_WINDOW
+export function isWindow(n: unknown): n is number {
+  return Number.isInteger(n) && (n as number) >= MIN_WINDOW && (n as number) <= MAX_WINDOW
+}
+
+// Запись settings прежних версий может не иметь новых полей — нет поля, значит умолчание.
+// Окно вне 3–10 или не целое — тоже умолчание
 export function settingsWithDefaults(stored?: Partial<Settings>): Settings {
   return {
     defaultRate: typeof stored?.defaultRate === 'number' ? stored.defaultRate : DEFAULT_RATE,
     players: Array.isArray(stored?.players) ? stored.players.map((r) => ({ ...r })) : [],
     quickAmounts: Array.isArray(stored?.quickAmounts) ? [...stored.quickAmounts] : [...DEFAULT_QUICK_AMOUNTS],
     defaultBuyin: typeof stored?.defaultBuyin === 'number' ? stored.defaultBuyin : DEFAULT_BUYIN,
+    compareWindow: isWindow(stored?.compareWindow) ? stored.compareWindow : DEFAULT_WINDOW,
   }
 }
 
