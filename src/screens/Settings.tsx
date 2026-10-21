@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'r
 import { backupFileName, backupText, makeBackup, parseBackup, planRestore } from '../calc/backup'
 import { formatNumber, formatRate, parseChips, parseRate } from '../calc/format'
 import { today } from '../dates'
-import { moveItem, type Game, type Regular, type Settings } from '../model'
+import { MAX_WINDOW, MIN_WINDOW, moveItem, type Game, type Regular, type Settings } from '../model'
 import { getSettings, listGames, restoreGames, saveSettings } from '../store/db'
 import { ulid } from '../ulid'
 
@@ -87,6 +87,10 @@ export function SettingsScreen() {
           <AmountsCard
             amounts={settings.quickAmounts}
             onChange={(quickAmounts) => update({ ...settings, quickAmounts })}
+          />
+          <WindowCard
+            size={settings.compareWindow}
+            onChange={(compareWindow) => update({ ...settings, compareWindow })}
           />
           <BackupCard settings={settings} onPlayers={(players) => setSettings((s) => s && { ...s, players })} />
         </>
@@ -255,6 +259,40 @@ function AmountsCard({ amounts, onChange }: { amounts: number[]; onChange: (amou
         </button>
       </form>
       {duplicate && <p className="warn">Такая сумма уже есть</p>}
+    </section>
+  )
+}
+
+// Окно сравнения (Р-15): кнопки не выпускают за MIN_WINDOW–MAX_WINDOW; сохраняется сразу
+function WindowCard({ size, onChange }: { size: number; onChange: (size: number) => void }) {
+  return (
+    <section className="card">
+      <h2>Окно сравнения, игр</h2>
+      <p className="muted">
+        Карточка игрока: последние игры против предыдущих, лучший и худший промежуток — по столько игр подряд. От{' '}
+        {MIN_WINDOW} до {MAX_WINDOW}.
+      </p>
+      <div className="row">
+        <button
+          type="button"
+          className="big"
+          aria-label="Меньше"
+          disabled={size <= MIN_WINDOW}
+          onClick={() => onChange(size - 1)}
+        >
+          −
+        </button>
+        <span className="grow stepper-value">{size}</span>
+        <button
+          type="button"
+          className="big"
+          aria-label="Больше"
+          disabled={size >= MAX_WINDOW}
+          onClick={() => onChange(size + 1)}
+        >
+          +
+        </button>
+      </div>
     </section>
   )
 }

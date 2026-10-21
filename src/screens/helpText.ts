@@ -1,24 +1,23 @@
 import { formatNumber, formatRate } from '../calc/format'
-import { WINDOW, windowTitle } from '../calc/trend'
-import { DEFAULT_BUYIN, DEFAULT_QUICK_AMOUNTS, DEFAULT_RATE } from '../model'
+import { DEFAULT_BUYIN, DEFAULT_QUICK_AMOUNTS, DEFAULT_RATE, DEFAULT_WINDOW, MAX_WINDOW, MIN_WINDOW } from '../model'
 
 // Числа справки — только отсюда, из тех же констант, что у экранов; в самом тексте цифр нет (тест)
 export type HelpValues = {
   rate: string // курс по умолчанию
   buyin: string // закуп по умолчанию
   amounts: string // быстрые суммы по умолчанию
-  window: string // игр в окне динамики
-  recent: string // «Последние 5 игр»
-  previous: string // «Предыдущие 5 игр»
+  window: string // окно сравнения по умолчанию
+  minWindow: string // окно сравнения — от
+  maxWindow: string // окно сравнения — до
 }
 
 export const HELP_VALUES: HelpValues = {
   rate: formatRate(DEFAULT_RATE),
   buyin: formatNumber(DEFAULT_BUYIN),
   amounts: DEFAULT_QUICK_AMOUNTS.map(formatNumber).join(', '),
-  window: formatNumber(WINDOW),
-  recent: windowTitle('recent', WINDOW),
-  previous: windowTitle('previous', WINDOW),
+  window: formatNumber(DEFAULT_WINDOW),
+  minWindow: formatNumber(MIN_WINDOW),
+  maxWindow: formatNumber(MAX_WINDOW),
 }
 
 export type HelpSection = { title: string; text: string[] }
@@ -55,8 +54,9 @@ export function helpSections(v: HelpValues): HelpSection[] {
     {
       title: 'Карточка игрока',
       text: [
-        `Сверху — то же, что в списке игроков. Ниже — «${v.recent}» рядом с «${v.previous}»: итог, в плюсе, средний итог за игру и докупов в среднем.`,
-        `У последних игр — разница: ▲ лучше, ▼ хуже; для докупов лучше, когда их меньше. Сравнение появляется, когда закрытых игр больше ${v.window}.`,
+        'Сверху — то же, что в списке игроков. Ниже — последние игры рядом с предыдущими: итог, в плюсе, средний итог за игру и докупов в среднем. Сколько игр в каждом столбце, задаёт «Окно сравнения» в настройках.',
+        'У последних игр — разница: ▲ лучше, ▼ хуже; для докупов лучше, когда их меньше. Сравнение появляется, когда закрытых игр больше, чем окно.',
+        'Ещё ниже — лучший и худший промежуток: столько игр подряд, сколько в окне, с самым большим и самым маленьким итого, и их даты. Промежутки появляются, когда закрытых игр не меньше двух окон; до тех пор карточка пишет, сколько игр нужно. При равных итогах показан более поздний промежуток.',
       ],
     },
     {
@@ -74,6 +74,7 @@ export function helpSections(v: HelpValues): HelpSection[] {
         `«Курс новой игры, ₽ за фишку» (сначала — ${v.rate}) и «Закуп по умолчанию, фишек» (сначала — ${v.buyin}) сохраняются кнопкой «Сохранить». У начатых игр курс свой — он меняется на экране игры.`,
         '«Постоянные игроки» — те, кто отмечен в новой игре сразу и попадает в статистику. Их можно переставить ↑ ↓, переименовать ✎ или убрать ✕; прошлые игры от этого не меняются.',
         `«Быстрые суммы, фишек» (сначала — ${v.amounts}) — кнопки записи одним касанием в игре.`,
+        `«Окно сравнения, игр» (сначала — ${v.window}, можно от ${v.minWindow} до ${v.maxWindow}) — сколько игр сравнивает карточка игрока: последние против предыдущих и лучший и худший промежуток. Кнопки − и + меняют его сразу.`,
         '«Копия игр» — о ней в разделе «Данные».',
       ],
     },

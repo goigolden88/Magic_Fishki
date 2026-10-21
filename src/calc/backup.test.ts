@@ -28,7 +28,13 @@ function game(id: string, over: Partial<Game> = {}): Game {
 
 const ANYA = { id: 'r-anya', name: 'Аня' }
 const BORYA = { id: 'r-borya', name: 'Боря' }
-const SETTINGS: Settings = { defaultRate: 0.25, players: [ANYA, BORYA], quickAmounts: [500], defaultBuyin: 2000 }
+const SETTINGS: Settings = {
+  defaultRate: 0.25,
+  players: [ANYA, BORYA],
+  quickAmounts: [500],
+  defaultBuyin: 2000,
+  compareWindow: 3,
+}
 
 function backupOf(games: Game[], settings: Settings = SETTINGS): Backup {
   return makeBackup(games, settings, NOW)
@@ -78,6 +84,18 @@ describe('файл-копия: разбор', () => {
     const g2 = game('g2', { closed: undefined, name: 'Суббота' })
     const backup = backupOf([game('g1'), { ...g2, players: [...g2.players, guest] }])
     expect(parse(backupText(backup))).toEqual({ ok: true, backup })
+  })
+
+  it('окно сравнения (Р-15): в копии есть и читается обратно; старая копия без него или с негодным — 5', () => {
+    const backup = backupOf([])
+    expect(JSON.parse(backupText(backup)).settings.compareWindow).toBe(3)
+    const parsed = parse(backupText(backup))
+    expect(parsed.ok && parsed.backup.settings.compareWindow).toBe(3)
+    const { compareWindow: _w, ...old } = SETTINGS
+    const withoutWindow = parse(JSON.stringify({ ...backup, settings: old }))
+    expect(withoutWindow.ok && withoutWindow.backup.settings.compareWindow).toBe(5)
+    const tooBig = parse(JSON.stringify({ ...backup, settings: { ...SETTINGS, compareWindow: 11 } }))
+    expect(tooBig.ok && tooBig.backup.settings.compareWindow).toBe(5)
   })
 
   it('метка BOM в начале файла не мешает', () => {

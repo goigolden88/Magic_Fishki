@@ -14,6 +14,12 @@ export function formatDate(date: string): string {
     .replace(/\s*г\.$/, '')
 }
 
+// 2026-10-09 → «09.10»
+export function formatDayMonth(date: string): string {
+  const [, m, d] = date.split('-')
+  return `${d}.${m}`
+}
+
 // ISO → «21:05»
 export function formatTime(iso: string): string {
   const d = new Date(iso)

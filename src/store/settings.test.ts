@@ -10,27 +10,42 @@ describe('настройки: умолчания (Р-07)', () => {
       players: [],
       quickAmounts: [500, 1000, 2000],
       defaultBuyin: 1000,
+      compareWindow: 5,
     })
   })
 
-  it('старая запись без новых полей — курс свой, игроки, суммы и закуп по умолчанию', () => {
+  it('старая запись без новых полей — курс свой, игроки, суммы, закуп и окно по умолчанию', () => {
     expect(settingsWithDefaults({ defaultRate: 1 })).toEqual({
       defaultRate: 1,
       players: [],
       quickAmounts: [500, 1000, 2000],
       defaultBuyin: 1000,
+      compareWindow: 5,
     })
   })
 
   it('заданные поля не подменяются, в том числе пустые списки', () => {
     expect(
-      settingsWithDefaults({ defaultRate: 0.25, players: [{ id: 'r1', name: 'Аня' }], quickAmounts: [], defaultBuyin: 2000 }),
+      settingsWithDefaults({
+        defaultRate: 0.25,
+        players: [{ id: 'r1', name: 'Аня' }],
+        quickAmounts: [],
+        defaultBuyin: 2000,
+        compareWindow: 3,
+      }),
     ).toEqual({
       defaultRate: 0.25,
       players: [{ id: 'r1', name: 'Аня' }],
       quickAmounts: [],
       defaultBuyin: 2000,
+      compareWindow: 3,
     })
+  })
+
+  it('окно сравнения (Р-15): от 3 до 10 целым, иначе — 5', () => {
+    const windowOf = (compareWindow: unknown) => settingsWithDefaults({ compareWindow } as Partial<Settings>).compareWindow
+    expect([3, 7, 10].map(windowOf)).toEqual([3, 7, 10])
+    expect([2, 11, 0, -5, 4.5, '4', null, NaN].map(windowOf)).toEqual([5, 5, 5, 5, 5, 5, 5, 5])
   })
 
   it('умолчание сумм не делится между вызовами', () => {
@@ -45,7 +60,13 @@ describe('настройки: умолчания (Р-07)', () => {
       players: [],
       quickAmounts: [500, 1000, 2000],
       defaultBuyin: 1000,
+      compareWindow: 5,
     })
+  })
+
+  it('из базы: окно сравнения сохраняется и читается обратно', async () => {
+    await saveSettings({ ...(await getSettings()), compareWindow: 8 })
+    expect((await getSettings()).compareWindow).toBe(8)
   })
 })
 
@@ -56,7 +77,13 @@ describe('постоянные игроки и прошлые игры', () => {
       { id: 'r2', name: 'Боря' },
       { id: 'r3', name: 'Вера' },
     ]
-    await saveSettings({ defaultRate: 0.5, players: [anya, borya, vera], quickAmounts: [500], defaultBuyin: 1000 })
+    await saveSettings({
+      defaultRate: 0.5,
+      players: [anya, borya, vera],
+      quickAmounts: [500],
+      defaultBuyin: 1000,
+      compareWindow: 5,
+    })
     const settings = await getSettings()
     let n = 0
     const game: Game = {

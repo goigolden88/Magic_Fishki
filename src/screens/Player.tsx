@@ -2,16 +2,20 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { formatNumber, formatRub, formatTenths } from '../calc/format'
 import { regularStats, type RegularStat } from '../calc/stats'
 import {
-  WINDOW,
   averageKopecks,
   change,
+  gamesWord,
+  playerSpans,
   playerTrend,
   rebuysAverage,
   windowTitle,
   type Change,
   type GameWindow,
+  type Span,
+  type Spans,
   type Trend,
 } from '../calc/trend'
+import { formatDayMonth } from '../dates'
 import { getSettings, listGames } from '../store/db'
 import { StatBody, sign } from './Players'
 
@@ -22,7 +26,7 @@ function Diff({ text, verdict }: { text: string; verdict: Change }) {
   return <span className={`diff ${better ? 'plus' : 'minus'}`}>{`${better ? '▲' : '▼'} ${text}`}</span>
 }
 
-// «+1», «−2», а приведённое к 5 играм — «+2,5»
+// «+1», «−2», а приведённое к окну — «+2,5»
 const winsText = (n: number) => (Number.isInteger(n) ? (n > 0 ? '+' : '') + formatNumber(n) : formatTenths(n, true))
 
 type Metric = {
@@ -54,8 +58,8 @@ const METRICS: Metric[] = [
   },
 ]
 
-// Последние 5 игр рядом с предыдущими; под последними — разница
-function TrendCard({ trend }: { trend: Trend }) {
+// Последние игры рядом с предыдущими, по окну сравнения; под последними — разница
+function TrendCard({ trend, size }: { trend: Trend; size: number }) {
   const { recent, previous } = trend
   if (recent === null) return null
   return (
@@ -84,24 +88,63 @@ function TrendCard({ trend }: { trend: Trend }) {
           </tbody>
         ))}
       </table>
-      {previous === null && <p className="muted">Для сравнения нужно больше {WINDOW} игр</p>}
-      {previous !== null && previous.games < WINDOW && (
+      {previous === null && <p className="muted">Для сравнения нужно больше {size} игр</p>}
+      {previous !== null && previous.games < size && (
         <p className="muted">
-          Предыдущих игр меньше {WINDOW} — сравнение по средним: итог и «в плюсе» приведены к {WINDOW} играм
+          Предыдущих игр меньше {size} — сравнение по средним: итог и «в плюсе» приведены к {size} играм
         </p>
       )}
     </section>
   )
 }
 
+// «+1 500 ₽, 05.09–10.10»
+function SpanText({ span }: { span: Span }) {
+  return (
+    <>
+      <span className={sign(span.kopecks)}>{formatRub(span.kopecks, true)}</span>
+      {`, ${formatDayMonth(span.from)}–${formatDayMonth(span.to)}`}
+    </>
+  )
+}
+
+// Лучший и худший промежуток — окно сравнения игр подряд (Р-15)
+function SpansCard({ spans, size }: { spans: Spans; size: number }) {
+  const { best, worst } = spans
+  return (
+    <section className="card spans">
+      {best && worst ? (
+        <>
+          <p>
+            Лучший промежуток: <SpanText span={best} /> ({size} {gamesWord(size)})
+          </p>
+          <p>
+            Худший промежуток: <SpanText span={worst} />
+          </p>
+        </>
+      ) : (
+        <p className="muted">
+          Лучший и худший промежуток по {size} {gamesWord(size)} подряд — когда закрытых игр будет {size * 2}, сейчас{' '}
+          {spans.evenings}
+        </p>
+      )}
+    </section>
+  )
+}
+
+type Data = { stat: RegularStat; trend: Trend; spans: Spans; size: number }
+
 export function PlayerScreen({ id }: { id: string }) {
   // undefined — грузится, null — такого постоянного нет
-  const [data, setData] = useState<{ stat: RegularStat; trend: Trend } | null | undefined>(undefined)
+  const [data, setData] = useState<Data | null | undefined>(undefined)
 
   useEffect(() => {
     void Promise.all([getSettings(), listGames()]).then(([settings, games]) => {
       const stat = regularStats(settings.players, games).rows.find((r) => r.regularId === id)
-      setData(stat ? { stat, trend: playerTrend(id, games) } : null)
+      const size = settings.compareWindow
+      setData(
+        stat ? { stat, trend: playerTrend(id, games, size), spans: playerSpans(id, games, size), size } : null,
+      )
     })
   }, [id])
 
@@ -121,7 +164,8 @@ export function PlayerScreen({ id }: { id: string }) {
           <section className="card player">
             <StatBody stat={data.stat} />
           </section>
-          {data.stat.games > 0 && <TrendCard trend={data.trend} />}
+          {data.stat.games > 0 && <TrendCard trend={data.trend} size={data.size} />}
+          {data.trend.recent !== null && <SpansCard spans={data.spans} size={data.size} />}
         </>
       )}
     </main>
