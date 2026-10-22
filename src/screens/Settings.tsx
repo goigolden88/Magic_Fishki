@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
-import { backupFileName, backupText, makeBackup, parseBackup, planRestore } from '../calc/backup'
+import { backupFileName, backupText, lastBackupText, makeBackup, parseBackup, planRestore } from '../calc/backup'
 import { formatNumber, formatRate, parseChips, parseRate } from '../calc/format'
 import { today } from '../dates'
 import { MAX_WINDOW, MIN_WINDOW, moveItem, type Game, type Regular, type Settings } from '../model'
 import { getSettings, listGames, restoreGames, saveSettings } from '../store/db'
 import { ulid } from '../ulid'
+import { loadLastBackup, saveLastBackup } from './lastBackup'
 
 export function SettingsScreen() {
   const [settings, setSettings] = useState<Settings | null>(null)
@@ -324,6 +325,7 @@ type Note = { ok: boolean; text: string }
 function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (players: Regular[]) => void }) {
   const [games, setGames] = useState<Game[] | null>(null)
   const [note, setNote] = useState<Note | null>(null)
+  const [last, setLast] = useState(loadLastBackup)
   const fileInput = useRef<HTMLInputElement>(null)
   const shareFiles = canShareFiles()
 
@@ -332,19 +334,28 @@ function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (p
     void listGames().then(setGames)
   }, [])
 
-  function backup(): string {
-    return backupText(makeBackup(games ?? [], settings, new Date().toISOString()))
+  // Отдана — запоминаем момент копии: игры, изменённые позже, — «после неё»
+  function remember(at: string) {
+    const next = { at, date: today() }
+    saveLastBackup(next)
+    setLast(next)
   }
 
+  // Сохранил ли браузер файл, приложению не узнать (на iPhone — не всегда): обещать нельзя
   function save() {
-    download(backup(), backupFileName(today()))
-    setNote({ ok: true, text: 'Копия сохранена' })
+    const now = new Date().toISOString()
+    download(backupText(makeBackup(games ?? [], settings, now)), backupFileName(today()))
+    remember(now)
+    setNote({ ok: true, text: 'Файл отдан браузеру — проверьте, что он сохранился' })
   }
 
   async function share() {
-    const file = new File([backup()], backupFileName(today(), 'txt'), { type: 'text/plain' })
+    const now = new Date().toISOString()
+    const text = backupText(makeBackup(games ?? [], settings, now))
+    const file = new File([text], backupFileName(today(), 'txt'), { type: 'text/plain' })
     try {
       await navigator.share({ files: [file], title: 'Копия «Фишек»' })
+      remember(now)
       setNote(null)
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return // закрыли меню
@@ -393,6 +404,7 @@ function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (p
         Игры хранятся только в этом браузере: очистка данных сайта или новый телефон их сотрут. Копия — файл со всеми
         играми и настройками; восстановление добавляет недостающие игры и ничего не перезаписывает.
       </p>
+      {games !== null && <p>{lastBackupText(last, games, today())}</p>}
       <button type="button" className="big primary wide" disabled={games === null} onClick={save}>
         Сохранить копию
       </button>
