@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { settingsWithDefaults, type Game, type Settings } from '../model'
-import { backupFileName, backupText, makeBackup, parseBackup, planRestore, type Backup } from './backup'
+import {
+  backupFileName,
+  backupText,
+  gamesSinceBackup,
+  lastBackupText,
+  makeBackup,
+  parseBackup,
+  planRestore,
+  type Backup,
+} from './backup'
 
 const NOW = '2026-10-14T19:00:00.000Z'
 
@@ -236,5 +245,41 @@ describe('файл-копия: восстановление ничего не п
   it('копия с нулём игр ничего не меняет', () => {
     const backup = backupOf([], settingsWithDefaults())
     expect(planRestore(['g1'], [ANYA], backup)).toEqual({ added: [], existing: 0, players: [ANYA] })
+  })
+})
+
+describe('когда была последняя копия', () => {
+  const LAST = { at: '2026-10-10T09:00:00.000Z', date: '2026-10-10' }
+
+  it('копии не было', () => {
+    expect(lastBackupText(null, [game('g1')], '2026-10-22')).toBe('Копию на этом устройстве ещё не делали')
+  })
+
+  it('только что: сегодня, игр после неё — 0', () => {
+    expect(lastBackupText(LAST, [game('g1')], '2026-10-10')).toBe('Последняя копия — сегодня · игр после неё: 0')
+  })
+
+  it('считает игры, заведённые или изменённые после копии, без демо', () => {
+    const games = [
+      game('old'),
+      game('new', { updatedAt: '2026-10-11T20:00:00.000Z' }),
+      game('closed', { updatedAt: '2026-10-12T23:00:00.000Z' }),
+      game('demo', { demo: true, updatedAt: '2026-10-12T23:00:00.000Z' }),
+    ]
+    expect(gamesSinceBackup(games, LAST)).toBe(2)
+    expect(lastBackupText(LAST, games, '2026-10-22')).toBe('Последняя копия — 12 дней назад · игр после неё: 2')
+  })
+
+  it('дни — по календарю, со склонением', () => {
+    const at = (today: string) => lastBackupText(LAST, [], today)
+    expect(at('2026-10-11')).toBe('Последняя копия — вчера · игр после неё: 0')
+    expect(at('2026-10-12')).toBe('Последняя копия — 2 дня назад · игр после неё: 0')
+    expect(at('2026-10-15')).toBe('Последняя копия — 5 дней назад · игр после неё: 0')
+    expect(at('2026-10-31')).toBe('Последняя копия — 21 день назад · игр после неё: 0')
+    expect(at('2026-11-21')).toBe('Последняя копия — 42 дня назад · игр после неё: 0')
+  })
+
+  it('часы телефона ушли назад — «сегодня», а не минус дни', () => {
+    expect(lastBackupText(LAST, [], '2026-10-09')).toBe('Последняя копия — сегодня · игр после неё: 0')
   })
 })

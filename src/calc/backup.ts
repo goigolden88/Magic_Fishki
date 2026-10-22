@@ -52,6 +52,39 @@ export function backupText(backup: Backup): string {
   return JSON.stringify(backup, null, 2)
 }
 
+// Последняя отданная копия на этом устройстве: момент (ISO) и день по часам телефона (YYYY-MM-DD)
+export type LastBackup = { at: string; date: string }
+
+// После числа: «1 день», «3 дня», «5 дней», «21 день»
+function daysWord(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'день'
+  return mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14) ? 'дня' : 'дней'
+}
+
+// Дней между двумя днями YYYY-MM-DD, по календарю
+function daysBetween(from: string, to: string): number {
+  const utc = (d: string) => {
+    const [y, m, day] = d.split('-').map(Number)
+    return Date.UTC(y, m - 1, day)
+  }
+  return Math.round((utc(to) - utc(from)) / 86_400_000)
+}
+
+// Игры после копии — заведённые или изменённые позже неё, без демо (в копию они не идут)
+export function gamesSinceBackup(games: Game[], last: LastBackup): number {
+  return games.filter((g) => !g.demo && g.updatedAt > last.at).length
+}
+
+// «Последняя копия — 12 дней назад · игр после неё: 3»; копии не было — «ещё не делали»
+export function lastBackupText(last: LastBackup | null, games: Game[], today: string): string {
+  if (last === null) return 'Копию на этом устройстве ещё не делали'
+  const days = Math.max(0, daysBetween(last.date, today))
+  const when = days === 0 ? 'сегодня' : days === 1 ? 'вчера' : `${days} ${daysWord(days)} назад`
+  return `Последняя копия — ${when} · игр после неё: ${gamesSinceBackup(games, last)}`
+}
+
 const ENTRY_KINDS = new Set(['buyin', 'rebuy', 'cashout'])
 
 function isObject(v: unknown): v is Record<string, unknown> {
