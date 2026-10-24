@@ -1,6 +1,6 @@
 // Сообщения клиента и сервера стола. Их берут сервер комнат и экран — версия одна на всех:
 // клиент с другой версией получает отказ «обновите приложение»
-import type { TableState } from './table'
+import type { Settings, TableState } from './table'
 
 export const PROTOCOL_VERSION = 1
 
@@ -31,8 +31,21 @@ export type ClientBody =
 
 export type ClientMessage = ClientBody & { v: number }
 
+// Сообщения комнаты — их разбирает сервер комнат, не стол.
+// join — первое сообщение после подключения: с playerId и token — возврат на своё место,
+// иначе (или токен чужой) — посадка новым игроком под именем name
+export type RoomMessage = { v: number } & (
+  | { type: 'join'; name?: string; playerId?: string; token?: string }
+  | { type: 'finish' } // ведущий: игра окончена — комната стирается
+)
+
+// Создание комнаты: POST /rooms. Пароль компании — секрет сервера ROOM_PASSWORD
+export type CreateRoomRequest = { v: number; password: string; name: string; settings?: Partial<Settings> }
+export type CreateRoomResponse = { v: number } & ({ code: string; playerId: string; token: string } | { error: string })
+
 export type ServerMessage = { v: number } & (
   | { type: 'welcome'; playerId: string; token: string } // токен возврата на своё место
   | { type: 'state'; table: TableState }
+  | { type: 'ended'; table: TableState; reason: string } // комната стёрта; table — стол на момент конца
   | { type: 'error'; error: string }
 )

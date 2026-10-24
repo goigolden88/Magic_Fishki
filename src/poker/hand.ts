@@ -120,19 +120,6 @@ export function act(hand: Hand, playerId: string, action: BetAction): string | n
   return null
 }
 
-// Сбросить карты игрока вне очереди (ведущий убирает его со стола)
-export function foldOut(hand: Hand, playerId: string): void {
-  if (hand.stage === 'showdown') return
-  const index = hand.seats.findIndex((s) => s.id === playerId)
-  if (index === -1 || hand.seats[index].folded) return
-  if (index === hand.toAct) {
-    act(hand, playerId, { type: 'fold' })
-    return
-  }
-  hand.seats[index].folded = true
-  proceed(hand, hand.toAct)
-}
-
 // Победители каждого банка — от ведущего. Делит банки, нечётная фишка — первому по кругу
 // от кнопки. Ошибка — строка, иначе выплаты по игрокам (уже в стеках раздачи)
 export function awardPots(hand: Hand, winners: string[][]): string | Record<string, number> {

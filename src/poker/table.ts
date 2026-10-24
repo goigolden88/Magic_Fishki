@@ -1,8 +1,8 @@
-// Стол кэш-игры: места, ведущий, раздачи, докупы, правки стека, журнал фишек.
+// Стол кэш-игры: места, ведущий, раздачи, докупы, правки стека, уход, журнал фишек.
 // handle — чистая функция: сообщение игрока → новое состояние или отказ с причиной
 // (тогда состояние не меняется). Состояние — обычный JSON: сервер сохраняет его между
 // сообщениями и поднимает снова. Время — параметром now (мс), не из часов
-import { act, awardPots, foldOut, startHand, type Hand } from './hand'
+import { act, awardPots, startHand, type Hand } from './hand'
 import { PROTOCOL_VERSION, VERSION_ERROR, type BetAction, type ClientBody } from './protocol'
 
 export type Settings = {
@@ -34,6 +34,7 @@ export type ChipLogEntry =
   | { kind: 'rebuy'; playerId: string; by: string; from: number; to: number; at: number }
   | { kind: 'rebuyDeclined'; playerId: string; by: string; amount: number; at: number }
   | { kind: 'set'; playerId: string; by: string; from: number; to: number; at: number }
+  | { kind: 'leave'; playerId: string; by: string; chips: number; at: number } // ушёл со стола с остатком
 
 export type HandResult = {
   number: number
@@ -125,7 +126,7 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number): s
       return null
     }
     case 'remove':
-      return isHost ? remove(state, msg.playerId) : hostOnly
+      return isHost ? remove(state, from, msg.playerId, now) : hostOnly
     case 'passHost': {
       if (!isHost) return hostOnly
       if (msg.to === from) return 'Вы уже ведущий'
@@ -243,13 +244,21 @@ function setStack(state: TableState, by: string, playerId: string, chips: unknow
   return null
 }
 
-function remove(state: TableState, playerId: string): string | null {
+// Игрок уходит со стола с остатком фишек: запись об уходе — в журнал, чтобы итог вечера сошёлся
+function remove(state: TableState, by: string, playerId: string, now: number): string | null {
   if (playerId === state.hostId) return 'Ведущего не убрать — сначала передайте ведение'
-  if (!state.players.some((p) => p.id === playerId)) return 'Такого игрока нет за столом'
-  if (state.hand?.pots.some((pot) => pot.eligible.includes(playerId))) return 'Игрок борется за банк — сначала отметьте победителя'
-  // В раздаче — сначала сбросить его карты, чтобы стол не встал
-  if (state.hand) foldOut(state.hand, playerId)
-  state.players = state.players.filter((p) => p.id !== playerId)
+  const p = state.players.find((x) => x.id === playerId)
+  if (!p) return 'Такого игрока нет за столом'
+  const seat = state.hand?.seats.find((s) => s.id === playerId)
+  if (seat && !seat.folded) return 'Игрок в раздаче — уберите после неё'
+  // Сбросил в этой раздаче — остаток то, что не поставил; докуп, одобренный в раздаче, — тоже его
+  let chips = seat ? seat.chips : p.chips
+  for (const r of state.approvedRebuys.filter((x) => x.playerId === playerId)) {
+    state.chipLog.push({ kind: 'rebuy', playerId, by: r.by, from: chips, to: chips + r.amount, at: now })
+    chips += r.amount
+  }
+  state.chipLog.push({ kind: 'leave', playerId, by, chips, at: now })
+  state.players = state.players.filter((x) => x.id !== playerId)
   state.rebuyRequests = state.rebuyRequests.filter((r) => r.playerId !== playerId)
   state.approvedRebuys = state.approvedRebuys.filter((r) => r.playerId !== playerId)
   return null
