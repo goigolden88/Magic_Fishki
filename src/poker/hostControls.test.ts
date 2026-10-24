@@ -1,9 +1,22 @@
 import { describe, expect, it } from 'vitest'
 import { PROTOCOL_VERSION } from './protocol'
 import { handle, HOST_TAKEOVER_MS, type TableState } from './table'
-import { call, check, MODES, newTable, play, raise, start, type Step } from './testing'
+import { allin, award, call, check, fold, MODES, newTable, play, raise, start, type Step } from './testing'
 
 const skip = (host: string): Step => ({ from: host, msg: { type: 'skip' } })
+const tryRemove = (s: TableState, playerId: string) => handle(s, s.hostId, { type: 'remove', playerId, v: PROTOCOL_VERSION }, 0)
+
+// Итог вечера по журналу фишек: закуплено (закупы, докупы, правки) — на столе и унесено уходом
+function evening(s: TableState) {
+  let bought = 0
+  let left = 0
+  for (const e of s.chipLog) {
+    if (e.kind === 'buyin') bought += e.amount
+    if (e.kind === 'rebuy' || e.kind === 'set') bought += e.to - e.from
+    if (e.kind === 'leave') left += e.chips
+  }
+  return { bought, onTable: s.players.reduce((sum, p) => sum + p.chips, 0), left }
+}
 const takeHost = (from: string, now: number): Step => ({ from, msg: { type: 'takeHost' }, now })
 const tryTake = (s: TableState, from: string, now: number) => handle(s, from, { type: 'takeHost', v: PROTOCOL_VERSION }, now)
 
@@ -32,15 +45,59 @@ describe.each(MODES)('управление столом — %s', (_, roundtrip) 
     expect(s.hand?.seats[s.hand.toAct].id).toBe('p0')
   })
 
-  it('ведущий убирает игрока посреди раздачи — карты сброшены, стол не встал', () => {
+  it('игрок ещё в раздаче — убрать нельзя, стол не меняется', () => {
+    const s = play(newTable(['p0', 'p1', 'p2']), [start('p0'), raise('p0', 30)], roundtrip)
+    expect(tryRemove(s, 'p2')).toEqual({ ok: false, error: 'Игрок в раздаче — уберите после неё' })
+  })
+
+  it('игрок пошёл ва-банк, торги идут — убрать нельзя', () => {
+    const s = play(newTable(['p0', 'p1', 'p2'], {}, { p0: 100 }), [start('p0'), allin('p0')], roundtrip)
+    expect(s.hand?.stage).toBe('preflop')
+    expect(s.hand?.seats.find((x) => x.id === 'p0')?.allIn).toBe(true)
+    // p0 — ведущий: передаём ведение, чтобы убирал p1
+    const passed = play(s, [{ from: 'p0', msg: { type: 'passHost', to: 'p1' } }], roundtrip)
+    expect(handle(passed, 'p1', { type: 'remove', playerId: 'p0', v: PROTOCOL_VERSION }, 0)).toEqual({
+      ok: false,
+      error: 'Игрок в раздаче — уберите после неё',
+    })
+  })
+
+  it('ведущий убирает сбросившего посреди раздачи — уход с остатком в журнале, итог сходится', () => {
+    // p0 — кнопка, p1 — малый, p2 — большой; p0 ставит 30, p1 уравнивает и после флопа сбрасывает
     const s = play(
       newTable(['p0', 'p1', 'p2']),
-      [start('p0'), raise('p0', 30), { from: 'p0', msg: { type: 'remove', playerId: 'p2' } }],
+      [
+        start('p0'),
+        raise('p0', 30),
+        call('p1'),
+        fold('p2'),
+        { from: 'p1', msg: { type: 'rebuy', amount: 200 } },
+        { from: 'p0', msg: { type: 'rebuyAnswer', playerId: 'p1', approve: true } },
+        check('p1'),
+        raise('p0', 50),
+        fold('p1'),
+        { from: 'p0', msg: { type: 'remove', playerId: 'p1' }, now: 9 },
+      ],
+      roundtrip,
+    )
+    expect(s.players.map((p) => p.id)).toEqual(['p0', 'p2'])
+    expect(s.chipLog.slice(-2)).toEqual([
+      { kind: 'rebuy', playerId: 'p1', by: 'p0', from: 970, to: 1170, at: 9 },
+      { kind: 'leave', playerId: 'p1', by: 'p0', chips: 1170, at: 9 },
+    ])
+    expect(s.approvedRebuys).toEqual([])
+    const done = play(s, [award('p0', [['p0']])], roundtrip)
+    expect(evening(done)).toEqual({ bought: 3200, onTable: 2030, left: 1170 })
+  })
+
+  it('ведущий убирает игрока между раздачами — уход со стеком', () => {
+    const s = play(
+      newTable(['p0', 'p1', 'p2'], {}, { p2: 640 }),
+      [{ from: 'p0', msg: { type: 'remove', playerId: 'p2' }, now: 3 }],
       roundtrip,
     )
     expect(s.players.map((p) => p.id)).toEqual(['p0', 'p1'])
-    expect(s.hand?.seats.find((x) => x.id === 'p2')?.folded).toBe(true)
-    expect(s.hand?.seats[s.hand.toAct].id).toBe('p1')
+    expect(s.chipLog.at(-1)).toEqual({ kind: 'leave', playerId: 'p2', by: 'p0', chips: 640, at: 3 })
   })
 
   it('ведущий передаёт ведение', () => {

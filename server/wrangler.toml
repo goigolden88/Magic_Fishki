@@ -1,0 +1,19 @@
+# Сервер комнат покера (Р-14, Р-18). Выкатка — Action по слиянию в main (server.yml).
+# Пароль компании ROOM_PASSWORD — секрет Worker'а, ставится в панели Cloudflare, не здесь
+name = "fishki-poker"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+[[durable_objects.bindings]]
+name = "REGISTRY"
+class_name = "Registry"
+
+# Бесплатный план — только объекты на SQLite
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room", "Registry"]
