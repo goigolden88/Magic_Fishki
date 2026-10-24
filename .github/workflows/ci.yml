@@ -45,3 +45,10 @@ jobs:
 
       - if: steps.has.outputs.app == 'yes'
         run: npm run build --if-present
+
+      # Сервер комнат покера (server/, Р-18): типы и сборка без выкатки — ключи не нужны.
+      - if: steps.has.outputs.app == 'yes'
+        run: npm run server:check --if-present
+
+      - if: steps.has.outputs.app == 'yes'
+        run: npm run server:build --if-present
