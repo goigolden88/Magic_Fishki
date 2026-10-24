@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { formatChips, formatNumber, formatRub, formatTenths } from '../calc/format'
+import { hasDemo } from '../calc/demo'
 import { statsShareText } from '../calc/share'
 import { basisText, rebuysPerGame, regularStats, type Evening, type RegularStat, type Stats } from '../calc/stats'
 import { formatDate } from '../dates'
@@ -58,12 +59,14 @@ function StatCard({ stat }: { stat: RegularStat }) {
 
 export function PlayersScreen() {
   const [stats, setStats] = useState<Stats | null>(null)
+  const [demo, setDemo] = useState(false) // есть демо-игры — строка, что они не считаются (Р-04)
   const [shareNote, setShareNote] = useState<string | null>(null) // «Скопировано» под кнопкой
 
   useEffect(() => {
-    void Promise.all([getSettings(), listGames()]).then(([settings, games]) =>
-      setStats(regularStats(settings.players, games)),
-    )
+    void Promise.all([getSettings(), listGames()]).then(([settings, games]) => {
+      setStats(regularStats(settings.players, games))
+      setDemo(hasDemo(games))
+    })
   }, [])
 
   // Как «Поделиться итогом» в игре: системное «Поделиться»; где его нет — в буфер обмена
@@ -94,6 +97,7 @@ export function PlayersScreen() {
         </a>
       </header>
       <h1>Игроки</h1>
+      {demo && <p className="muted">Демо-игры в статистику не входят</p>}
 
       {stats !== null &&
         (stats.closedGames === 0 ? (

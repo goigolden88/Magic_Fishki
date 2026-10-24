@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { backupFileName, backupText, lastBackupText, makeBackup, parseBackup, planRestore } from '../calc/backup'
+import { demoGames, hasDemo } from '../calc/demo'
 import { formatNumber, formatRate, parseChips, parseRate } from '../calc/format'
 import { today } from '../dates'
 import { MAX_WINDOW, MIN_WINDOW, moveItem, type Game, type Regular, type Settings } from '../model'
-import { getSettings, listGames, restoreGames, saveSettings } from '../store/db'
+import { deleteDemoGames, getSettings, listGames, restoreGames, saveSettings } from '../store/db'
 import { ulid } from '../ulid'
 import { loadLastBackup, saveLastBackup } from './lastBackup'
 
@@ -94,6 +95,7 @@ export function SettingsScreen() {
             onChange={(compareWindow) => update({ ...settings, compareWindow })}
           />
           <BackupCard settings={settings} onPlayers={(players) => setSettings((s) => s && { ...s, players })} />
+          <DemoCard />
         </>
       )}
     </main>
@@ -423,6 +425,72 @@ function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (p
         hidden
         onChange={(e) => void restore(e)}
       />
+      {note && <p className={note.ok ? 'ok' : 'warn'}>{note.text}</p>}
+    </section>
+  )
+}
+
+// Демо-данные (Р-04): выдуманные игры, чтобы показать приложение; удаляются только они.
+// Уже есть — «Добавить» неактивна: второй раз не удваивает
+function DemoCard() {
+  const [demo, setDemo] = useState<boolean | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<Note | null>(null)
+
+  useEffect(() => {
+    void listGames().then((games) => setDemo(hasDemo(games)))
+  }, [])
+
+  async function add() {
+    setBusy(true)
+    try {
+      if (hasDemo(await listGames())) {
+        setDemo(true)
+        return
+      }
+      const games = demoGames(today(), new Date().toISOString(), () => ulid())
+      await restoreGames(games)
+      setDemo(true)
+      setNote({ ok: true, text: `Добавлено демо-игр: ${games.length} — они на «Играх»` })
+    } catch {
+      setNote({ ok: false, text: 'Не удалось добавить — попробуйте ещё раз' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function remove() {
+    setBusy(true)
+    try {
+      const n = await deleteDemoGames()
+      setDemo(false)
+      setNote({ ok: true, text: `Удалено демо-игр: ${n}. Ваши игры на месте` })
+    } catch {
+      setNote({ ok: false, text: 'Не удалось удалить — попробуйте ещё раз' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="card">
+      <h2>Демо-данные</h2>
+      <p className="muted">
+        Несколько выдуманных игр с выдуманными игроками — показать приложение, не трогая настоящие игры. В статистику и
+        в копию они не идут, постоянные игроки не меняются.
+      </p>
+      <button
+        type="button"
+        className="big primary wide"
+        disabled={demo !== false || busy}
+        onClick={() => void add()}
+      >
+        Добавить демо-данные
+      </button>
+      {demo && note === null && <p className="muted">Демо уже добавлено — добавить заново можно после удаления</p>}
+      <button type="button" className="big wide" disabled={demo !== true || busy} onClick={() => void remove()}>
+        Удалить демо-данные
+      </button>
       {note && <p className={note.ok ? 'ok' : 'warn'}>{note.text}</p>}
     </section>
   )
