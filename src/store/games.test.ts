@@ -1,7 +1,18 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, it } from 'vitest'
+import { demoGames } from '../calc/demo'
 import { createGame, playerByName, type NewGame, type Regular, type Settings } from '../model'
-import { deleteGame, getGame, getSettings, listGames, saveGame, saveSettings } from './db'
+import { ulid } from '../ulid'
+import {
+  deleteDemoGames,
+  deleteGame,
+  getGame,
+  getSettings,
+  listGames,
+  restoreGames,
+  saveGame,
+  saveSettings,
+} from './db'
 
 const NOW = '2026-10-09T20:00:00.000Z'
 
@@ -72,6 +83,33 @@ describe('участник и постоянный игрок (Р-12)', () => {
     expect(playerByName('Ира', list, 'p2')).toEqual({ id: 'p2', name: 'Ира' })
     expect(playerByName('боря', list, 'p3')).toEqual({ id: 'p3', name: 'боря' })
     expect(playerByName('Аня', [], 'p4')).toEqual({ id: 'p4', name: 'Аня' })
+  })
+})
+
+describe('демо-данные (Р-04)', () => {
+  it('добавленные демо видны в списке; удаление убирает их все и только их; настройки не меняются', async () => {
+    const settings: Settings = {
+      defaultRate: 0.5,
+      players: regulars(['Аня']),
+      quickAmounts: [500],
+      defaultBuyin: 1000,
+      compareWindow: 5,
+    }
+    await saveSettings(settings)
+    const mine = await saveGame(createGame(input({ name: 'Моя', players: regulars(['Аня']), buyin: 1000 }), counter()))
+    const before = (await listGames()).map((g) => g.id)
+
+    const demo = demoGames('2026-10-24', NOW, () => ulid())
+    await restoreGames(demo)
+    const withDemo = await listGames()
+    expect(withDemo).toHaveLength(before.length + demo.length)
+    for (const g of demo) expect(await getGame(g.id)).toEqual(g)
+
+    expect(await deleteDemoGames()).toBe(demo.length)
+    expect((await listGames()).map((g) => g.id)).toEqual(before)
+    expect(await getGame(mine.id)).toEqual(mine)
+    expect(await getSettings()).toEqual(settings)
+    expect(await deleteDemoGames()).toBe(0)
   })
 })
 
