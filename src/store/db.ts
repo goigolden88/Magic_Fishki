@@ -94,8 +94,8 @@ export async function saveGame(game: Game): Promise<Game> {
   return saved
 }
 
-// Восстановление из файла-копии (Р-11): игры пишутся как есть, со своим updatedAt; одной транзакцией —
-// либо все, либо ни одной. Игры с тем же id уже отсеяны (calc/backup.ts, planRestore).
+// Восстановление из файла-копии (Р-11) и демо-игры (Р-04): игры пишутся как есть, со своим updatedAt;
+// одной транзакцией — либо все, либо ни одной. Игры с тем же id уже отсеяны (calc/backup.ts, planRestore).
 export async function restoreGames(games: Game[]): Promise<void> {
   if (games.length === 0) return
   const db = await open()
@@ -112,6 +112,28 @@ export async function restoreGames(games: Game[]): Promise<void> {
 // Окончательно: синхронизации нет, игру не вернуть (Р-09)
 export async function deleteGame(id: string): Promise<void> {
   await run('games', 'readwrite', (s) => s.delete(id))
+}
+
+// «Удалить демо-данные» (Р-04): одной транзакцией — все игры с demo: true и только они. Вернёт, сколько удалено
+export async function deleteDemoGames(): Promise<number> {
+  const db = await open()
+  return new Promise<number>((resolve, reject) => {
+    const tx = db.transaction('games', 'readwrite')
+    let deleted = 0
+    const cursor = tx.objectStore('games').openCursor()
+    cursor.onsuccess = () => {
+      const c = cursor.result
+      if (!c) return
+      if ((c.value as Game).demo === true) {
+        c.delete()
+        deleted += 1
+      }
+      c.continue()
+    }
+    tx.oncomplete = () => resolve(deleted)
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error)
+  })
 }
 
 export async function getSettings(): Promise<Settings> {
