@@ -1,11 +1,13 @@
 // Обычные запросы к серверу: строка «работает» и создание комнаты по паролю компании.
 // Без привязки к Cloudflare — реестр и комнату даёт index.ts, в тестах — подделки
-import { PROTOCOL_VERSION, VERSION_ERROR, type CreateRoomResponse, type RosterEntry } from '../../src/poker/protocol'
+import { PROTOCOL_VERSION, VERSION_ERROR, WRONG_PASSWORD, type CreateRoomResponse, type RosterEntry } from '../../src/poker/protocol'
 import type { Settings } from '../../src/poker/table'
+
+// «Неверный пароль» — общий с экраном, в протоколе
+export { WRONG_PASSWORD }
 
 export const STATUS_TEXT = `Сервер покера «Фишек» работает, протокол ${PROTOCOL_VERSION}`
 export const NO_PASSWORD = 'На сервере не задан пароль'
-export const WRONG_PASSWORD = 'Неверный пароль'
 
 // Больше постоянных в списке комнаты не берём: столько за столом не сядет
 export const MAX_ROSTER = 30

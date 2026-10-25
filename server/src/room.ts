@@ -2,20 +2,25 @@
 // src/poker/: сама правил покера не держит. Памяти между сообщениями нет — объект
 // засыпает, поэтому стол читается из хранилища на каждом сообщении и пишется после.
 // Хранилище, соединения, часы и «освободить место в реестре» — снаружи (index.ts, тесты)
-import { PROTOCOL_VERSION, VERSION_ERROR, type RosterEntry, type ServerMessage } from '../../src/poker/protocol'
+import {
+  CLOSE_ENDED,
+  CLOSE_NO_ROOM,
+  CLOSE_REPLACED,
+  CLOSE_VERSION,
+  NO_ROOM,
+  PROTOCOL_VERSION,
+  VERSION_ERROR,
+  type RosterEntry,
+  type ServerMessage,
+} from '../../src/poker/protocol'
 import { createTable, handle, setOnline, type Settings, type TableState } from '../../src/poker/table'
 import { canRejoin, issueToken } from '../../src/poker/tokens'
 
+// Отказ «комнаты нет» и коды закрытия соединения — общие с экраном, в протоколе
+export { CLOSE_ENDED, CLOSE_NO_ROOM, CLOSE_REPLACED, CLOSE_VERSION, NO_ROOM }
+
 // Комната без ходов дольше этого — стирается
 export const IDLE_MS = 24 * 60 * 60 * 1000
-
-export const NO_ROOM = 'Комнаты нет'
-
-// Коды закрытия соединения
-export const CLOSE_ENDED = 4000
-export const CLOSE_VERSION = 4001
-export const CLOSE_NO_ROOM = 4004
-export const CLOSE_REPLACED = 4009
 
 export type RoomRecord = {
   code: string

@@ -7,6 +7,16 @@ export const PROTOCOL_VERSION = 2
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
+// Отказы сервера комнат, на которые экран отвечает по-своему
+export const NO_ROOM = 'Комнаты нет'
+export const WRONG_PASSWORD = 'Неверный пароль'
+
+// Коды закрытия соединения сервером комнат
+export const CLOSE_ENDED = 4000 // комната стёрта
+export const CLOSE_VERSION = 4001 // другая версия приложения
+export const CLOSE_NO_ROOM = 4004
+export const CLOSE_REPLACED = 4009 // место открыто на другом устройстве
+
 // Ход игрока. raise.to — до какой ставки на этой улице поднимает (и первая ставка улицы)
 export type BetAction =
   | { type: 'fold' }
