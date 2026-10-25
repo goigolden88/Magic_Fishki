@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { formatNumber, formatRate, parseRate } from '../calc/format'
 import { defaultOpenYear, gameSummary, groupByYear, isYearOpen } from '../calc/gameList'
+import { allPicked, toggleAll } from '../calc/pick'
 import { createGame, DEFAULT_BUYIN, type Game, type Regular } from '../model'
 import { getSettings, listGames, saveGame } from '../store/db'
 import { formatDate, today } from '../dates'
@@ -51,6 +52,7 @@ export function GamesScreen() {
   const rate = parseRate(rateText)
 
   const players = regulars.filter((r) => picked.has(r.id))
+  const regularIds = regulars.map((r) => r.id)
 
   // Участники выбраны — сначала вопрос про закуп; нет участников — сразу игра без записей
   function startCreate() {
@@ -121,6 +123,9 @@ export function GamesScreen() {
               <legend className="muted">
                 Участники: {picked.size} из {regulars.length}
               </legend>
+              <button type="button" className="big wide" onClick={() => setPicked(toggleAll(regularIds, picked))}>
+                {allPicked(regularIds, picked) ? 'Снять все' : 'Выбрать всех'}
+              </button>
               {regulars.map((r) => (
                 <label key={r.id} className="check">
                   <input type="checkbox" checked={picked.has(r.id)} onChange={() => toggle(r.id)} />

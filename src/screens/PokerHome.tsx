@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { parseChips } from '../calc/format'
+import { allPicked, toggleAll } from '../calc/pick'
 import { createFailure, DEFAULT_SERVER, NO_CONNECTION, parseRoomLink, roomHash, roomsUrl, serverBase } from '../calc/pokerLink'
 import type { Regular } from '../model'
 import { PROTOCOL_VERSION, type CreateRoomRequest, type CreateRoomResponse } from '../poker/protocol'
@@ -101,10 +102,18 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
     if (id === meId && !next.has(id)) setMeId(GUEST)
   }
 
+  // «Выбрать всех» / «Снять все»; снятый ведущий — как при снятии одной галочки
+  function toggleEveryone() {
+    const next = toggleAll(regularIds, picked)
+    setPicked(next)
+    if (!next.has(meId)) setMeId(GUEST)
+  }
+
   const sb = parseChips(sbText)
   const bb = parseChips(bbText)
   const stack = parseChips(stackText)
   const roster = (regulars ?? []).filter((r) => picked.has(r.id))
+  const regularIds = (regulars ?? []).map((r) => r.id)
   const me = roster.find((r) => r.id === meId)
   const name = me ? me.name : myName.trim()
   const blindsOk = sb !== null && bb !== null && sb <= bb
@@ -187,6 +196,9 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
           <legend className="muted">
             Играют: {picked.size} из {regulars.length}
           </legend>
+          <button type="button" className="big wide" onClick={toggleEveryone}>
+            {allPicked(regularIds, picked) ? 'Снять все' : 'Выбрать всех'}
+          </button>
           {regulars.map((r) => (
             <label key={r.id} className="check">
               <input type="checkbox" checked={picked.has(r.id)} onChange={() => toggle(r.id)} />
