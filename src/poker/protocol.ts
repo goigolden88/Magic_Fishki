@@ -3,9 +3,17 @@
 import type { Settings, TableState } from './table'
 
 // 2 — список постоянных игроков комнаты (lobby), вход под постоянным (regularId), «пересадить» (reseat)
-export const PROTOCOL_VERSION = 2
+// 3 — признак жизни (PING): без него сервер считает игрока вне сети
+export const PROTOCOL_VERSION = 3
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
+
+// Признак жизни: клиент шлёт PING каждые PING_MS, сервер отвечает PONG, не просыпаясь.
+// Молчит дольше SILENT_MS — соединение мёртвое: сервер ставит «вне сети», клиент переподключается
+export const PING = 'ping'
+export const PONG = 'pong'
+export const PING_MS = 15_000
+export const SILENT_MS = 30_000
 
 // Отказы сервера комнат, на которые экран отвечает по-своему
 export const NO_ROOM = 'Комнаты нет'
@@ -16,6 +24,7 @@ export const CLOSE_ENDED = 4000 // комната стёрта
 export const CLOSE_VERSION = 4001 // другая версия приложения
 export const CLOSE_NO_ROOM = 4004
 export const CLOSE_REPLACED = 4009 // место открыто на другом устройстве
+export const CLOSE_SILENT = 4010 // нет признаков жизни дольше SILENT_MS — переподключиться
 
 // Ход игрока. raise.to — до какой ставки на этой улице поднимает (и первая ставка улицы)
 export type BetAction =
