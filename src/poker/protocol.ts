@@ -19,6 +19,9 @@ export const SILENT_MS = 30_000
 export const NO_ROOM = 'Комнаты нет'
 export const WRONG_PASSWORD = 'Неверный пароль'
 
+// Причина конца комнаты, когда ведущий нажал «Закончить игру»: игроки видят «итог — у ведущего»
+export const FINISHED = 'Ведущий завершил игру'
+
 // Коды закрытия соединения сервером комнат
 export const CLOSE_ENDED = 4000 // комната стёрта
 export const CLOSE_VERSION = 4001 // другая версия приложения

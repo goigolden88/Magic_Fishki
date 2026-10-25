@@ -83,7 +83,7 @@ describe.each(MODES)('управление столом — %s', (_, roundtrip) 
     expect(s.players.map((p) => p.id)).toEqual(['p0', 'p2'])
     expect(s.chipLog.slice(-2)).toEqual([
       { kind: 'rebuy', playerId: 'p1', by: 'p0', from: 970, to: 1170, at: 9 },
-      { kind: 'leave', playerId: 'p1', by: 'p0', chips: 1170, at: 9 },
+      { kind: 'leave', playerId: 'p1', by: 'p0', chips: 1170, at: 9, name: 'P1', regularId: null },
     ])
     expect(s.approvedRebuys).toEqual([])
     const done = play(s, [award('p0', [['p0']])], roundtrip)
@@ -97,7 +97,27 @@ describe.each(MODES)('управление столом — %s', (_, roundtrip) 
       roundtrip,
     )
     expect(s.players.map((p) => p.id)).toEqual(['p0', 'p1'])
-    expect(s.chipLog.at(-1)).toEqual({ kind: 'leave', playerId: 'p2', by: 'p0', chips: 640, at: 3 })
+    expect(s.chipLog.at(-1)).toEqual({ kind: 'leave', playerId: 'p2', by: 'p0', chips: 640, at: 3, name: 'P2', regularId: null })
+  })
+
+  it('уход постоянного — в журнале его имя и id постоянного', () => {
+    const s = play(
+      newTable(['p0']),
+      [
+        { from: 'p1', msg: { type: 'sit', name: 'Дима', regularId: 'r-dima' } },
+        { from: 'p0', msg: { type: 'remove', playerId: 'p1' }, now: 5 },
+      ],
+      roundtrip,
+    )
+    expect(s.chipLog.at(-1)).toEqual({
+      kind: 'leave',
+      playerId: 'p1',
+      by: 'p0',
+      chips: 1000,
+      at: 5,
+      name: 'Дима',
+      regularId: 'r-dima',
+    })
   })
 
   it('ведущий передаёт ведение', () => {

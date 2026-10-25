@@ -35,7 +35,8 @@ export type ChipLogEntry =
   | { kind: 'rebuy'; playerId: string; by: string; from: number; to: number; at: number }
   | { kind: 'rebuyDeclined'; playerId: string; by: string; amount: number; at: number }
   | { kind: 'set'; playerId: string; by: string; from: number; to: number; at: number }
-  | { kind: 'leave'; playerId: string; by: string; chips: number; at: number } // ушёл со стола с остатком
+  // Ушёл со стола с остатком; имя и постоянный — чтобы назвать ушедшего в итоге вечера (у записей до #60 их нет)
+  | { kind: 'leave'; playerId: string; by: string; chips: number; at: number; name?: string; regularId?: string | null }
 
 export type HandResult = {
   number: number
@@ -277,7 +278,7 @@ function remove(state: TableState, by: string, playerId: string, now: number): s
     state.chipLog.push({ kind: 'rebuy', playerId, by: r.by, from: chips, to: chips + r.amount, at: now })
     chips += r.amount
   }
-  state.chipLog.push({ kind: 'leave', playerId, by, chips, at: now })
+  state.chipLog.push({ kind: 'leave', playerId, by, chips, at: now, name: p.name, regularId: p.regularId })
   state.players = state.players.filter((x) => x.id !== playerId)
   state.rebuyRequests = state.rebuyRequests.filter((r) => r.playerId !== playerId)
   state.approvedRebuys = state.approvedRebuys.filter((r) => r.playerId !== playerId)
