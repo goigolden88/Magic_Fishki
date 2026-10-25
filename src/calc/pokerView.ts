@@ -14,6 +14,7 @@ export type SeatView = {
   isHost: boolean
   button: boolean
   blind: 'МБ' | 'ББ' | null
+  position: string | null // подпись позиции в раздаче: «BTN», «SB», «BB», «UTG» … «CO»; не сдан — null
   toAct: boolean
   inHand: boolean // сдан в этой раздаче
   folded: boolean
@@ -72,6 +73,7 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
   const nameOf = (id: string) => names.get(id) ?? 'Ушёл'
   const host = table.players.find((p) => p.id === table.hostId)
   const blinds = hand ? blindIds(hand.seats.map((s) => s.id), hand.button) : null
+  const positions = hand ? positionLabels(hand.seats.length) : []
 
   const seats: SeatView[] = [...table.players]
     .sort((a, b) => a.seat - b.seat)
@@ -87,6 +89,7 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
         isHost: p.id === table.hostId,
         button: hand ? index === hand.button : table.buttonSeat === p.seat,
         blind: blinds?.sb === p.id ? 'МБ' : blinds?.bb === p.id ? 'ББ' : null,
+        position: hand && index !== -1 ? positions[(index - hand.button + positions.length) % positions.length] : null,
         toAct: hand !== null && index !== -1 && index === hand.toAct,
         inHand: s !== null,
         folded: s?.folded ?? false,
@@ -124,6 +127,15 @@ function blindIds(ids: string[], button: number): { sb: string; bb: string } {
   const n = ids.length
   const sb = n === 2 ? button : (button + 1) % n
   return { sb: ids[sb], bb: ids[(sb + 1) % n] }
+}
+
+// Подписи позиций по числу сданных, от кнопки по ходу: «BTN», «SB», «BB», затем «UTG», а поздние —
+// с конца: «CO» перед кнопкой, перед ним «HJ», «LJ», «MP». Хедз-ап — кнопка ставит малый (как blindIds)
+export function positionLabels(n: number): string[] {
+  if (n < 2) return n === 1 ? ['BTN'] : []
+  if (n === 2) return ['BTN/SB', 'BB']
+  const late = ['CO', 'HJ', 'LJ', 'MP', 'UTG+1', 'UTG+2', 'UTG+3'].slice(0, Math.max(0, n - 4)).reverse()
+  return ['BTN', 'SB', 'BB', ...(n > 3 ? ['UTG'] : []), ...late]
 }
 
 // После торгов — банки раздачи как есть. Во время торгов побочные видны, только когда

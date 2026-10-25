@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { allin, award, call, fold, newTable, play, raise, start } from '../poker/testing'
 import { HOST_TAKEOVER_MS } from '../poker/table'
-import { defaultWinners, finalStacks, lastHandWins, tableView, toggleWinner, winnersReady } from './pokerView'
+import {
+  defaultWinners,
+  finalStacks,
+  lastHandWins,
+  positionLabels,
+  tableView,
+  toggleWinner,
+  winnersReady,
+} from './pokerView'
 
 const three = (stacks: Record<string, number> = {}) => newTable(['p0', 'p1', 'p2'], {}, stacks)
 
@@ -47,6 +55,38 @@ describe('экран стола', () => {
     const v = tableView(flop, 'p1', 0)
     expect(v.stageLabel).toBe('Флоп')
     expect(v.actions).toMatchObject({ myTurn: true, check: true, call: 0, raise: { label: 'Ставка', min: 10 } })
+  })
+
+  it('подписи позиций — по числу играющих, от кнопки по ходу', () => {
+    expect(positionLabels(2)).toEqual(['BTN/SB', 'BB'])
+    expect(positionLabels(3)).toEqual(['BTN', 'SB', 'BB'])
+    expect(positionLabels(4)).toEqual(['BTN', 'SB', 'BB', 'UTG'])
+    expect(positionLabels(5)).toEqual(['BTN', 'SB', 'BB', 'UTG', 'CO'])
+    expect(positionLabels(6)).toEqual(['BTN', 'SB', 'BB', 'UTG', 'HJ', 'CO'])
+    expect(positionLabels(7)).toEqual(['BTN', 'SB', 'BB', 'UTG', 'LJ', 'HJ', 'CO'])
+    expect(positionLabels(8)).toEqual(['BTN', 'SB', 'BB', 'UTG', 'MP', 'LJ', 'HJ', 'CO'])
+    expect(positionLabels(9)).toEqual(['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'MP', 'LJ', 'HJ', 'CO'])
+  })
+
+  it('позиции на местах: от кнопки; хедз-ап — «BTN/SB» и «BB»; не сданный — без позиции', () => {
+    const ids = ['p0', 'p1', 'p2', 'p3', 'p4']
+    const five = play(newTable(ids), [start('p0')], false)
+    expect(tableView(five, 'p0', 0).seats.map((x) => x.position)).toEqual(['BTN', 'SB', 'BB', 'UTG', 'CO'])
+    // Следующая раздача — кнопка у P1
+    const next = play(five, [fold('p3'), fold('p4'), fold('p0'), fold('p1'), award('p0', [['p2']]), start('p0')], false)
+    expect(tableView(next, 'p0', 0).seats.map((x) => x.position)).toEqual(['CO', 'BTN', 'SB', 'BB', 'UTG'])
+
+    const heads = play(newTable(['p0', 'p1']), [start('p0')], false)
+    expect(tableView(heads, 'p1', 0).seats.map((x) => x.position)).toEqual(['BTN/SB', 'BB'])
+
+    const out = play(three(), [{ from: 'p1', msg: { type: 'sitOut', sittingOut: true } }, start('p0')], false)
+    expect(tableView(out, 'p0', 0).seats.map((x) => [x.name, x.position, x.sittingOut])).toEqual([
+      ['P0', 'BTN/SB', false],
+      ['P1', null, true],
+      ['P2', 'BB', false],
+    ])
+    // Между раздачами позиций нет
+    expect(tableView(three(), 'p0', 0).seats.map((x) => x.position)).toEqual([null, null, null])
   })
 
   it('между раздачами: начать может только ведущий и когда двое с фишками', () => {
