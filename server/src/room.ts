@@ -2,7 +2,7 @@
 // src/poker/: сама правил покера не держит. Памяти между сообщениями нет — объект
 // засыпает, поэтому стол читается из хранилища на каждом сообщении и пишется после.
 // Хранилище, соединения, часы и «освободить место в реестре» — снаружи (index.ts, тесты)
-import { PROTOCOL_VERSION, VERSION_ERROR, type ServerMessage } from '../../src/poker/protocol'
+import { PROTOCOL_VERSION, VERSION_ERROR, type RosterEntry, type ServerMessage } from '../../src/poker/protocol'
 import { createTable, handle, setOnline, type Settings, type TableState } from '../../src/poker/table'
 import { canRejoin, issueToken } from '../../src/poker/tokens'
 
@@ -21,6 +21,7 @@ export type RoomRecord = {
   code: string
   table: TableState
   tokens: Record<string, string> // игрок → токен возврата
+  roster?: RosterEntry[] // постоянные, отмеченные ведущим; у комнат протокола 1 поля нет
   lastMoveAt: number
 }
 
@@ -55,15 +56,20 @@ export async function initRoom(
   name: unknown,
   settings: Partial<Settings>,
   now: number,
+  roster: RosterEntry[] = [],
+  regularId: string | null = null,
 ): Promise<{ ok: true; playerId: string; token: string } | { ok: false; error: string }> {
   if (await env.storage.get<RoomRecord>(KEY)) return { ok: false, error: 'Комната с таким кодом уже есть' }
   const playerId = newPlayerId()
-  const created = createTable(playerId, typeof name === 'string' ? name : '', settings, now)
+  // Ведущий из постоянных — под именем из списка, как и остальные
+  const regular = roster.find((r) => r.id === regularId)
+  const hostName = regular ? regular.name : typeof name === 'string' ? name : ''
+  const created = createTable(playerId, hostName, settings, now, regular ? regular.id : null)
   if (!created.ok) return created
   const token = issueToken()
   // Ведущий ещё не подключился — вне сети, пока не войдёт
   const table = setOnline(created.state, playerId, false, now)
-  await env.storage.put<RoomRecord>(KEY, { code, table, tokens: { [playerId]: token }, lastMoveAt: now })
+  await env.storage.put<RoomRecord>(KEY, { code, table, tokens: { [playerId]: token }, roster, lastMoveAt: now })
   await env.storage.setAlarm(now + IDLE_MS)
   return { ok: true, playerId, token }
 }
@@ -72,9 +78,10 @@ export async function isAlive(env: RoomEnv): Promise<boolean> {
   return (await env.storage.get<RoomRecord>(KEY)) !== undefined
 }
 
-// Новое соединение: комнаты нет — сказать и закрыть
+// Новое соединение: комната есть — список, из кого выбрать себя; нет — сказать и закрыть
 export async function open(env: RoomEnv, peer: Peer): Promise<void> {
-  if (await isAlive(env)) return
+  const room = await env.storage.get<RoomRecord>(KEY)
+  if (room) return sendLobby(peer, room)
   send(peer, { type: 'error', error: NO_ROOM })
   peer.close(CLOSE_NO_ROOM, 'no room')
 }
@@ -102,6 +109,7 @@ export async function message(env: RoomEnv, peer: Peer, raw: string, now: number
     if (me !== room.table.hostId) return send(peer, { type: 'error', error: 'Это может только ведущий' })
     return end(env, room, 'Ведущий завершил игру')
   }
+  if (msg.type === 'reseat') return reseat(env, room, peer, me, msg.playerId, now)
   const r = handle(room.table, me, msg, now)
   if (!r.ok) return send(peer, { type: 'error', error: r.error })
   room.table = r.state
@@ -150,10 +158,15 @@ async function join(
     }
     room.table = setOnline(room.table, id, true, now)
   } else {
-    // Нет токена или он чужой — новым игроком, а не на чужое место
+    // Нет токена или он чужой — новым игроком, а не на чужое место.
+    // Отказ — причина и свежий список: пока выбирал, место могли занять
     id = newPlayerId()
-    const r = handle(room.table, id, { v: PROTOCOL_VERSION, type: 'sit', name: msg.name }, now)
-    if (!r.ok) return send(peer, { type: 'error', error: r.error })
+    const sit = sitMessage(room, msg)
+    const r = 'error' in sit ? sit : handle(room.table, id, { v: PROTOCOL_VERSION, type: 'sit', ...sit }, now)
+    if (!r.ok) {
+      send(peer, { type: 'error', error: r.error })
+      return sendLobby(peer, room)
+    }
     room.table = r.state
     room.tokens[id] = issueToken()
   }
@@ -161,6 +174,40 @@ async function join(
   peer.setPlayerId(id)
   send(peer, { type: 'welcome', playerId: id, token: room.tokens[id] })
   await save(env, room)
+}
+
+// Посадка: под постоянным — имя из списка комнаты; гостем — своё
+function sitMessage(
+  room: RoomRecord,
+  msg: Record<string, unknown>,
+): { name: unknown; regularId?: string } | { ok: false; error: string } {
+  if (typeof msg.regularId !== 'string') return { name: msg.name }
+  const regular = (room.roster ?? []).find((r) => r.id === msg.regularId)
+  if (!regular) return { ok: false, error: 'Такого игрока нет в списке комнаты' }
+  return { name: regular.name, regularId: regular.id }
+}
+
+// Пересадить: новый токен игрока — ведущему, для ссылки на другое устройство.
+// Старый токен больше не пускает, соединения игрока закрываются
+async function reseat(env: RoomEnv, room: RoomRecord, peer: Peer, me: string, playerId: unknown, now: number): Promise<void> {
+  if (me !== room.table.hostId) return send(peer, { type: 'error', error: 'Это может только ведущий' })
+  if (typeof playerId !== 'string' || !room.table.players.some((p) => p.id === playerId)) {
+    return send(peer, { type: 'error', error: 'Такого игрока нет за столом' })
+  }
+  if (playerId === me) return send(peer, { type: 'error', error: 'Себя не пересадить — сначала передайте ведение' })
+  const token = issueToken()
+  room.tokens[playerId] = token
+  for (const p of env.peers()) {
+    if (p.playerId() === playerId) p.close(CLOSE_REPLACED, 'reseated')
+  }
+  room.table = setOnline(room.table, playerId, false, now)
+  send(peer, { type: 'reseated', playerId, token })
+  await save(env, room)
+}
+
+function sendLobby(peer: Peer, room: RoomRecord): void {
+  const seated = room.table.players.flatMap((p) => (p.regularId ? [p.regularId] : []))
+  send(peer, { type: 'lobby', roster: room.roster ?? [], seated })
 }
 
 async function end(env: RoomEnv, room: RoomRecord, reason: string): Promise<void> {

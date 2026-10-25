@@ -21,6 +21,7 @@ export const HOST_TAKEOVER_MS = 60_000
 export type TablePlayer = {
   id: string
   name: string
+  regularId: string | null // постоянный игрок из списка ведущего (Р-12); null — гость
   seat: number // номер места, 0…maxSeats−1
   chips: number // стек между раздачами
   buyIn: number // закуплено всего: закуп и докупы
@@ -57,7 +58,13 @@ export type TableState = {
 
 export type Result = { ok: true; state: TableState } | { ok: false; error: string }
 
-export function createTable(hostId: string, hostName: string, settings: Partial<Settings>, now: number): Result {
+export function createTable(
+  hostId: string,
+  hostName: string,
+  settings: Partial<Settings>,
+  now: number,
+  hostRegularId: string | null = null,
+): Result {
   const s = { ...DEFAULT_SETTINGS, ...settings }
   const error = settingsError(s)
   if (error) return { ok: false, error }
@@ -73,7 +80,7 @@ export function createTable(hostId: string, hostName: string, settings: Partial<
     approvedRebuys: [],
     chipLog: [],
   }
-  const sitError = sit(state, hostId, hostName, now)
+  const sitError = sit(state, hostId, hostName, now, hostRegularId)
   return sitError ? { ok: false, error: sitError } : { ok: true, state }
 }
 
@@ -95,7 +102,7 @@ export function setOnline(state: TableState, playerId: string, online: boolean, 
 }
 
 function apply(state: TableState, from: string, msg: ClientBody, now: number): string | null {
-  if (msg.type === 'sit') return sit(state, from, msg.name, now)
+  if (msg.type === 'sit') return sit(state, from, msg.name, now, msg.regularId)
   const me = state.players.find((p) => p.id === from)
   if (!me) return 'Вас нет за столом'
   const isHost = from === state.hostId
@@ -141,16 +148,29 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number): s
   }
 }
 
-function sit(state: TableState, id: string, name: unknown, now: number): string | null {
+// regularId — постоянный игрок; за столом он один: второй раз под ним не сесть
+function sit(state: TableState, id: string, name: unknown, now: number, regularId: unknown): string | null {
   if (state.players.some((p) => p.id === id)) return 'Вы уже за столом'
   const trimmed = typeof name === 'string' ? name.trim() : ''
   if (!trimmed) return 'Нужно имя'
+  const regular = typeof regularId === 'string' && regularId ? regularId : null
+  if (regular && state.players.some((p) => p.regularId === regular)) return 'Этот игрок уже за столом'
   const taken = new Set(state.players.map((p) => p.seat))
   let seat = 0
   while (seat < state.settings.maxSeats && taken.has(seat)) seat++
   if (seat >= state.settings.maxSeats) return 'Стол заполнен'
   const chips = state.settings.startingStack
-  state.players.push({ id, name: trimmed, seat, chips, buyIn: chips, sittingOut: false, online: true, offlineSince: null })
+  state.players.push({
+    id,
+    name: trimmed,
+    regularId: regular,
+    seat,
+    chips,
+    buyIn: chips,
+    sittingOut: false,
+    online: true,
+    offlineSince: null,
+  })
   state.chipLog.push({ kind: 'buyin', playerId: id, amount: chips, at: now })
   return null
 }

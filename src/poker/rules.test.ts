@@ -159,6 +159,27 @@ describe('стол', () => {
     expect(() => play(s, [sit('p1', 'P1')], false)).toThrow('Вы уже за столом')
   })
 
+  it('постоянный игрок садится один раз; гости — без связи', () => {
+    const r = createTable('p0', 'Анна', {}, 0, 'r-anna')
+    if (!r.ok) throw new Error(r.error)
+    const s = play(
+      r.state,
+      [
+        { from: 'p1', msg: { type: 'sit', name: 'Борис', regularId: 'r-boris' } },
+        { from: 'p2', msg: { type: 'sit', name: 'Гость' } },
+      ],
+      false,
+    )
+    expect(s.players.map((p) => [p.id, p.regularId])).toEqual([
+      ['p0', 'r-anna'],
+      ['p1', 'r-boris'],
+      ['p2', null],
+    ])
+    expect(() => play(s, [{ from: 'p3', msg: { type: 'sit', name: 'Анна-2', regularId: 'r-anna' } }], false)).toThrow(
+      'Этот игрок уже за столом',
+    )
+  })
+
   it('неверные настройки — отказ', () => {
     expect(createTable('p0', 'P0', { sb: 10, bb: 5 }, 0).ok).toBe(false)
     expect(createTable('p0', 'P0', { startingStack: 0 }, 0).ok).toBe(false)

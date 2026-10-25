@@ -2,7 +2,8 @@
 // клиент с другой версией получает отказ «обновите приложение»
 import type { Settings, TableState } from './table'
 
-export const PROTOCOL_VERSION = 1
+// 2 — список постоянных игроков комнаты (lobby), вход под постоянным (regularId), «пересадить» (reseat)
+export const PROTOCOL_VERSION = 2
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -16,7 +17,7 @@ export type BetAction =
 
 // Тело сообщения; кто прислал — знает сервер по соединению
 export type ClientBody =
-  | { type: 'sit'; name: string } // сесть за стол
+  | { type: 'sit'; name: string; regularId?: string } // сесть за стол; regularId — постоянный игрок
   | { type: 'start' } // ведущий: новая раздача
   | { type: 'act'; action: BetAction }
   | { type: 'skip' } // ведущий: ход за отошедшего — чек, если можно, иначе сброс
@@ -33,18 +34,34 @@ export type ClientMessage = ClientBody & { v: number }
 
 // Сообщения комнаты — их разбирает сервер комнат, не стол.
 // join — первое сообщение после подключения: с playerId и token — возврат на своё место,
-// иначе (или токен чужой) — посадка новым игроком под именем name
+// иначе (или токен чужой) — посадка новым игроком: с regularId — под постоянным из списка
+// комнаты (имя — из списка), без него — гостем под именем name
 export type RoomMessage = { v: number } & (
-  | { type: 'join'; name?: string; playerId?: string; token?: string }
+  | { type: 'join'; name?: string; regularId?: string; playerId?: string; token?: string }
   | { type: 'finish' } // ведущий: игра окончена — комната стирается
+  | { type: 'reseat'; playerId: string } // ведущий: новый токен игроку — для другого устройства, старый больше не пускает
 )
 
-// Создание комнаты: POST /rooms. Пароль компании — секрет сервера ROOM_PASSWORD
-export type CreateRoomRequest = { v: number; password: string; name: string; settings?: Partial<Settings> }
+// Постоянный игрок (Р-12), отмеченный ведущим при создании комнаты
+export type RosterEntry = { id: string; name: string }
+
+// Создание комнаты: POST /rooms. Пароль компании — секрет сервера ROOM_PASSWORD.
+// roster — отмеченные постоянные; regularId — кто из них ведущий (нет — гость)
+export type CreateRoomRequest = {
+  v: number
+  password: string
+  name: string
+  regularId?: string
+  roster?: RosterEntry[]
+  settings?: Partial<Settings>
+}
 export type CreateRoomResponse = { v: number } & ({ code: string; playerId: string; token: string } | { error: string })
 
 export type ServerMessage = { v: number } & (
+  // Сразу после подключения: кого выбрать при входе; seated — id постоянных, уже сидящих за столом
+  | { type: 'lobby'; roster: RosterEntry[]; seated: string[] }
   | { type: 'welcome'; playerId: string; token: string } // токен возврата на своё место
+  | { type: 'reseated'; playerId: string; token: string } // ведущему: новый токен игрока для ссылки
   | { type: 'state'; table: TableState }
   | { type: 'ended'; table: TableState; reason: string } // комната стёрта; table — стол на момент конца
   | { type: 'error'; error: string }

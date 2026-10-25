@@ -1,11 +1,14 @@
 // Обычные запросы к серверу: строка «работает» и создание комнаты по паролю компании.
 // Без привязки к Cloudflare — реестр и комнату даёт index.ts, в тестах — подделки
-import { PROTOCOL_VERSION, VERSION_ERROR, type CreateRoomResponse } from '../../src/poker/protocol'
+import { PROTOCOL_VERSION, VERSION_ERROR, type CreateRoomResponse, type RosterEntry } from '../../src/poker/protocol'
 import type { Settings } from '../../src/poker/table'
 
 export const STATUS_TEXT = `Сервер покера «Фишек» работает, протокол ${PROTOCOL_VERSION}`
 export const NO_PASSWORD = 'На сервере не задан пароль'
 export const WRONG_PASSWORD = 'Неверный пароль'
+
+// Больше постоянных в списке комнаты не берём: столько за столом не сядет
+export const MAX_ROSTER = 30
 
 export type CreateDeps = {
   password: string | undefined // секрет ROOM_PASSWORD
@@ -14,6 +17,8 @@ export type CreateDeps = {
     code: string,
     name: unknown,
     settings: Partial<Settings>,
+    roster: RosterEntry[],
+    regularId: string | null,
   ) => Promise<{ ok: true; playerId: string; token: string } | { ok: false; error: string }>
   release: (code: string) => Promise<void>
 }
@@ -25,7 +30,9 @@ export async function createRoom(body: unknown, deps: CreateDeps): Promise<{ sta
   if (typeof body.password !== 'string' || !samePassword(body.password, deps.password)) return fail(403, WRONG_PASSWORD)
   const reserved = await deps.reserve()
   if (!reserved.ok) return fail(409, reserved.error)
-  const created = await deps.init(reserved.code, body.name, pickSettings(body.settings))
+  const roster = pickRoster(body.roster)
+  const regularId = roster.some((r) => r.id === body.regularId) ? (body.regularId as string) : null
+  const created = await deps.init(reserved.code, body.name, pickSettings(body.settings), roster, regularId)
   if (!created.ok) {
     await deps.release(reserved.code)
     return fail(400, created.error)
@@ -55,6 +62,20 @@ function pickSettings(x: unknown): Partial<Settings> {
     if (key in x) out[key] = x[key]
   }
   return out as Partial<Settings>
+}
+
+// Список постоянных: только { id, name } со строками, имя без пробелов по краям, id без повторов
+function pickRoster(x: unknown): RosterEntry[] {
+  if (!Array.isArray(x)) return []
+  const out: RosterEntry[] = []
+  for (const r of x) {
+    if (!isRecord(r) || typeof r.id !== 'string' || !r.id || typeof r.name !== 'string') continue
+    const name = r.name.trim()
+    if (!name || out.some((o) => o.id === r.id)) continue
+    out.push({ id: r.id, name })
+    if (out.length === MAX_ROSTER) break
+  }
+  return out
 }
 
 // Сравнение без раннего выхода: время ответа не подсказывает, сколько знаков угадано

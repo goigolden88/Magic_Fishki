@@ -34,7 +34,29 @@ describe('создание комнаты', () => {
     const { d, calls } = deps('пароль компании')
     const r = await createRoom(body('пароль компании', { settings: { bb: 20, sb: 10, junk: 1 } }), d)
     expect(r).toEqual({ status: 200, body: { v: PROTOCOL_VERSION, code: 'KQ7MZP', playerId: 'host1', token: 'secret-token' } })
-    expect(calls.inits).toEqual([['KQ7MZP', 'Ведущий', { bb: 20, sb: 10 }]])
+    expect(calls.inits).toEqual([['KQ7MZP', 'Ведущий', { bb: 20, sb: 10 }, [], null]])
+  })
+
+  it('список постоянных: только верные строки без повторов; ведущий — из списка или гость', async () => {
+    const { d, calls } = deps('p')
+    const roster = [
+      { id: 'r1', name: ' Анна ' },
+      { id: 'r1', name: 'Анна ещё раз' },
+      { id: 'r2', name: '' },
+      { id: 3, name: 'Число' },
+      'Борис',
+      { id: 'r4', name: 'Борис' },
+    ]
+    await createRoom(body('p', { roster, regularId: 'r4' }), d)
+    await createRoom(body('p', { roster, regularId: 'r2' }), d)
+    await createRoom(body('p', { roster: 'не список' }), d)
+    const anna = { id: 'r1', name: 'Анна' }
+    const boris = { id: 'r4', name: 'Борис' }
+    expect(calls.inits.map((args) => args.slice(3))).toEqual([
+      [[anna, boris], 'r4'],
+      [[anna, boris], null],
+      [[], null],
+    ])
   })
 
   it('неверный пароль — «неверный пароль», комната не создаётся', async () => {
