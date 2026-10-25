@@ -8,6 +8,7 @@ import {
   CLOSE_REPLACED,
   CLOSE_SILENT,
   CLOSE_VERSION,
+  FINISHED,
   NO_ROOM,
   PING,
   PONG,
@@ -131,7 +132,7 @@ export async function message(env: RoomEnv, peer: Peer, raw: string, now: number
   if (!me) return send(peer, { type: 'error', error: 'Сначала войдите в комнату' })
   if (msg.type === 'finish') {
     if (me !== room.table.hostId) return send(peer, { type: 'error', error: 'Это может только ведущий' })
-    return end(env, room, 'Ведущий завершил игру')
+    return end(env, room, FINISHED)
   }
   if (msg.type === 'reseat') return reseat(env, room, peer, me, msg.playerId, now)
   const r = handle(room.table, me, msg, now)

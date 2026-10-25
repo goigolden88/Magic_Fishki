@@ -12,9 +12,15 @@ import {
   type SeatView,
   type TableView,
 } from '../calc/pokerView'
+import { gameFromTable } from '../calc/pokerGame'
+import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS } from '../model'
+import { FINISHED } from '../poker/protocol'
 import type { TableState } from '../poker/table'
-import { getSettings } from '../store/db'
+import { getSettings, saveGame } from '../store/db'
+import { ulid } from '../ulid'
+import { openGameYear } from './openYears'
+import { loadRecordedGame, saveRecordedGame } from './pokerStorage'
 import { useRoom, type Lobby, type Room } from './useRoom'
 
 // Стол покера онлайн (Р-14, Р-19): вход по ссылке, ставки с телефонов, кнопки ведущего.
@@ -22,10 +28,43 @@ import { useRoom, type Lobby, type Room } from './useRoom'
 export function PokerRoomScreen({ code }: { code: string }) {
   const room = useRoom(code)
   const [note, setNote] = useState<string | null>(null)
+  const [gameId, setGameId] = useState<string | null>(null) // итог этого стола записан игрой на этом телефоне
+
+  useEffect(() => {
+    setGameId(room.me ? loadRecordedGame(code, room.me) : null)
+  }, [code, room.me])
 
   async function shareRoom() {
     const url = roomLink(location.href, code)
     setNote(await shareLink(`Покер — стол ${code}: ${url}`))
+  }
+
+  // «Закончить игру» (Р-20): итог — игрой в историю на этом телефоне, затем комната закрывается у всех.
+  // Без связи игра всё равно записывается — из стола, который уже есть; повтор второй игры не пишет
+  async function finish(table: TableState): Promise<string | null> {
+    const me = room.me
+    if (!me) return null
+    let id = loadRecordedGame(code, me)
+    if (!id) {
+      try {
+        const settings = await getSettings()
+        const date = today()
+        const game = gameFromTable(
+          table,
+          { name: formatDate(date), date, rate: settings.defaultRate, now: new Date().toISOString() },
+          () => ulid(),
+        )
+        await saveGame(game)
+        saveRecordedGame(code, me, game.id)
+        openGameYear(date)
+        id = game.id
+      } catch {
+        return 'Не удалось записать игру на этом телефоне — комната не закрыта'
+      }
+    }
+    setGameId(id)
+    room.send({ type: 'finish' })
+    return null
   }
 
   return (
@@ -49,8 +88,10 @@ export function PokerRoomScreen({ code }: { code: string }) {
 
       {room.phase === 'loading' && !room.failed && <p className="muted">Подключение…</p>}
       {room.phase === 'lobby' && room.lobby && <LobbyCard lobby={room.lobby} room={room} />}
-      {room.phase === 'seated' && room.table && room.me && <TableCard room={room} table={room.table} me={room.me} code={code} />}
-      {room.phase === 'closed' && <ClosedCard ended={room.ended} />}
+      {room.phase === 'seated' && room.table && room.me && (
+        <TableCard room={room} table={room.table} me={room.me} code={code} gameId={gameId} onFinish={finish} />
+      )}
+      {room.phase === 'closed' && <ClosedCard ended={room.ended} gameId={gameId} />}
       {room.phase === 'update' && (
         <section className="card">
           <h2>{UPDATE_APP}</h2>
@@ -136,7 +177,10 @@ function LobbyCard({ lobby, room }: { lobby: Lobby; room: Room }) {
   )
 }
 
-function TableCard({ room, table, me, code }: { room: Room; table: TableState; me: string; code: string }) {
+type Finish = (table: TableState) => Promise<string | null> // отказ — текст ошибки
+
+function TableCard(props: { room: Room; table: TableState; me: string; code: string; gameId: string | null; onFinish: Finish }) {
+  const { room, table, me, code, gameId, onFinish } = props
   const [now, setNow] = useState(() => Date.now())
   const [amounts, setAmounts] = useState<number[]>(DEFAULT_QUICK_AMOUNTS)
 
@@ -201,7 +245,7 @@ function TableCard({ room, table, me, code }: { room: Room; table: TableState; m
         </button>
       )}
 
-      {v.isHost && <HostCard room={room} table={table} view={v} code={code} />}
+      {v.isHost && <HostCard room={room} table={table} view={v} code={code} gameId={gameId} onFinish={onFinish} />}
 
       <MyCard room={room} table={table} view={v} amounts={amounts} />
     </>
@@ -397,10 +441,20 @@ function MyCard({ room, table, view: v, amounts }: { room: Room; table: TableSta
   )
 }
 
-function HostCard({ room, table, view: v, code }: { room: Room; table: TableState; view: TableView; code: string }) {
+function HostCard(props: {
+  room: Room
+  table: TableState
+  view: TableView
+  code: string
+  gameId: string | null
+  onFinish: Finish
+}) {
+  const { room, table, view: v, code, gameId, onFinish } = props
   const [open, setOpen] = useState<string | null>(null) // игрок, чьи кнопки раскрыты
   const [stackText, setStackText] = useState('')
   const [note, setNote] = useState<string | null>(null)
+  const [finishError, setFinishError] = useState<string | null>(null)
+  const [finishing, setFinishing] = useState(false)
   const hand = table.hand
 
   const reseatedName = room.reseated ? table.players.find((p) => p.id === room.reseated?.playerId)?.name : undefined
@@ -410,9 +464,15 @@ function HostCard({ room, table, view: v, code }: { room: Room; table: TableStat
     setNote(await shareLink(`${name}, ваше место за столом ${code}: ${roomLink(location.href, code, seat)}`))
   }
 
-  function finish() {
-    if (!confirm('Закончить игру? Комната закроется у всех. В историю игра пока не записывается.')) return
-    room.send({ type: 'finish' })
+  async function finish() {
+    const question = gameId
+      ? 'Игра уже записана в историю. Закрыть комнату у всех?'
+      : 'Закончить игру? Итог запишется в историю на этом телефоне, комната закроется у всех.' +
+        (hand ? ' Раздача не доиграна — она отменится, в итог пойдут стеки до неё.' : '')
+    if (finishing || !confirm(question)) return
+    setFinishing(true)
+    setFinishError(await onFinish(table))
+    setFinishing(false)
   }
 
   return (
@@ -562,7 +622,20 @@ function HostCard({ room, table, view: v, code }: { room: Room; table: TableStat
         ))}
       </ul>
 
-      <button type="button" className="big wide danger" onClick={finish}>
+      {gameId && (
+        <>
+          <p className="ok">
+            Игра записана в историю.
+            {!room.online &&
+              ' Комната закроется, когда вернётся связь и вы снова нажмёте «Закончить игру», — или сама через сутки.'}
+          </p>
+          <a className="big wide button-link" href={`#/game/${gameId}`}>
+            Открыть игру
+          </a>
+        </>
+      )}
+      {finishError && <p className="warn">{finishError}</p>}
+      <button type="button" className="big wide danger" disabled={finishing} onClick={() => void finish()}>
         Закончить игру
       </button>
     </section>
@@ -609,12 +682,19 @@ function AwardPanel({ room, table, view: v }: { room: Room; table: TableState; v
   )
 }
 
-function ClosedCard({ ended }: { ended: Room['ended'] }) {
+// Ведущий, записавший итог, — «Игра записана в историю»; игроки после «Закончить игру» — «итог — у ведущего»
+function ClosedCard({ ended, gameId }: { ended: Room['ended']; gameId: string | null }) {
   const stacks = ended?.table ? finalStacks(ended.table) : []
   return (
     <section className="card">
       <h2>{ROOM_CLOSED}</h2>
-      {ended?.reason && <p className="muted">{ended.reason}</p>}
+      {gameId ? (
+        <p className="ok">Игра записана в историю</p>
+      ) : ended?.reason === FINISHED ? (
+        <p>Игра закончена, итог — у ведущего</p>
+      ) : (
+        ended?.reason && <p className="muted">{ended.reason}</p>
+      )}
       {stacks.length > 0 && (
         <table className="totals">
           <tbody>
@@ -628,8 +708,13 @@ function ClosedCard({ ended }: { ended: Room['ended'] }) {
           </tbody>
         </table>
       )}
-      {stacks.length > 0 && <p className="muted">Стек и итог против закупа. В историю игра пока не записывается.</p>}
-      <a className="big primary wide button-link" href="#/poker">
+      {stacks.length > 0 && <p className="muted">Стек и итог против закупа</p>}
+      {gameId && (
+        <a className="big primary wide button-link" href={`#/game/${gameId}`}>
+          Открыть игру
+        </a>
+      )}
+      <a className={gameId ? 'big wide button-link' : 'big primary wide button-link'} href="#/poker">
         К покеру
       </a>
     </section>
