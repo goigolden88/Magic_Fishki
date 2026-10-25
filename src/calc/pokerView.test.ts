@@ -1,7 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { allin, award, call, fold, newTable, play, raise, start } from '../poker/testing'
 import { HOST_TAKEOVER_MS } from '../poker/table'
-import { defaultWinners, finalStacks, lastHandWins, tableView, toggleWinner, winnersReady } from './pokerView'
+import {
+  defaultWinners,
+  finalStacks,
+  lastHandWins,
+  positionLabels,
+  tableView,
+  toggleWinner,
+  winnersReady,
+} from './pokerView'
 
 const three = (stacks: Record<string, number> = {}) => newTable(['p0', 'p1', 'p2'], {}, stacks)
 
@@ -9,10 +17,10 @@ describe('экран стола', () => {
   it('префлоп: кнопка, блайнды, банк, чей ход; кнопки хода — у того, чей ход', () => {
     const s = play(three(), [start('p0')], false)
     const v = tableView(s, 'p0', 0)
-    expect(v.seats.map((x) => [x.name, x.chips, x.bet, x.button, x.blind, x.toAct])).toEqual([
-      ['P0', 1000, 0, true, null, true],
-      ['P1', 995, 5, false, 'МБ', false],
-      ['P2', 990, 10, false, 'ББ', false],
+    expect(v.seats.map((x) => [x.name, x.chips, x.bet, x.button, x.position, x.toAct])).toEqual([
+      ['P0', 1000, 0, true, 'BTN', true],
+      ['P1', 995, 5, false, 'SB', false],
+      ['P2', 990, 10, false, 'BB', false],
     ])
     expect([v.stageLabel, v.handNumber, v.pot, v.toActName]).toEqual(['Префлоп', 1, 15, 'P0'])
     expect(v.pots).toEqual([])
@@ -39,14 +47,46 @@ describe('экран стола', () => {
 
   it('хедз-ап: кнопка ставит малый блайнд; на новой улице — «Ставка» и «Чек»', () => {
     const s = play(newTable(['p0', 'p1']), [start('p0'), call('p0')], false)
-    expect(tableView(s, 'p0', 0).seats.map((x) => [x.button, x.blind])).toEqual([
-      [true, 'МБ'],
-      [false, 'ББ'],
+    expect(tableView(s, 'p0', 0).seats.map((x) => [x.button, x.position, x.bet])).toEqual([
+      [true, 'BTN/SB', 10],
+      [false, 'BB', 10],
     ])
     const flop = play(s, [{ from: 'p1', msg: { type: 'act', action: { type: 'check' } } }], false)
     const v = tableView(flop, 'p1', 0)
     expect(v.stageLabel).toBe('Флоп')
     expect(v.actions).toMatchObject({ myTurn: true, check: true, call: 0, raise: { label: 'Ставка', min: 10 } })
+  })
+
+  it('подписи позиций — по числу играющих, от кнопки по ходу', () => {
+    expect(positionLabels(2)).toEqual(['BTN/SB', 'BB'])
+    expect(positionLabels(3)).toEqual(['BTN', 'SB', 'BB'])
+    expect(positionLabels(4)).toEqual(['BTN', 'SB', 'BB', 'UTG'])
+    expect(positionLabels(5)).toEqual(['BTN', 'SB', 'BB', 'UTG', 'CO'])
+    expect(positionLabels(6)).toEqual(['BTN', 'SB', 'BB', 'UTG', 'HJ', 'CO'])
+    expect(positionLabels(7)).toEqual(['BTN', 'SB', 'BB', 'UTG', 'LJ', 'HJ', 'CO'])
+    expect(positionLabels(8)).toEqual(['BTN', 'SB', 'BB', 'UTG', 'MP', 'LJ', 'HJ', 'CO'])
+    expect(positionLabels(9)).toEqual(['BTN', 'SB', 'BB', 'UTG', 'UTG+1', 'MP', 'LJ', 'HJ', 'CO'])
+  })
+
+  it('позиции на местах: от кнопки; хедз-ап — «BTN/SB» и «BB»; не сданный — без позиции', () => {
+    const ids = ['p0', 'p1', 'p2', 'p3', 'p4']
+    const five = play(newTable(ids), [start('p0')], false)
+    expect(tableView(five, 'p0', 0).seats.map((x) => x.position)).toEqual(['BTN', 'SB', 'BB', 'UTG', 'CO'])
+    // Следующая раздача — кнопка у P1
+    const next = play(five, [fold('p3'), fold('p4'), fold('p0'), fold('p1'), award('p0', [['p2']]), start('p0')], false)
+    expect(tableView(next, 'p0', 0).seats.map((x) => x.position)).toEqual(['CO', 'BTN', 'SB', 'BB', 'UTG'])
+
+    const heads = play(newTable(['p0', 'p1']), [start('p0')], false)
+    expect(tableView(heads, 'p1', 0).seats.map((x) => x.position)).toEqual(['BTN/SB', 'BB'])
+
+    const out = play(three(), [{ from: 'p1', msg: { type: 'sitOut', sittingOut: true } }, start('p0')], false)
+    expect(tableView(out, 'p0', 0).seats.map((x) => [x.name, x.position, x.sittingOut])).toEqual([
+      ['P0', 'BTN/SB', false],
+      ['P1', null, true],
+      ['P2', 'BB', false],
+    ])
+    // Между раздачами позиций нет
+    expect(tableView(three(), 'p0', 0).seats.map((x) => x.position)).toEqual([null, null, null])
   })
 
   it('между раздачами: начать может только ведущий и когда двое с фишками', () => {
