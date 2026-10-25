@@ -2,7 +2,7 @@
 // (WebSocket со сном), объект Registry — реестр комнат. Логика — в room.ts, registry.ts,
 // http.ts; здесь только привязка к Cloudflare
 import { DurableObject } from 'cloudflare:workers'
-import { PROTOCOL_VERSION } from '../../src/poker/protocol'
+import { PROTOCOL_VERSION, type RosterEntry } from '../../src/poker/protocol'
 import type { Settings } from '../../src/poker/table'
 import { CORS_HEADERS, createRoom, json, STATUS_TEXT } from './http'
 import * as registry from './registry'
@@ -27,7 +27,7 @@ export default {
       const r = await createRoom(body, {
         password: env.ROOM_PASSWORD,
         reserve: () => reg.reserve(),
-        init: (code, name, settings) => roomStub(env, code).init(code, name, settings),
+        init: (code, name, settings, roster, regularId) => roomStub(env, code).init(code, name, settings, roster, regularId),
         release: (code) => reg.release(code),
       })
       return json(r.status, r.body)
@@ -92,8 +92,8 @@ export class Room extends DurableObject<Env> {
   }
 
   // Зовёт Worker при создании комнаты
-  async init(code: string, name: unknown, settings: Partial<Settings>) {
-    return room.initRoom(this.roomEnv(), code, name, settings, Date.now())
+  async init(code: string, name: unknown, settings: Partial<Settings>, roster: RosterEntry[], regularId: string | null) {
+    return room.initRoom(this.roomEnv(), code, name, settings, Date.now(), roster, regularId)
   }
 
   // Зовёт реестр, когда комнат уже предел: жива ли эта

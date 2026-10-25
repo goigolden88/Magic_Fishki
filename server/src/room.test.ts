@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { PROTOCOL_VERSION, VERSION_ERROR } from '../../src/poker/protocol'
 import type { TableState } from '../../src/poker/table'
-import { alarm, close, CLOSE_ENDED, CLOSE_NO_ROOM, CLOSE_VERSION, IDLE_MS, initRoom, message, NO_ROOM, open, type RoomRecord } from './room'
+import { alarm, close, CLOSE_ENDED, CLOSE_NO_ROOM, CLOSE_REPLACED, CLOSE_VERSION, IDLE_MS, initRoom, message, NO_ROOM, open, type RoomRecord } from './room'
 import { FakePeer, fakeRoom } from './testing'
 
 const send = (r: ReturnType<typeof fakeRoom>, peer: FakePeer, body: Record<string, unknown>, now = 0) =>
@@ -20,6 +20,9 @@ const tableOf = (peer: FakePeer) => {
 }
 
 const stored = (r: ReturnType<typeof fakeRoom>) => r.storage.get<RoomRecord>('room')
+
+// Присланное после списка входа (его комната шлёт сразу при подключении)
+const afterLobby = (peer: FakePeer) => peer.sent.filter((m) => m.type !== 'lobby')
 
 // Комната с ведущим «Ведущий» (вошёл по токену) и игроком «Гость»
 async function twoPlayers() {
@@ -88,7 +91,7 @@ describe('комната', () => {
 
     const back = await connect(r)
     await send(r, back, { type: 'join', playerId: guestId, token: guestToken })
-    expect(back.sent[0]).toEqual({ v: PROTOCOL_VERSION, type: 'welcome', playerId: guestId, token: guestToken })
+    expect(afterLobby(back)[0]).toEqual({ v: PROTOCOL_VERSION, type: 'welcome', playerId: guestId, token: guestToken })
     const me = tableOf(back).players.find((p) => p.id === guestId)
     expect(me).toMatchObject({ seat: 1, chips: 1234, online: true })
     expect(tableOf(back).players.length).toBe(2)
@@ -98,7 +101,7 @@ describe('комната', () => {
     const { r, hostId } = await twoPlayers()
     const thief = await connect(r)
     await send(r, thief, { type: 'join', playerId: hostId, token: 'не тот', name: 'Чужой' })
-    const welcome = thief.sent[0] as { type: string; playerId: string }
+    const welcome = afterLobby(thief)[0] as { type: string; playerId: string }
     expect(welcome.type).toBe('welcome')
     expect(welcome.playerId).not.toBe(hostId)
     const table = tableOf(thief)
@@ -110,7 +113,7 @@ describe('комната', () => {
     const { r } = await twoPlayers()
     const peer = await connect(r)
     await send(r, peer, { type: 'join' })
-    expect(peer.last()).toEqual({ v: PROTOCOL_VERSION, type: 'error', error: 'Нужно имя' })
+    expect(afterLobby(peer)).toEqual([{ v: PROTOCOL_VERSION, type: 'error', error: 'Нужно имя' }])
     expect(peer.playerId()).toBeNull()
   })
 
@@ -143,7 +146,7 @@ describe('комната', () => {
     const before = await stored(r)
     const old = await connect(r)
     await message(r.env, old, JSON.stringify({ v: PROTOCOL_VERSION - 1, type: 'join', name: 'Старый' }), 0)
-    expect(old.sent).toEqual([{ v: PROTOCOL_VERSION, type: 'error', error: VERSION_ERROR }])
+    expect(afterLobby(old)).toEqual([{ v: PROTOCOL_VERSION, type: 'error', error: VERSION_ERROR }])
     expect(old.closed?.code).toBe(CLOSE_VERSION)
     expect(old.playerId()).toBeNull()
     expect(await stored(r)).toEqual(before)
@@ -202,6 +205,97 @@ describe('комната', () => {
     expect((await stored(r))?.tokens[guestId]).toBeUndefined()
     const back = await connect(r)
     await send(r, back, { type: 'join', playerId: guestId, token: guestToken, name: 'Гость' })
-    expect((back.sent[0] as { playerId: string }).playerId).not.toBe(guestId)
+    expect((afterLobby(back)[0] as { playerId: string }).playerId).not.toBe(guestId)
+  })
+})
+
+const ROSTER = [
+  { id: 'r-anna', name: 'Анна' },
+  { id: 'r-boris', name: 'Борис' },
+  { id: 'r-vera', name: 'Вера' },
+]
+
+// Комната с отмеченными постоянными; ведущий — Анна
+async function withRoster() {
+  const r = fakeRoom()
+  const created = await initRoom(r.env, 'ABCDEF', 'кто угодно', {}, 0, ROSTER, 'r-anna')
+  if (!created.ok) throw new Error(created.error)
+  const host = await connect(r)
+  await send(r, host, { type: 'join', playerId: created.playerId, token: created.token })
+  return { r, host, hostId: created.playerId }
+}
+
+describe('вход по списку постоянных', () => {
+  it('при подключении — список отмеченных и кто из них уже за столом', async () => {
+    const { r, host } = await withRoster()
+    expect(tableOf(host).players).toMatchObject([{ name: 'Анна', regularId: 'r-anna' }])
+    const peer = await connect(r)
+    expect(peer.sent).toEqual([{ v: PROTOCOL_VERSION, type: 'lobby', roster: ROSTER, seated: ['r-anna'] }])
+    expect((await stored(r))?.roster).toEqual(ROSTER)
+  })
+
+  it('выбрал себя — садится под именем из списка, связь с постоянным на месте', async () => {
+    const { r, host } = await withRoster()
+    const boris = await connect(r)
+    await send(r, boris, { type: 'join', regularId: 'r-boris', name: 'Боря' })
+    expect(afterLobby(boris)[0]).toMatchObject({ type: 'welcome' })
+    expect(tableOf(host).players.map((p) => [p.name, p.regularId])).toEqual([
+      ['Анна', 'r-anna'],
+      ['Борис', 'r-boris'],
+    ])
+    // Гость — своё имя, без связи
+    const guest = await connect(r)
+    await send(r, guest, { type: 'join', name: 'Гость Гена' })
+    expect(tableOf(host).players.at(-1)).toMatchObject({ name: 'Гость Гена', regularId: null })
+    expect((await connect(r)).sent[0]).toMatchObject({ type: 'lobby', seated: ['r-anna', 'r-boris'] })
+  })
+
+  it('место уже занято или игрока нет в списке — отказ и свежий список', async () => {
+    const { r } = await withRoster()
+    const first = await connect(r)
+    await send(r, first, { type: 'join', regularId: 'r-vera' })
+    const second = await connect(r)
+    await send(r, second, { type: 'join', regularId: 'r-vera' })
+    expect(second.sent.slice(1)).toEqual([
+      { v: PROTOCOL_VERSION, type: 'error', error: 'Этот игрок уже за столом' },
+      { v: PROTOCOL_VERSION, type: 'lobby', roster: ROSTER, seated: ['r-anna', 'r-vera'] },
+    ])
+    expect(second.playerId()).toBeNull()
+    const stranger = await connect(r)
+    await send(r, stranger, { type: 'join', regularId: 'r-нет', name: 'Чужой' })
+    expect(afterLobby(stranger)).toEqual([{ v: PROTOCOL_VERSION, type: 'error', error: 'Такого игрока нет в списке комнаты' }])
+  })
+})
+
+describe('пересадить на другое устройство', () => {
+  it('ведущий получает новый токен игрока; старое устройство отключено и по старому токену не войдёт', async () => {
+    const { r, host, guest, guestId, guestToken } = await twoPlayers()
+    await send(r, host, { type: 'reseat', playerId: guestId }, 7)
+    const reseated = host.sent.find((m) => m.type === 'reseated') as { playerId: string; token: string }
+    expect(reseated.playerId).toBe(guestId)
+    expect(reseated.token).not.toBe(guestToken)
+    expect(guest.closed?.code).toBe(CLOSE_REPLACED)
+    expect(tableOf(host).players.find((p) => p.id === guestId)).toMatchObject({ online: false, offlineSince: 7 })
+
+    const old = await connect(r)
+    await send(r, old, { type: 'join', playerId: guestId, token: guestToken })
+    expect(afterLobby(old)[0]).toEqual({ v: PROTOCOL_VERSION, type: 'error', error: 'Нужно имя' })
+
+    const phone = await connect(r)
+    await send(r, phone, { type: 'join', playerId: guestId, token: reseated.token })
+    expect(afterLobby(phone)[0]).toEqual({ v: PROTOCOL_VERSION, type: 'welcome', playerId: guestId, token: reseated.token })
+    expect(tableOf(phone).players.find((p) => p.id === guestId)).toMatchObject({ seat: 1, online: true })
+  })
+
+  it('только ведущий, только сидящего и не себя', async () => {
+    const { r, host, guest, hostId, guestId } = await twoPlayers()
+    await send(r, guest, { type: 'reseat', playerId: hostId })
+    expect(guest.last()).toEqual({ v: PROTOCOL_VERSION, type: 'error', error: 'Это может только ведущий' })
+    await send(r, host, { type: 'reseat', playerId: 'никто' })
+    expect(host.last()).toEqual({ v: PROTOCOL_VERSION, type: 'error', error: 'Такого игрока нет за столом' })
+    await send(r, host, { type: 'reseat', playerId: hostId })
+    expect(host.last()).toMatchObject({ type: 'error' })
+    expect(guest.closed).toBeNull()
+    expect((await stored(r))?.tokens[guestId]).toBeDefined()
   })
 })

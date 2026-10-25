@@ -7,6 +7,8 @@ import { MAX_WINDOW, MIN_WINDOW, moveItem, type Game, type Regular, type Setting
 import { deleteDemoGames, getSettings, listGames, restoreGames, saveSettings } from '../store/db'
 import { ulid } from '../ulid'
 import { loadLastBackup, saveLastBackup } from './lastBackup'
+import { DEFAULT_SERVER, serverBase } from '../calc/pokerLink'
+import { loadServer, saveServer } from './pokerStorage'
 
 export function SettingsScreen() {
   const [settings, setSettings] = useState<Settings | null>(null)
@@ -95,6 +97,7 @@ export function SettingsScreen() {
             onChange={(compareWindow) => update({ ...settings, compareWindow })}
           />
           <BackupCard settings={settings} onPlayers={(players) => setSettings((s) => s && { ...s, players })} />
+          <PokerServerCard />
           <DemoCard />
         </>
       )}
@@ -427,6 +430,48 @@ function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (p
       />
       {note && <p className={note.ok ? 'ok' : 'warn'}>{note.text}</p>}
     </section>
+  )
+}
+
+// Адрес сервера покера (Р-19): пусто — постоянный; свой — на случай резервного сервера или переезда.
+// Хранится на устройстве (localStorage), не в базе и не в копии
+function PokerServerCard() {
+  const [text, setText] = useState(loadServer)
+  const [saved, setSaved] = useState(false)
+  const base = serverBase(text)
+
+  function save(e: FormEvent) {
+    e.preventDefault()
+    if (base === null) return
+    saveServer(text.trim() === '' ? '' : base)
+    setText(text.trim() === '' ? '' : base)
+    setSaved(true)
+  }
+
+  return (
+    <form className="card" onSubmit={save}>
+      <h2>Покер онлайн</h2>
+      <label className="field">
+        Адрес сервера
+        <input
+          inputMode="url"
+          autoCapitalize="off"
+          autoCorrect="off"
+          placeholder={DEFAULT_SERVER}
+          value={text}
+          onChange={(e) => {
+            setText(e.target.value)
+            setSaved(false)
+          }}
+        />
+      </label>
+      <p className="muted">Пусто — постоянный сервер. Новые комнаты и входы идут на этот адрес.</p>
+      {base === null && <p className="warn">Адрес — вида https://сервер, без пробелов</p>}
+      {saved && <p className="ok">Сохранено</p>}
+      <button className="big primary wide" disabled={base === null}>
+        Сохранить
+      </button>
+    </form>
   )
 }
 
