@@ -1,7 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { PROTOCOL_VERSION, VERSION_ERROR } from '../../src/poker/protocol'
-import type { TableState } from '../../src/poker/table'
-import { alarm, close, CLOSE_ENDED, CLOSE_NO_ROOM, CLOSE_REPLACED, CLOSE_VERSION, IDLE_MS, initRoom, message, NO_ROOM, open, type RoomRecord } from './room'
+import { PING_MS, PROTOCOL_VERSION, VERSION_ERROR } from '../../src/poker/protocol'
+import { HOST_TAKEOVER_MS, type TableState } from '../../src/poker/table'
+import {
+  alarm,
+  CHECK_MS,
+  close,
+  CLOSE_ENDED,
+  CLOSE_NO_ROOM,
+  CLOSE_REPLACED,
+  CLOSE_SILENT,
+  CLOSE_VERSION,
+  IDLE_MS,
+  initRoom,
+  message,
+  NO_ROOM,
+  open,
+  SILENT_MS,
+  type RoomRecord,
+} from './room'
 import { FakePeer, fakeRoom } from './testing'
 
 const send = (r: ReturnType<typeof fakeRoom>, peer: FakePeer, body: Record<string, unknown>, now = 0) =>
@@ -175,8 +191,11 @@ describe('комната', () => {
   })
 
   it('сутки без ходов — комната стирается; ход был — будильник переносится', async () => {
-    const { r, host } = await twoPlayers()
+    const { r, host, guest } = await twoPlayers()
     await send(r, host, { type: 'start' }, 1000)
+    // Оба на связи всё это время — признаки жизни шли
+    host.ping(IDLE_MS)
+    guest.ping(IDLE_MS)
     await alarm(r.env, IDLE_MS)
     expect(r.storage.alarmAt).toBe(1000 + IDLE_MS)
     expect(await stored(r)).toBeDefined()
@@ -297,5 +316,166 @@ describe('пересадить на другое устройство', () => {
     expect(host.last()).toMatchObject({ type: 'error' })
     expect(guest.closed).toBeNull()
     expect((await stored(r))?.tokens[guestId]).toBeDefined()
+  })
+})
+
+// Вечер по часам, шаг — секунда: кто жив, подаёт признак жизни (beats), будильник срабатывает,
+// когда назначен. Идёт до `until` или конца; возвращает момент, когда `until` стало верным
+async function run(
+  r: ReturnType<typeof fakeRoom>,
+  peers: FakePeer[],
+  beats: (peer: FakePeer, t: number) => boolean,
+  from: number,
+  to: number,
+  until: (t: number) => boolean = () => false,
+): Promise<number | null> {
+  for (let t = from; t <= to; t += 1000) {
+    for (const p of peers) if (!p.closed && beats(p, t)) p.ping(t)
+    if (r.storage.alarmAt !== null && r.storage.alarmAt <= t) await alarm(r.env, t)
+    if (until(t)) return t
+  }
+  return null
+}
+
+const everyPing = (_: FakePeer, t: number) => t % PING_MS === 0
+const playerOf = (peer: FakePeer, id: string) => tableOf(peer).players.find((p) => p.id === id)
+
+describe('кто вне сети и с какого момента', () => {
+  it('вход заводит проверки живости; никого в сети — будильник снова на сутки', async () => {
+    const { r, host, guest } = await twoPlayers()
+    expect(r.storage.alarmAt).toBe(CHECK_MS)
+    host.close(1006, '')
+    await close(r.env, host, 1000)
+    guest.close(1006, '')
+    await close(r.env, guest, 1000)
+    await alarm(r.env, CHECK_MS)
+    expect(r.storage.alarmAt).toBe(IDLE_MS)
+  })
+
+  it('телефон ведущего пропал молча — вне сети меньше чем через минуту, «Взять ведение» — меньше чем через две', async () => {
+    // Пропал в разные моменты между признаками жизни и проверками
+    for (const gone of [1000, 7000, 14_000, 15_000, 29_000, 41_000]) {
+      const { r, host, guest, hostId, guestId } = await twoPlayers()
+      const beats = (p: FakePeer, t: number) => everyPing(p, t) && (p !== host || t < gone)
+      const off = await run(r, [host, guest], beats, 0, gone + 120_000, () => playerOf(guest, hostId)?.online === false)
+      expect(off).not.toBeNull()
+      expect(off! - gone).toBeLessThanOrEqual(60_000)
+      expect(host.closed?.code).toBe(CLOSE_SILENT)
+      // Вне сети — с последнего признака жизни
+      const since = playerOf(guest, hostId)!.offlineSince!
+      expect(since).toBeLessThanOrEqual(gone)
+      expect(since).toBeGreaterThan(gone - PING_MS - 1000)
+
+      await send(r, guest, { type: 'takeHost' }, since + HOST_TAKEOVER_MS)
+      expect(guest.last()).toEqual({ v: PROTOCOL_VERSION, type: 'error', error: 'Ведущий вне сети меньше минуты — подождите' })
+      const take = since + HOST_TAKEOVER_MS + 1
+      expect(take - gone).toBeLessThanOrEqual(120_000)
+      await send(r, guest, { type: 'takeHost' }, take)
+      expect(tableOf(guest).hostId).toBe(guestId)
+    }
+  })
+
+  it('пропал обычный игрок — вне сети меньше чем через минуту, ведущий пропускает его ход', async () => {
+    const { r, host, guest, guestId } = await twoPlayers()
+    await send(r, host, { type: 'start' })
+    await send(r, host, { type: 'act', action: { type: 'call' } })
+    const gone = 5000
+    const beats = (p: FakePeer, t: number) => everyPing(p, t) && (p !== guest || t < gone)
+    const off = await run(r, [host, guest], beats, 0, 120_000, () => playerOf(host, guestId)?.online === false)
+    expect(off! - gone).toBeLessThanOrEqual(60_000)
+    const hand = tableOf(host).hand
+    await send(r, host, { type: 'skip' })
+    expect(host.last()).toMatchObject({ type: 'state' })
+    expect(tableOf(host).hand).not.toEqual(hand)
+  })
+
+  it('вернулся — снова в сети на своём месте; ведение назад само не переходит', async () => {
+    const { r, host, guest, hostId, hostToken, guestId } = await twoPlayers()
+    const beats = (p: FakePeer, t: number) => everyPing(p, t) && p !== host
+    await run(r, [host, guest], beats, 0, 60_000)
+    expect(playerOf(guest, hostId)?.online).toBe(false)
+    await send(r, guest, { type: 'takeHost' }, 200_000)
+    expect(tableOf(guest).hostId).toBe(guestId)
+
+    const back = await connect(r)
+    await send(r, back, { type: 'join', playerId: hostId, token: hostToken }, 210_000)
+    expect(playerOf(guest, hostId)).toMatchObject({ seat: 0, online: true, offlineSince: null })
+    expect(tableOf(back).hostId).toBe(guestId)
+    // Живёт дальше — проверки его не трогают
+    const later = await run(r, [back, guest], everyPing, 210_000, 400_000, () => playerOf(guest, hostId)?.online === false)
+    expect(later).toBeNull()
+  })
+
+  it('экран погас на 20 секунд — «вне сети» не появляется', async () => {
+    const { r, host, guest, guestId } = await twoPlayers()
+    // Экран тёмный с 16-й по 36-ю секунду: признаков нет; включился — признак сразу
+    const beats = (p: FakePeer, t: number) => (p !== guest ? everyPing(p, t) : t === 36_000 || (everyPing(p, t) && (t < 16_000 || t > 36_000)))
+    const off = await run(r, [host, guest], beats, 0, 200_000, () => playerOf(host, guestId)?.online === false)
+    expect(off).toBeNull()
+    expect(guest.closed).toBeNull()
+  })
+
+  it('экран погас дольше — вне сети, а после включения снова в сети', async () => {
+    const { r, host, guest, guestId, guestToken } = await twoPlayers()
+    const beats = (p: FakePeer, t: number) => everyPing(p, t) && (p !== guest || t < 16_000)
+    await run(r, [host, guest], beats, 0, 70_000)
+    expect(playerOf(host, guestId)?.online).toBe(false)
+    // Проснулся: соединение закрыто сервером — экран открывает новое с тем же местом
+    const back = await connect(r)
+    await send(r, back, { type: 'join', playerId: guestId, token: guestToken }, 75_000)
+    expect(playerOf(host, guestId)?.online).toBe(true)
+  })
+
+  it('закрытие соединения после проверки — «вне сети с» не сдвигается', async () => {
+    const { r, host, guest, hostId } = await twoPlayers()
+    host.ping(15_000)
+    guest.ping(50_000)
+    await alarm(r.env, 50_000)
+    expect(playerOf(guest, hostId)).toMatchObject({ online: false, offlineSince: 15_000 })
+    await close(r.env, host, 90_000)
+    expect(playerOf(guest, hostId)?.offlineSince).toBe(15_000)
+  })
+
+  it('двое жмут «Взять ведение» почти разом — ведение у одного, второму понятный отказ', async () => {
+    const { r, host, guest, hostId, guestId } = await twoPlayers()
+    const third = await connect(r)
+    await send(r, third, { type: 'join', name: 'Третий' })
+    const beats = (p: FakePeer, t: number) => everyPing(p, t) && p !== host
+    await run(r, [host, guest, third], beats, 0, 60_000)
+    expect(playerOf(guest, hostId)?.online).toBe(false)
+    await send(r, guest, { type: 'takeHost' }, 100_000)
+    await send(r, third, { type: 'takeHost' }, 100_001)
+    expect(tableOf(third).hostId).toBe(guestId)
+    expect(third.last()).toEqual({ v: PROTOCOL_VERSION, type: 'error', error: 'Ведущий в сети — ведение не взять' })
+  })
+
+  it('сервер перезапустился: закрытий не видел — проверка ставит «вне сети», переподключились — снова в сети', async () => {
+    const { r, host, guest, hostId, hostToken, guestId, guestToken } = await twoPlayers()
+    // Перезапуск: соединения оборваны, а закрытия комната не получила
+    host.close(1006, '')
+    guest.close(1006, '')
+    await alarm(r.env, CHECK_MS)
+    const room = await stored(r)
+    expect(room?.table.players.map((p) => p.online)).toEqual([false, false])
+    expect(r.storage.alarmAt).toBe(IDLE_MS)
+
+    const h = await connect(r)
+    await send(r, h, { type: 'join', playerId: hostId, token: hostToken }, 30_000)
+    const g = await connect(r)
+    await send(r, g, { type: 'join', playerId: guestId, token: guestToken }, 31_000)
+    expect(tableOf(g).players.map((p) => p.online)).toEqual([true, true])
+    expect(r.storage.alarmAt).toBe(30_000 + CHECK_MS)
+    const off = await run(r, [h, g], everyPing, 31_000, 200_000, () => tableOf(g).players.some((p) => !p.online))
+    expect(off).toBeNull()
+  })
+
+  it('молчание измеряется порогом SILENT_MS: тишина ровно на пороге — ещё в сети', async () => {
+    const { r, guest, hostId, host } = await twoPlayers()
+    host.ping(10_000)
+    guest.ping(10_000 + SILENT_MS)
+    await alarm(r.env, 10_000 + SILENT_MS)
+    expect(playerOf(guest, hostId)?.online).toBe(true)
+    await alarm(r.env, 10_001 + SILENT_MS)
+    expect(playerOf(guest, hostId)?.online).toBe(false)
   })
 })

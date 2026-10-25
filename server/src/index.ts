@@ -2,7 +2,7 @@
 // (WebSocket со сном), объект Registry — реестр комнат. Логика — в room.ts, registry.ts,
 // http.ts; здесь только привязка к Cloudflare
 import { DurableObject } from 'cloudflare:workers'
-import { PROTOCOL_VERSION, type RosterEntry } from '../../src/poker/protocol'
+import { PING, PONG, PROTOCOL_VERSION, type RosterEntry } from '../../src/poker/protocol'
 import type { Settings } from '../../src/poker/table'
 import { CORS_HEADERS, createRoom, json, STATUS_TEXT } from './http'
 import * as registry from './registry'
@@ -60,6 +60,12 @@ function noRoomSocket(): Response {
 export class Room extends DurableObject<Env> {
   // Обёртки соединений — одна на сокет, чтобы сравнивать их как сами сокеты
   private wrapped = new WeakMap<WebSocket, room.Peer>()
+
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env)
+    // Признак жизни: на PING отвечает сама платформа, объект не просыпается; время — getWebSocketAutoResponseTimestamp
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair(PING, PONG))
+  }
 
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get('Upgrade') !== 'websocket') return json(426, { error: 'Нужно подключение WebSocket' })
@@ -123,13 +129,18 @@ export class Room extends DurableObject<Env> {
             // уже закрыт
           }
         },
-        playerId: () => (ws.deserializeAttachment() as { playerId?: string } | null)?.playerId ?? null,
-        setPlayerId: (playerId) => ws.serializeAttachment({ playerId }),
+        playerId: () => attachment(ws)?.playerId ?? null,
+        setPlayerId: (playerId, now) => ws.serializeAttachment({ playerId, joinedAt: now }),
+        lastSeen: () => Math.max(attachment(ws)?.joinedAt ?? 0, this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0),
       }
       this.wrapped.set(ws, p)
     }
     return p
   }
+}
+
+function attachment(ws: WebSocket): { playerId?: string; joinedAt?: number } | null {
+  return ws.deserializeAttachment() as { playerId?: string; joinedAt?: number } | null
 }
 
 export class Registry extends DurableObject<Env> {

@@ -16,6 +16,9 @@ export class FakeStorage implements RoomStorage {
   async deleteAll(): Promise<void> {
     this.data.clear()
   }
+  async getAlarm(): Promise<number | null> {
+    return this.alarmAt
+  }
   async setAlarm(time: number): Promise<void> {
     this.alarmAt = time
   }
@@ -24,10 +27,13 @@ export class FakeStorage implements RoomStorage {
   }
 }
 
+// Соединение. ping(now) — признак жизни, на который настоящий сервер отвечает сам
 export class FakePeer implements Peer {
   sent: Record<string, unknown>[] = []
   closed: { code: number; reason: string } | null = null
   attachment: string | null = null
+  joinedAt = 0
+  pingedAt = 0
 
   send(text: string): void {
     if (this.closed) throw new Error('closed')
@@ -39,8 +45,15 @@ export class FakePeer implements Peer {
   playerId(): string | null {
     return this.attachment
   }
-  setPlayerId(id: string): void {
+  setPlayerId(id: string, now: number): void {
     this.attachment = id
+    this.joinedAt = now
+  }
+  lastSeen(): number {
+    return Math.max(this.joinedAt, this.pingedAt)
+  }
+  ping(now: number): void {
+    this.pingedAt = now
   }
   last(): Record<string, unknown> | undefined {
     return this.sent.at(-1)

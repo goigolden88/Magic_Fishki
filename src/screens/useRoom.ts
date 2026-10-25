@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { closeKind, DEFAULT_SERVER, errorKind, NO_CONNECTION, retryDelay, serverBase, socketUrl, type Seat } from '../calc/pokerLink'
-import { PROTOCOL_VERSION, type ClientBody, type RoomMessage, type RosterEntry } from '../poker/protocol'
+import { PING, PING_MS, PONG, PROTOCOL_VERSION, SILENT_MS, type ClientBody, type RoomMessage, type RosterEntry } from '../poker/protocol'
 import type { TableState } from '../poker/table'
 import { loadSeat, loadServer, saveSeat } from './pokerStorage'
 
@@ -54,6 +54,7 @@ export function useRoom(code: string): Room {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const stopped = useRef(false)
   const connectRef = useRef<() => void>(() => {})
+  const heardAt = useRef(0) // когда сервер последний раз что-то прислал
 
   function forgetSeat() {
     seat.current = null
@@ -67,6 +68,8 @@ export function useRoom(code: string): Room {
   }
 
   function onMessage(raw: unknown) {
+    heardAt.current = Date.now()
+    if (raw === PONG) return
     let msg: Record<string, unknown>
     try {
       msg = JSON.parse(String(raw)) as Record<string, unknown>
@@ -150,6 +153,7 @@ export function useRoom(code: string): Room {
     socket.onopen = () => {
       clearTimeout(openTimer)
       attempt.current = 0
+      heardAt.current = Date.now()
       setOnline(true)
       setFailed(false)
       const s = seat.current
@@ -183,6 +187,22 @@ export function useRoom(code: string): Room {
     stopped.current = false
     attempt.current = 0
     connectRef.current()
+    // Соединение могло умереть молча — открыть новое; старое забыть
+    const reopen = () => {
+      const old = ws.current
+      ws.current = null
+      old?.close(1000)
+      attempt.current = 0
+      connectRef.current()
+    }
+    // Признак жизни серверу; сервер молчит дольше SILENT_MS — переподключиться.
+    // В фоне таймеры редкие, поэтому молчание там не считается: после сна решает wake
+    const beat = setInterval(() => {
+      const socket = ws.current
+      if (stopped.current || !socket || socket.readyState !== WebSocket.OPEN) return
+      if (document.visibilityState === 'visible' && Date.now() - heardAt.current > SILENT_MS) return reopen()
+      socket.send(PING)
+    }, PING_MS)
     let hiddenAt = 0
     const wake = () => {
       if (document.visibilityState === 'hidden') {
@@ -192,13 +212,13 @@ export function useRoom(code: string): Room {
       if (stopped.current) return
       const slept = hiddenAt > 0 && Date.now() - hiddenAt > HIDDEN_RECONNECT_MS
       hiddenAt = 0
-      if (ws.current && !slept) return
-      // Соединение после сна могло умереть молча — открыть новое; старое забыть
-      const old = ws.current
-      ws.current = null
-      old?.close(1000)
-      attempt.current = 0
-      connectRef.current()
+      if (ws.current && !slept) {
+        // Короткий сон: сразу подать признак жизни; молчание — считать заново, во сне ответы не шли
+        heardAt.current = Date.now()
+        if (ws.current.readyState === WebSocket.OPEN) ws.current.send(PING)
+        return
+      }
+      reopen()
     }
     const back = () => {
       if (!stopped.current && !ws.current) {
@@ -211,6 +231,7 @@ export function useRoom(code: string): Room {
     return () => {
       stopped.current = true
       clearTimeout(timer.current)
+      clearInterval(beat)
       const old = ws.current
       ws.current = null
       old?.close(1000)

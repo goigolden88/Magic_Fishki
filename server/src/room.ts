@@ -6,9 +6,13 @@ import {
   CLOSE_ENDED,
   CLOSE_NO_ROOM,
   CLOSE_REPLACED,
+  CLOSE_SILENT,
   CLOSE_VERSION,
   NO_ROOM,
+  PING,
+  PONG,
   PROTOCOL_VERSION,
+  SILENT_MS,
   VERSION_ERROR,
   type RosterEntry,
   type ServerMessage,
@@ -17,10 +21,14 @@ import { createTable, handle, setOnline, type Settings, type TableState } from '
 import { canRejoin, issueToken } from '../../src/poker/tokens'
 
 // Отказ «комнаты нет» и коды закрытия соединения — общие с экраном, в протоколе
-export { CLOSE_ENDED, CLOSE_NO_ROOM, CLOSE_REPLACED, CLOSE_VERSION, NO_ROOM }
+export { CLOSE_ENDED, CLOSE_NO_ROOM, CLOSE_REPLACED, CLOSE_SILENT, CLOSE_VERSION, NO_ROOM, SILENT_MS }
 
 // Комната без ходов дольше этого — стирается
 export const IDLE_MS = 24 * 60 * 60 * 1000
+
+// Пока за столом кто-то в сети — будильник раз в CHECK_MS ищет замолчавших. Худший случай
+// от пропажи телефона до «вне сети»: PING_MS + SILENT_MS + CHECK_MS — меньше минуты (#64)
+export const CHECK_MS = 20_000
 
 export type RoomRecord = {
   code: string
@@ -35,6 +43,7 @@ export type RoomStorage = {
   get<T>(key: string): Promise<T | undefined>
   put<T>(key: string, value: T): Promise<void>
   deleteAll(): Promise<void>
+  getAlarm(): Promise<number | null>
   setAlarm(time: number): Promise<void>
   deleteAlarm(): Promise<void>
 }
@@ -44,7 +53,8 @@ export type Peer = {
   send(text: string): void
   close(code: number, reason: string): void
   playerId(): string | null
-  setPlayerId(id: string): void
+  setPlayerId(id: string, now: number): void
+  lastSeen(): number // последний признак жизни: PING или вход
 }
 
 export type RoomEnv = {
@@ -92,6 +102,15 @@ export async function open(env: RoomEnv, peer: Peer): Promise<void> {
 }
 
 export async function message(env: RoomEnv, peer: Peer, raw: string, now: number): Promise<void> {
+  // Признаку жизни отвечает платформа (index.ts); дошёл сюда — ответить самим, а не «обновите»
+  if (raw === PING) {
+    try {
+      peer.send(PONG)
+    } catch {
+      // уже закрыто
+    }
+    return
+  }
   const msg = parse(raw)
   if (!msg || msg.v !== PROTOCOL_VERSION) {
     send(peer, { type: 'error', error: VERSION_ERROR })
@@ -137,13 +156,35 @@ export async function close(env: RoomEnv, peer: Peer, now: number): Promise<void
   await save(env, room)
 }
 
-// Будильник: сутки без ходов — стереть; иначе завести на сутки после последнего хода.
+// Будильник: сутки без ходов — стереть; иначе найти пропавших молча и завести снова.
 // Будильник может сработать повторно — тогда комнаты уже нет, и делать нечего
 export async function alarm(env: RoomEnv, now: number): Promise<void> {
   const room = await env.storage.get<RoomRecord>(KEY)
   if (!room) return
   if (now - room.lastMoveAt >= IDLE_MS) return end(env, room, 'Сутки без ходов — комната закрыта')
-  await env.storage.setAlarm(room.lastMoveAt + IDLE_MS)
+  const online = () => room.table.players.filter((p) => p.online).length
+  const before = online()
+  // Телефон сел или пропала сеть — соединение не закрылось, но признаков жизни нет.
+  // Вне сети — с последнего признака, а не с момента проверки
+  for (const p of env.peers()) {
+    const id = p.playerId()
+    const seen = p.lastSeen()
+    if (!id || now - seen <= SILENT_MS) continue
+    p.close(CLOSE_SILENT, 'silent')
+    if (!env.peers().some((q) => q.playerId() === id)) room.table = setOnline(room.table, id, false, seen)
+  }
+  // В сети по столу, а соединения нет (сервер перезапускался и закрытия не видел)
+  for (const pl of room.table.players) {
+    if (pl.online && !env.peers().some((q) => q.playerId() === pl.id)) room.table = setOnline(room.table, pl.id, false, now)
+  }
+  if (online() !== before) await save(env, room)
+  await env.storage.setAlarm(nextAlarm(room, now))
+}
+
+// Кто-то в сети — проверка через CHECK_MS; никого — только сутки после последнего хода
+function nextAlarm(room: RoomRecord, now: number): number {
+  const idle = room.lastMoveAt + IDLE_MS
+  return room.table.players.some((p) => p.online) ? Math.min(idle, now + CHECK_MS) : idle
 }
 
 async function join(
@@ -176,9 +217,13 @@ async function join(
     room.tokens[id] = issueToken()
   }
   room.lastMoveAt = now
-  peer.setPlayerId(id)
+  peer.setPlayerId(id, now)
   send(peer, { type: 'welcome', playerId: id, token: room.tokens[id] })
   await save(env, room)
+  // Игрок в сети — проверки живости идут; ближе назначенный будильник не отодвигаем
+  const at = await env.storage.getAlarm()
+  const next = nextAlarm(room, now)
+  if (at === null || at > next) await env.storage.setAlarm(next)
 }
 
 // Посадка: под постоянным — имя из списка комнаты; гостем — своё
