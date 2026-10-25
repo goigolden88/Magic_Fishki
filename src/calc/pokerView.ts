@@ -148,7 +148,8 @@ function potsView(table: TableState, nameOf: (id: string) => string): PotView[] 
   }))
 }
 
-function actionsView(table: TableState, meId: string): ActionsView | null {
+// Кнопки хода игрока meId; стол на одном телефоне берёт их за того, чей ход (localTable.ts)
+export function actionsView(table: TableState, meId: string): ActionsView | null {
   const hand = table.hand
   if (!hand || hand.stage === 'showdown') return null
   const index = hand.seats.findIndex((s) => s.id === meId)
