@@ -1,12 +1,15 @@
+import { parseLocalTable, type LocalTable } from '../calc/localTable'
 import type { Seat } from '../calc/pokerLink'
 
-// Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего и записанные итоги —
-// данные этого устройства, а не игр: в localStorage, не в IndexedDB и не в копию (Р-19)
+// Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги
+// и стол на этом телефоне — данные этого устройства, а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21)
 const PASSWORD_KEY = 'fishki.poker.password'
 const SERVER_KEY = 'fishki.poker.server'
 const SEATS_KEY = 'fishki.poker.seats'
 const ME_KEY = 'fishki.poker.me'
 const GAMES_KEY = 'fishki.poker.games'
+const LOCAL_KEY = 'fishki.poker.local'
+const CHECK_KEY = 'fishki.poker.check'
 
 function read(key: string): string {
   try {
@@ -87,4 +90,41 @@ export function saveRecordedGame(code: string, playerId: string, gameId: string)
   const key = `${code}/${playerId}`
   const games = [...loadGames().filter(([k]) => k !== key), [key, gameId] as [string, string]].slice(-GAMES_KEPT)
   write(GAMES_KEY, JSON.stringify(games))
+}
+
+// Стол на этом телефоне (Р-21): один на устройстве, весь стол целиком — после каждого изменения.
+// Копия — и в памяти страницы: без памяти браузера (приватный режим) стол живёт до закрытия
+let localTable: LocalTable | null | undefined // undefined — ещё не читали
+
+export function loadLocalTable(): LocalTable | null {
+  if (localTable === undefined) localTable = parseLocalTable(read(LOCAL_KEY))
+  return localTable
+}
+
+// false — память браузера не приняла: после закрытия стол пропадёт
+export function saveLocalTable(local: LocalTable): boolean {
+  localTable = local
+  try {
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(local))
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function clearLocalTable() {
+  localTable = null
+  write(LOCAL_KEY, '')
+}
+
+// Память браузера работает: записать и прочитать
+export function storageWorks(): boolean {
+  try {
+    localStorage.setItem(CHECK_KEY, '1')
+    const back = localStorage.getItem(CHECK_KEY)
+    localStorage.removeItem(CHECK_KEY)
+    return back === '1'
+  } catch {
+    return false
+  }
 }
