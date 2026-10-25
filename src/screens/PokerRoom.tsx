@@ -1,5 +1,6 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { formatChips, formatNumber, parseChips } from '../calc/format'
+import { aroundTable, betSlider, seatSpot, sliderAmount, sliderIndex, stepAmount, type BetSlider } from '../calc/pokerLayout'
 import { NO_CONNECTION, roomLink, ROOM_CLOSED, UPDATE_APP, type Seat } from '../calc/pokerLink'
 import {
   defaultWinners,
@@ -205,31 +206,23 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
         {v.stageLabel} · ведущий — {v.hostName}
       </p>
 
-      {v.stage !== null && (
-        <section className="card pot">
-          <div className="pot-total">
-            Банк <strong>{formatNumber(v.pot)}</strong>
-          </div>
+      <PokerTable view={v} />
+
+      {v.pots.length > 0 && (
+        <ul className="list pots muted">
           {v.pots.map((p) => (
-            <div key={p.label} className="muted">
+            <li key={p.label}>
               {p.label}: {formatNumber(p.amount)} — {p.eligible.map((x) => x.name).join(', ')}
-            </div>
+            </li>
           ))}
-          {v.toActName && <div>Ход: {v.toActName}</div>}
-          {v.stage === 'showdown' && !v.isHost && <div className="muted">Торги закрыты — ведущий отмечает победителя</div>}
-        </section>
+        </ul>
       )}
+      {v.stage === 'showdown' && !v.isHost && <p className="muted">Торги закрыты — ведущий отмечает победителя</p>}
       {v.stage === null && wins.length > 0 && (
         <p className="muted">
           Прошлая раздача: {wins.map((w) => `${w.name} +${formatNumber(w.amount)}`).join(', ')}
         </p>
       )}
-
-      <ul className="list seats">
-        {v.seats.map((s) => (
-          <SeatRow key={s.id} seat={s} />
-        ))}
-      </ul>
 
       {room.error && (
         <p className="warn" onClick={room.clearError}>
@@ -237,7 +230,15 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
         </p>
       )}
 
-      {v.actions && <ActionsCard key={`${v.handNumber}-${v.stage}`} actions={v.actions} room={room} />}
+      {v.actions && (
+        // Свой ход и новый минимум — сумма снова с минимума
+        <ActionsCard
+          key={`${v.handNumber}-${v.stage}-${v.actions.myTurn}-${v.actions.raise?.min ?? ''}`}
+          actions={v.actions}
+          sb={sb}
+          room={room}
+        />
+      )}
 
       {v.canTakeHost && (
         <button type="button" className="big primary wide" onClick={() => room.send({ type: 'takeHost' })}>
@@ -252,44 +253,82 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   )
 }
 
-function SeatRow({ seat: s }: { seat: SeatView }) {
-  const marks = [
-    s.button && 'D',
-    s.blind,
-    s.isHost && 'ведущий',
-    !s.online && 'вне сети',
-    s.sittingOut && 'пропускает',
-    s.folded && 'пас',
-    s.allIn && 'олл-ин',
-  ].filter(Boolean)
-  const cls = ['seat', s.toAct && 'to-act', s.folded && 'folded', s.isMe && 'me'].filter(Boolean).join(' ')
+// Овальный стол: я внизу по центру, остальные по порядку мест по часовой; ставка улицы —
+// перед игроком ближе к центру, в центре — улица и банк
+function PokerTable({ view: v }: { view: TableView }) {
+  const seats = aroundTable(v.seats)
+  const n = seats.length
   return (
-    <li className={cls}>
-      <div className="seat-head">
-        <span className="grow">
-          <strong>{s.name}</strong>
-          {s.isMe && ' (вы)'}
-        </span>
-        <span className="num">{formatNumber(s.chips)}</span>
+    <div className="felt-wrap">
+      <div className="felt" />
+      <div className="spots">
+        <div className="felt-center">
+          <div className="muted">{v.stageLabel}</div>
+          {v.stage !== null && (
+            <div className="pot-total">
+              Банк <strong>{formatNumber(v.pot)}</strong>
+            </div>
+          )}
+          {v.pots.length > 1 &&
+            v.pots.map((p) => (
+              <div key={p.label}>
+                {p.label} {formatNumber(p.amount)}
+              </div>
+            ))}
+          {v.toActName && <div>Ход: {v.toActName}</div>}
+        </div>
+        {seats.map((s, i) => (
+          <SeatSpot key={s.id} seat={s} at={seatSpot(i, n)} />
+        ))}
+        {seats.map(
+          (s, i) =>
+            s.bet > 0 && (
+              <span key={s.id} className="bet-chip" style={spotStyle(seatSpot(i, n, BET_RADIUS))}>
+                {formatNumber(s.bet)}
+              </span>
+            ),
+        )}
       </div>
-      <div className="seat-sub">
-        <span className="grow muted">{marks.join(' · ')}</span>
-        {s.bet > 0 && <span className="num bet">ставка {formatNumber(s.bet)}</span>}
-      </div>
-    </li>
+    </div>
   )
 }
 
-function ActionsCard({ actions: a, room }: { actions: ActionsView; room: Room }) {
-  const [raising, setRaising] = useState(false)
-  const [text, setText] = useState('')
-  const to = parseChips(text)
+const BET_RADIUS = 0.58 // ставка — чуть дальше середины от центра к месту
+
+function spotStyle(at: { x: number; y: number }) {
+  return { left: `${at.x}%`, top: `${at.y}%` }
+}
+
+function SeatSpot({ seat: s, at }: { seat: SeatView; at: { x: number; y: number } }) {
+  const marks = [s.allIn && 'олл-ин', !s.online && 'вне сети', s.sittingOut && 'пропуск', s.folded && 'пас'].filter(Boolean)
+  const cls = ['seat', s.toAct && 'to-act', s.folded && 'folded', s.isMe && 'me'].filter(Boolean).join(' ')
+  return (
+    <div className={cls} style={spotStyle(at)}>
+      {s.position && <span className="seat-pos">{s.position}</span>}
+      {s.button && (
+        <span className="seat-dealer" aria-label="кнопка">
+          D
+        </span>
+      )}
+      <span className="seat-name">
+        {s.name}
+        {s.isMe && <span className="visually-hidden"> (вы)</span>}
+      </span>
+      <span className="seat-chips">{formatNumber(s.chips)}</span>
+      {marks.length > 0 && <span className="seat-mark">{marks.join(' · ')}</span>}
+    </div>
+  )
+}
+
+function ActionsCard({ actions: a, sb, room }: { actions: ActionsView; sb: number; room: Room }) {
   const r = a.raise
+  const slider = a.myTurn ? betSlider(r, sb) : null
+  const [text, setText] = useState(r ? String(r.min) : '')
+  const to = parseChips(text)
   const okTo = r !== null && to !== null && to >= r.min && to <= r.max
 
   function act(action: Parameters<typeof room.send>[0]) {
     room.send(action)
-    setRaising(false)
   }
 
   function confirmRaise(e: FormEvent) {
@@ -298,6 +337,7 @@ function ActionsCard({ actions: a, room }: { actions: ActionsView; room: Room })
     act({ type: 'act', action: to === r.max ? { type: 'allin' } : { type: 'raise', to } })
   }
 
+  const setAmount = (n: number) => setText(String(n))
   const off = !a.myTurn || !room.online
   return (
     <section className={a.myTurn ? 'card actions my-turn' : 'card actions'}>
@@ -315,46 +355,36 @@ function ActionsCard({ actions: a, room }: { actions: ActionsView; room: Room })
             Колл {formatNumber(a.call)}
           </button>
         )}
-        <button
-          type="button"
-          className="big"
-          disabled={off || r === null}
-          onClick={() => {
-            setRaising(!raising)
-            if (r) setText(String(r.min))
-          }}
-        >
-          {r?.label ?? 'Рейз'}
-        </button>
-        <button
-          type="button"
-          className="big cashout"
-          disabled={off || a.allIn === null}
-          onClick={() => act({ type: 'act', action: { type: 'allin' } })}
-        >
-          Олл-ин{a.allIn !== null ? ` ${formatNumber(a.allIn)}` : ''}
-        </button>
+        {a.allIn !== null && (
+          <button type="button" className="big cashout" disabled={off} onClick={() => act({ type: 'act', action: { type: 'allin' } })}>
+            Олл-ин {formatNumber(a.allIn)}
+          </button>
+        )}
       </div>
-      {raising && r && !off && (
+      {slider && r && (
         <form onSubmit={confirmRaise}>
           <div className="amounts">
             {r.quick.map((q) => (
-              <button key={q.label} type="button" className="big" onClick={() => setText(String(q.to))}>
+              <button key={q.label} type="button" className="big" onClick={() => setAmount(q.to)}>
                 {q.label} {formatNumber(q.to)}
               </button>
             ))}
+            <button type="button" className="big" onClick={() => setAmount(r.max)}>
+              Олл-ин
+            </button>
           </div>
+          <BetRange slider={slider} amount={to ?? r.min} onChange={setAmount} />
           <div className="row">
             <input
               className="grow"
               inputMode="numeric"
               pattern="[0-9 ]*"
-              aria-label="До скольких"
+              aria-label="Сумма"
               value={text}
               onChange={(e) => setText(e.target.value)}
             />
-            <button className="big primary" disabled={!okTo}>
-              {r.label} до {to !== null ? formatNumber(to) : '…'}
+            <button className="big primary" disabled={off || !okTo}>
+              {r.label === 'Ставка' ? 'Ставка' : 'Рейз до'} {to !== null ? formatNumber(to) : '…'}
             </button>
           </div>
           <p className="muted">
@@ -364,6 +394,41 @@ function ActionsCard({ actions: a, room }: { actions: ActionsView; room: Room })
         </form>
       )}
     </section>
+  )
+}
+
+// Ползунок суммы: палец — шагом малого блайнда; колесо мыши над ним — на шаг, страница не крутится.
+// Колесо — своим слушателем: у React он пассивный и не может отменить прокрутку
+function BetRange({ slider, amount, onChange }: { slider: BetSlider; amount: number; onChange: (n: number) => void }) {
+  const ref = useRef<HTMLInputElement>(null)
+  const latest = useRef({ slider, amount, onChange })
+  latest.current = { slider, amount, onChange }
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const wheel = (e: WheelEvent) => {
+      if (e.deltaY === 0) return
+      e.preventDefault()
+      const { slider, amount, onChange } = latest.current
+      onChange(stepAmount(slider, amount, e.deltaY < 0 ? 1 : -1))
+    }
+    el.addEventListener('wheel', wheel, { passive: false })
+    return () => el.removeEventListener('wheel', wheel)
+  }, [])
+
+  return (
+    <input
+      ref={ref}
+      type="range"
+      className="bet-range"
+      aria-label="Сумма ставки"
+      min={0}
+      max={slider.steps}
+      step={1}
+      value={sliderIndex(slider, amount)}
+      onChange={(e) => onChange(sliderAmount(slider, Number(e.target.value)))}
+    />
   )
 }
 

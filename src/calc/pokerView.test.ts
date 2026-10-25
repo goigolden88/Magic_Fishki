@@ -17,10 +17,10 @@ describe('экран стола', () => {
   it('префлоп: кнопка, блайнды, банк, чей ход; кнопки хода — у того, чей ход', () => {
     const s = play(three(), [start('p0')], false)
     const v = tableView(s, 'p0', 0)
-    expect(v.seats.map((x) => [x.name, x.chips, x.bet, x.button, x.blind, x.toAct])).toEqual([
-      ['P0', 1000, 0, true, null, true],
-      ['P1', 995, 5, false, 'МБ', false],
-      ['P2', 990, 10, false, 'ББ', false],
+    expect(v.seats.map((x) => [x.name, x.chips, x.bet, x.button, x.position, x.toAct])).toEqual([
+      ['P0', 1000, 0, true, 'BTN', true],
+      ['P1', 995, 5, false, 'SB', false],
+      ['P2', 990, 10, false, 'BB', false],
     ])
     expect([v.stageLabel, v.handNumber, v.pot, v.toActName]).toEqual(['Префлоп', 1, 15, 'P0'])
     expect(v.pots).toEqual([])
@@ -47,9 +47,9 @@ describe('экран стола', () => {
 
   it('хедз-ап: кнопка ставит малый блайнд; на новой улице — «Ставка» и «Чек»', () => {
     const s = play(newTable(['p0', 'p1']), [start('p0'), call('p0')], false)
-    expect(tableView(s, 'p0', 0).seats.map((x) => [x.button, x.blind])).toEqual([
-      [true, 'МБ'],
-      [false, 'ББ'],
+    expect(tableView(s, 'p0', 0).seats.map((x) => [x.button, x.position, x.bet])).toEqual([
+      [true, 'BTN/SB', 10],
+      [false, 'BB', 10],
     ])
     const flop = play(s, [{ from: 'p1', msg: { type: 'act', action: { type: 'check' } } }], false)
     const v = tableView(flop, 'p1', 0)
