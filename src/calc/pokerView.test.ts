@@ -101,12 +101,17 @@ describe('экран стола', () => {
     const s = play(three(), [start('p0'), fold('p0'), fold('p1')], false)
     const v = tableView(s, 'p0', 0)
     expect([v.stage, v.stageLabel, v.actions, v.toActName]).toEqual(['showdown', 'Торги закрыты', null, null])
+    expect(v.pots).toEqual([{ label: 'Банк', amount: 10, eligible: [{ id: 'p2', name: 'P2' }] }])
     expect(defaultWinners(s)).toEqual([['p2']])
     expect(winnersReady(s, defaultWinners(s))).toBe(true)
 
     const many = play(three({ p1: 100 }), [start('p0'), call('p0'), allin('p1'), call('p2'), call('p0')], false)
     const down = play(many, [raise('p2', 200), call('p0'), raise('p2', 700), call('p0')], false)
     expect(down.hand?.stage).toBe('showdown')
+    expect(tableView(down, 'p0', 0).pots.map((p) => [p.label, p.amount])).toEqual([
+      ['Основной банк', 300],
+      ['Побочный банк', 1800],
+    ])
     let winners = defaultWinners(down)
     expect(winners).toEqual([[], []])
     expect(winnersReady(down, winners)).toBe(false)

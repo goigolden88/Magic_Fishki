@@ -570,3 +570,138 @@ select.merge {
   margin-top: 0;
   align-items: center;
 }
+
+/* Покер онлайн: ссылка-кнопка, стол, кнопки хода и ведущего */
+a.button-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  border-radius: 12px;
+  background: var(--line);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+a.button-link.primary {
+  background: var(--accent);
+}
+
+.table-info {
+  margin: 0 0 8px;
+}
+
+.pot-total {
+  font-size: 1.3rem;
+}
+
+.pot-total strong {
+  font-size: 1.6rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.pot div + div {
+  margin-top: 4px;
+}
+
+.seats li {
+  border-top: 1px solid var(--line);
+  padding: 8px 6px;
+  border-radius: 8px;
+}
+
+.seats li.to-act {
+  background: #24543a;
+  border-top-color: transparent;
+}
+
+.seats li.folded {
+  opacity: 0.55;
+}
+
+.seats li.me strong {
+  color: var(--gold);
+}
+
+.seat-head,
+.seat-sub {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.seat-head {
+  font-size: 1.15rem;
+}
+
+.seat-sub {
+  font-size: 0.9rem;
+}
+
+.seat-sub .bet {
+  color: var(--gold);
+}
+
+.actions h2 {
+  margin-top: 0;
+}
+
+.actions.my-turn {
+  border-color: var(--green);
+}
+
+.action-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.action-grid button.big {
+  min-height: 64px;
+}
+
+.host h2:first-child {
+  margin-top: 0;
+}
+
+.request {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+}
+
+.request p,
+.award p {
+  margin: 6px 0;
+}
+
+.player-toggle {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 4px;
+  background: none;
+  text-align: left;
+  font-size: 1.05rem;
+}
+
+.player-actions {
+  padding: 0 0 8px;
+}
+
+.player-actions .wide {
+  margin: 8px 0 0;
+}
+
+.reseat {
+  margin-top: 12px;
+}
+
+.link-text {
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
+  color: var(--muted);
+}

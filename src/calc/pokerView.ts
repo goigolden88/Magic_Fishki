@@ -139,7 +139,7 @@ function potsView(table: TableState, nameOf: (id: string) => string): PotView[] 
     if (pots.length < 2) return []
   }
   return pots.map((pot, k) => ({
-    label: k === 0 ? 'Основной банк' : pots.length === 2 ? 'Побочный банк' : `Побочный банк ${k}`,
+    label: pots.length === 1 ? 'Банк' : k === 0 ? 'Основной банк' : pots.length === 2 ? 'Побочный банк' : `Побочный банк ${k}`,
     amount: pot.amount,
     eligible: pot.eligible.map((id) => ({ id, name: nameOf(id) })),
   }))

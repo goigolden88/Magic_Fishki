@@ -147,6 +147,9 @@ export function GamesScreen() {
           <button className="big wide" onClick={() => (location.hash = '#/import')}>
             Из Телеграма
           </button>
+          <button className="big wide" onClick={() => (location.hash = '#/poker')}>
+            Покер онлайн
+          </button>
         </>
       )}
 
