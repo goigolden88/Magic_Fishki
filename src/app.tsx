@@ -8,12 +8,14 @@ import { PlayerScreen } from './screens/Player'
 import { HelpScreen } from './screens/Help'
 import { PokerHomeScreen } from './screens/PokerHome'
 import { PokerRoomScreen } from './screens/PokerRoom'
+import { PokerLocalScreen } from './screens/PokerLocal'
 import { normalizeCode, roomHash, type Seat } from './calc/pokerLink'
 import { saveSeat } from './screens/pokerStorage'
 
 // Маршруты: #/ — игры, #/game/:id — игра, #/settings — настройки, #/import — из Телеграма, #/players — игроки,
 // #/players/:id — карточка постоянного игрока, #/help — справка, #/poker — покер онлайн,
-// #/poker/:код — стол, #/poker/:код/:игрок/:токен — стол с местом («пересадить»)
+// #/poker/:код — стол, #/poker/:код/:игрок/:токен — стол с местом («пересадить»),
+// #/poker/local — стол на этом телефоне (под код из 6 знаков не подходит)
 type Route =
   | { screen: 'games' }
   | { screen: 'game'; id: string }
@@ -24,9 +26,11 @@ type Route =
   | { screen: 'help' }
   | { screen: 'poker' }
   | { screen: 'pokerRoom'; code: string; seat?: Seat }
+  | { screen: 'pokerLocal' }
 
 function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, '')
+  if (path === '/poker/local') return { screen: 'pokerLocal' }
   const game = path.match(/^\/game\/([^/]+)$/)
   if (game) return { screen: 'game', id: decodeURIComponent(game[1]) }
   const player = path.match(/^\/players\/([^/]+)$/)
@@ -84,6 +88,8 @@ export function App() {
       return <PokerHomeScreen />
     case 'pokerRoom':
       return <PokerRoomScreen key={route.code} code={route.code} />
+    case 'pokerLocal':
+      return <PokerLocalScreen />
     default:
       return <GamesScreen />
   }

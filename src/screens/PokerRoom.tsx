@@ -16,7 +16,7 @@ import {
 import { gameFromTable } from '../calc/pokerGame'
 import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS } from '../model'
-import { FINISHED } from '../poker/protocol'
+import { FINISHED, type ClientBody } from '../poker/protocol'
 import type { TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
@@ -197,7 +197,6 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
 
   const v = tableView(table, me, now)
   const { sb, bb } = table.settings
-  const wins = lastHandWins(table)
 
   return (
     <>
@@ -208,21 +207,9 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
 
       <PokerTable view={v} />
 
-      {v.pots.length > 0 && (
-        <ul className="list pots muted">
-          {v.pots.map((p) => (
-            <li key={p.label}>
-              {p.label}: {formatNumber(p.amount)} — {p.eligible.map((x) => x.name).join(', ')}
-            </li>
-          ))}
-        </ul>
-      )}
+      <PotList view={v} />
       {v.stage === 'showdown' && !v.isHost && <p className="muted">Торги закрыты — ведущий отмечает победителя</p>}
-      {v.stage === null && wins.length > 0 && (
-        <p className="muted">
-          Прошлая раздача: {wins.map((w) => `${w.name} +${formatNumber(w.amount)}`).join(', ')}
-        </p>
-      )}
+      <LastHand table={table} view={v} />
 
       {room.error && (
         <p className="warn" onClick={room.clearError}>
@@ -236,7 +223,9 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
           key={`${v.handNumber}-${v.stage}-${v.actions.myTurn}-${v.actions.raise?.min ?? ''}`}
           actions={v.actions}
           sb={sb}
-          room={room}
+          who={null}
+          online={room.online}
+          onAct={(body) => room.send(body)}
         />
       )}
 
@@ -253,9 +242,30 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   )
 }
 
+// Под столом — банки с претендентами
+export function PotList({ view: v }: { view: TableView }) {
+  if (v.pots.length === 0) return null
+  return (
+    <ul className="list pots muted">
+      {v.pots.map((p) => (
+        <li key={p.label}>
+          {p.label}: {formatNumber(p.amount)} — {p.eligible.map((x) => x.name).join(', ')}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+// Между раздачами — кто сколько забрал в прошлой
+export function LastHand({ table, view: v }: { table: TableState; view: TableView }) {
+  const wins = lastHandWins(table)
+  if (v.stage !== null || wins.length === 0) return null
+  return <p className="muted">Прошлая раздача: {wins.map((w) => `${w.name} +${formatNumber(w.amount)}`).join(', ')}</p>
+}
+
 // Овальный стол: я внизу по центру, остальные по порядку мест по часовой; ставка улицы —
 // перед игроком ближе к центру, в центре — улица и банк
-function PokerTable({ view: v }: { view: TableView }) {
+export function PokerTable({ view: v }: { view: TableView }) {
   const seats = aroundTable(v.seats)
   const n = seats.length
   return (
@@ -320,16 +330,21 @@ function SeatSpot({ seat: s, at }: { seat: SeatView; at: { x: number; y: number 
   )
 }
 
-function ActionsCard({ actions: a, sb, room }: { actions: ActionsView; sb: number; room: Room }) {
+// Кнопки хода. who — за кого ход на одном телефоне («Ход: имя»); null — свои: «Ваш ход».
+// online — есть связь: без неё кнопки неактивны
+export function ActionsCard(props: {
+  actions: ActionsView
+  sb: number
+  who: string | null
+  online: boolean
+  onAct: (body: Extract<ClientBody, { type: 'act' }>) => void
+}) {
+  const { actions: a, sb, who, online, onAct: act } = props
   const r = a.raise
   const slider = a.myTurn ? betSlider(r, sb) : null
   const [text, setText] = useState(r ? String(r.min) : '')
   const to = parseChips(text)
   const okTo = r !== null && to !== null && to >= r.min && to <= r.max
-
-  function act(action: Parameters<typeof room.send>[0]) {
-    room.send(action)
-  }
 
   function confirmRaise(e: FormEvent) {
     e.preventDefault()
@@ -338,10 +353,10 @@ function ActionsCard({ actions: a, sb, room }: { actions: ActionsView; sb: numbe
   }
 
   const setAmount = (n: number) => setText(String(n))
-  const off = !a.myTurn || !room.online
+  const off = !a.myTurn || !online
   return (
     <section className={a.myTurn ? 'card actions my-turn' : 'card actions'}>
-      {a.myTurn ? <h2>Ваш ход</h2> : <p className="muted">Ждём своего хода</p>}
+      {who !== null ? <h2>Ход: {who}</h2> : a.myTurn ? <h2>Ваш ход</h2> : <p className="muted">Ждём своего хода</p>}
       <div className="action-grid">
         <button type="button" className="big danger" disabled={off} onClick={() => act({ type: 'act', action: { type: 'fold' } })}>
           Пас
@@ -583,7 +598,15 @@ function HostCard(props: {
         </button>
       )}
 
-      {hand && hand.stage === 'showdown' && <AwardPanel key={hand.number} room={room} table={table} view={v} />}
+      {hand && hand.stage === 'showdown' && (
+        <AwardPanel
+          key={hand.number}
+          table={table}
+          view={v}
+          online={room.online}
+          onAward={(winners) => room.send({ type: 'award', winners })}
+        />
+      )}
 
       {room.reseated && (
         <div className="card reseat">
@@ -708,7 +731,13 @@ function HostCard(props: {
 }
 
 // Торги закрыты: ведущий отмечает победителя каждого банка. Новая раздача — отметки заново (key)
-function AwardPanel({ room, table, view: v }: { room: Room; table: TableState; view: TableView }) {
+export function AwardPanel(props: {
+  table: TableState
+  view: TableView
+  online: boolean
+  onAward: (winners: string[][]) => void
+}) {
+  const { table, view: v, online, onAward } = props
   const [winners, setWinners] = useState<string[][]>(() => defaultWinners(table))
   return (
     <div className="award">
@@ -738,8 +767,8 @@ function AwardPanel({ room, table, view: v }: { room: Room; table: TableState; v
       <button
         type="button"
         className="big primary wide"
-        disabled={!winnersReady(table, winners) || !room.online}
-        onClick={() => room.send({ type: 'award', winners })}
+        disabled={!winnersReady(table, winners) || !online}
+        onClick={() => onAward(winners)}
       >
         Раздать банки
       </button>
@@ -747,9 +776,30 @@ function AwardPanel({ room, table, view: v }: { room: Room; table: TableState; v
   )
 }
 
+// Конец стола: стек и итог против закупа у каждого, кто остался
+export function FinalStacks({ table }: { table: TableState }) {
+  const stacks = finalStacks(table)
+  if (stacks.length === 0) return null
+  return (
+    <>
+      <table className="totals">
+        <tbody>
+          {stacks.map((s, i) => (
+            <tr key={i}>
+              <td>{s.name}</td>
+              <td className="num">{formatNumber(s.chips)}</td>
+              <td className={s.diff > 0 ? 'num plus' : s.diff < 0 ? 'num minus' : 'num'}>{formatChips(s.diff, true)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="muted">Стек и итог против закупа</p>
+    </>
+  )
+}
+
 // Ведущий, записавший итог, — «Игра записана в историю»; игроки после «Закончить игру» — «итог — у ведущего»
 function ClosedCard({ ended, gameId }: { ended: Room['ended']; gameId: string | null }) {
-  const stacks = ended?.table ? finalStacks(ended.table) : []
   return (
     <section className="card">
       <h2>{ROOM_CLOSED}</h2>
@@ -760,20 +810,7 @@ function ClosedCard({ ended, gameId }: { ended: Room['ended']; gameId: string | 
       ) : (
         ended?.reason && <p className="muted">{ended.reason}</p>
       )}
-      {stacks.length > 0 && (
-        <table className="totals">
-          <tbody>
-            {stacks.map((s, i) => (
-              <tr key={i}>
-                <td>{s.name}</td>
-                <td className="num">{formatNumber(s.chips)}</td>
-                <td className={s.diff > 0 ? 'num plus' : s.diff < 0 ? 'num minus' : 'num'}>{formatChips(s.diff, true)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      {stacks.length > 0 && <p className="muted">Стек и итог против закупа</p>}
+      {ended?.table && <FinalStacks table={ended.table} />}
       {gameId && (
         <a className="big primary wide button-link" href={`#/game/${gameId}`}>
           Открыть игру

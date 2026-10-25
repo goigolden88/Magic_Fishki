@@ -1,22 +1,45 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { parseChips } from '../calc/format'
+import { localStartError, startLocalTable } from '../calc/localTable'
 import { allPicked, toggleAll } from '../calc/pick'
 import { createFailure, DEFAULT_SERVER, NO_CONNECTION, parseRoomLink, roomHash, roomsUrl, serverBase } from '../calc/pokerLink'
 import type { Regular } from '../model'
 import { PROTOCOL_VERSION, type CreateRoomRequest, type CreateRoomResponse } from '../poker/protocol'
 import { DEFAULT_SETTINGS } from '../poker/table'
 import { getSettings } from '../store/db'
-import { loadMe, loadPassword, loadSeats, loadServer, saveMe, savePassword, saveSeat } from './pokerStorage'
+import { ulid } from '../ulid'
+import { LOCAL_HASH, NO_STORAGE } from './PokerLocal'
+import {
+  clearLocalTable,
+  loadLocalTable,
+  loadMe,
+  loadPassword,
+  loadSeats,
+  loadServer,
+  saveLocalTable,
+  saveMe,
+  savePassword,
+  saveSeat,
+  storageWorks,
+} from './pokerStorage'
 
 const GUEST = '' // «Вы за столом» — не из постоянных
 
 // «Покер онлайн» (Р-14, Р-19): новая комната, вход по ссылке или коду, свои комнаты.
 // Учёт вечера от этого экрана не зависит: нет сети — он работает как раньше
 export function PokerHomeScreen() {
-  const [creating, setCreating] = useState(false)
+  const [creating, setCreating] = useState<'room' | 'local' | null>(null)
+  const [local, setLocal] = useState(() => loadLocalTable() !== null)
   const [linkText, setLinkText] = useState('')
   const rooms = Object.keys(loadSeats())
   const link = parseRoomLink(linkText)
+
+  // Стол на телефоне один: идёт — второй не начать, пока не закончен или не удалён
+  function removeLocal() {
+    if (!confirm('Удалить стол на этом телефоне? Игра в историю не запишется.')) return
+    clearLocalTable()
+    setLocal(false)
+  }
 
   function enter(e: FormEvent) {
     e.preventDefault()
@@ -36,14 +59,38 @@ export function PokerHomeScreen() {
         </a>
       </header>
       <h1>Покер онлайн</h1>
-      <p className="muted">Карты — настоящие, на столе; ставки — с телефонов. Ведущий заводит комнату и кидает ссылку в чат.</p>
+      <p className="muted">
+        Карты — настоящие, на столе; ставки — с телефонов. Ведущий заводит комнату и кидает ссылку в чат. Все за одним
+        столом — «Стол на этом телефоне»: ведущий ходит за каждого, сеть не нужна.
+      </p>
 
-      {creating ? (
-        <NewRoomCard onCancel={() => setCreating(false)} />
+      {local && (
+        <section className="card">
+          <h2>Стол на этом телефоне идёт</h2>
+          <a className="big primary wide button-link" href={LOCAL_HASH}>
+            Продолжить стол
+          </a>
+          <button type="button" className="big wide danger-text" onClick={removeLocal}>
+            Удалить стол
+          </button>
+        </section>
+      )}
+
+      {creating === 'room' ? (
+        <NewRoomCard onCancel={() => setCreating(null)} />
+      ) : creating === 'local' ? (
+        <NewLocalCard onCancel={() => setCreating(null)} />
       ) : (
-        <button type="button" className="big primary wide" onClick={() => setCreating(true)}>
-          Новая комната
-        </button>
+        <div className="row">
+          <button type="button" className="big primary grow" onClick={() => setCreating('room')}>
+            Новая комната
+          </button>
+          {!local && (
+            <button type="button" className="big primary grow" onClick={() => setCreating('local')}>
+              Стол на этом телефоне
+            </button>
+          )}
+        </div>
       )}
 
       {rooms.length > 0 && (
@@ -227,22 +274,7 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
         </label>
       )}
 
-      <div className="draft-grid">
-        <label className="field">
-          Малый блайнд
-          <input inputMode="numeric" pattern="[0-9 ]*" value={sbText} onChange={(e) => setSbText(e.target.value)} />
-        </label>
-        <label className="field">
-          Большой блайнд
-          <input inputMode="numeric" pattern="[0-9 ]*" value={bbText} onChange={(e) => setBbText(e.target.value)} />
-        </label>
-        <label className="field rebuys">
-          Стартовый стек, фишек
-          <input inputMode="numeric" pattern="[0-9 ]*" value={stackText} onChange={(e) => setStackText(e.target.value)} />
-        </label>
-      </div>
-      {!blindsOk && <p className="warn">Блайнды — целые числа больше нуля, малый не больше большого</p>}
-      {stack === null && <p className="warn">Стек — целое число фишек больше нуля</p>}
+      <TableFields sb={[sbText, setSbText]} bb={[bbText, setBbText]} stack={[stackText, setStackText]} />
 
       {error && <p className="warn">{error}</p>}
       <div className="row">
@@ -254,5 +286,164 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
         </button>
       </div>
     </form>
+  )
+}
+
+type Field = [string, (text: string) => void]
+
+// Блайнды и стартовый стек — одни у комнаты и у стола на телефоне
+function TableFields({ sb, bb, stack }: { sb: Field; bb: Field; stack: Field }) {
+  const sbN = parseChips(sb[0])
+  const bbN = parseChips(bb[0])
+  const blindsOk = sbN !== null && bbN !== null && sbN <= bbN
+  return (
+    <>
+      <div className="draft-grid">
+        <label className="field">
+          Малый блайнд
+          <input inputMode="numeric" pattern="[0-9 ]*" value={sb[0]} onChange={(e) => sb[1](e.target.value)} />
+        </label>
+        <label className="field">
+          Большой блайнд
+          <input inputMode="numeric" pattern="[0-9 ]*" value={bb[0]} onChange={(e) => bb[1](e.target.value)} />
+        </label>
+        <label className="field rebuys">
+          Стартовый стек, фишек
+          <input inputMode="numeric" pattern="[0-9 ]*" value={stack[0]} onChange={(e) => stack[1](e.target.value)} />
+        </label>
+      </div>
+      {!blindsOk && <p className="warn">Блайнды — целые числа больше нуля, малый не больше большого</p>}
+      {parseChips(stack[0]) === null && <p className="warn">Стек — целое число фишек больше нуля</p>}
+    </>
+  )
+}
+
+// Стол на этом телефоне (Р-21): кто играет — постоянные и гости по имени; без пароля и сервера
+function NewLocalCard({ onCancel }: { onCancel: () => void }) {
+  const [regulars, setRegulars] = useState<Regular[] | null>(null)
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [guests, setGuests] = useState<string[]>([])
+  const [guestName, setGuestName] = useState('')
+  const [sbText, setSbText] = useState(String(DEFAULT_SETTINGS.sb))
+  const [bbText, setBbText] = useState(String(DEFAULT_SETTINGS.bb))
+  const [stackText, setStackText] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    void getSettings().then((s) => {
+      setRegulars(s.players)
+      setPicked(new Set(s.players.map((r) => r.id)))
+      setStackText(String(s.defaultBuyin))
+    })
+  }, [])
+
+  function toggle(id: string) {
+    const next = new Set(picked)
+    if (!next.delete(id)) next.add(id)
+    setPicked(next)
+  }
+
+  function addGuest(e: FormEvent) {
+    e.preventDefault()
+    const name = guestName.trim()
+    if (!name) return
+    setGuests([...guests, name])
+    setGuestName('')
+  }
+
+  const sb = parseChips(sbText)
+  const bb = parseChips(bbText)
+  const stack = parseChips(stackText)
+  const regularIds = (regulars ?? []).map((r) => r.id)
+  const players = [
+    ...(regulars ?? []).filter((r) => picked.has(r.id)).map((r) => ({ name: r.name, regularId: r.id })),
+    ...guests.map((name) => ({ name, regularId: null })),
+  ]
+  const countError = localStartError(players.length)
+  const ready = countError === null && sb !== null && bb !== null && sb <= bb && stack !== null
+
+  function begin() {
+    if (!ready || sb === null || bb === null || stack === null) return
+    if (loadLocalTable()) {
+      setError('Стол на этом телефоне уже идёт — закончите или удалите его')
+      return
+    }
+    const r = startLocalTable(players, { sb, bb, startingStack: stack }, Date.now(), () => ulid())
+    if (!r.ok) {
+      setError(r.error)
+      return
+    }
+    saveLocalTable(r.local)
+    location.hash = LOCAL_HASH
+  }
+
+  if (regulars === null) return null
+  return (
+    <section className="card">
+      <h2>Стол на этом телефоне</h2>
+      <p className="muted">Ведущий ходит за каждого с этого телефона. Без сервера, пароля и сети.</p>
+      {!storageWorks() && <p className="warn">{NO_STORAGE}</p>}
+
+      {regulars.length > 0 && (
+        <fieldset className="players-pick">
+          <legend className="muted">
+            Играют: {picked.size} из {regulars.length}
+          </legend>
+          <button type="button" className="big wide" onClick={() => setPicked(toggleAll(regularIds, picked))}>
+            {allPicked(regularIds, picked) ? 'Снять все' : 'Выбрать всех'}
+          </button>
+          {regulars.map((r) => (
+            <label key={r.id} className="check">
+              <input type="checkbox" checked={picked.has(r.id)} onChange={() => toggle(r.id)} />
+              {r.name}
+            </label>
+          ))}
+        </fieldset>
+      )}
+
+      {guests.length > 0 && (
+        <ul className="list items">
+          {guests.map((g, i) => (
+            <li key={i} className="row">
+              <span className="grow">{g}</span>
+              <button
+                type="button"
+                className="big"
+                aria-label={`Убрать гостя ${g}`}
+                onClick={() => setGuests(guests.filter((_, k) => k !== i))}
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <form className="row" onSubmit={addGuest}>
+        <input
+          className="grow"
+          aria-label="Имя гостя"
+          placeholder="Гость — имя"
+          value={guestName}
+          onChange={(e) => setGuestName(e.target.value)}
+        />
+        <button className="big" disabled={!guestName.trim()}>
+          Добавить
+        </button>
+      </form>
+
+      <TableFields sb={[sbText, setSbText]} bb={[bbText, setBbText]} stack={[stackText, setStackText]} />
+
+      <p className="muted">За столом: {players.length}</p>
+      {countError && <p className="warn">{countError}</p>}
+      {error && <p className="warn">{error}</p>}
+      <div className="row">
+        <button type="button" className="big primary grow" disabled={!ready} onClick={begin}>
+          Начать
+        </button>
+        <button type="button" className="big" onClick={onCancel}>
+          Отмена
+        </button>
+      </div>
+    </section>
   )
 }
