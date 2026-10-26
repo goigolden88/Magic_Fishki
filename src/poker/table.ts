@@ -300,7 +300,7 @@ function settle(state: TableState, now: number): string | null {
     sb: hand.sb,
     bb: hand.bb,
     // В начале раздачи: стек сейчас минус выигрыш плюс вложенное
-    seats: hand.seats.map((s) => ({ id: s.id, name: names.get(s.id) ?? '', chips: s.chips - (payouts[s.id] ?? 0) + s.committed })),
+    seats: hand.seats.map((s) => ({ id: s.id, name: names.get(s.id) ?? 'Ушёл', chips: s.chips - (payouts[s.id] ?? 0) + s.committed })),
     button: hand.button,
     board: [...cards.board],
     log: hand.log,
