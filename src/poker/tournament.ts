@@ -27,7 +27,8 @@ export type TournamentState = {
   entrants: string[] // кто играл с начала — по местам за столом
   prizes: number[] // проценты по местам, заданы при старте
   out: Bust[] // выбывшие по порядку: позже выбыл — выше место
-  endedAt: number | null // остался один с фишками — турнир окончен
+  // Турнир окончен: остался один с фишками и ребай закрыт, или ведущий нажал «Закончить турнир» (#94)
+  endedAt: number | null
 }
 
 export const LEVEL_COUNT = 20 // уровней в расписании; после последнего блайнды не растут
@@ -81,7 +82,7 @@ export function buildLevels(t: TournamentSettings, sb: number, bb: number): Leve
 // Часы стоят на паузе: от старта — минус все паузы, идущая — до её начала
 export function clockAt(t: TournamentSettings, clock: TournamentState, now: number): { index: number; msLeft: number | null } {
   const levelMs = t.levelMinutes * 60_000
-  const elapsed = Math.max(0, (clock.pausedAt ?? now) - clock.startedAt - clock.pausedMs)
+  const elapsed = elapsedMs(clock, now)
   const index = Math.min(Math.floor(elapsed / levelMs), LEVEL_COUNT - 1)
   return { index, msLeft: index === LEVEL_COUNT - 1 ? null : (index + 1) * levelMs - elapsed }
 }
@@ -100,6 +101,29 @@ export function resumeClock(clock: TournamentState, now: number): void {
 // Ребай открыт: уровень по часам — не дальше rebuyLevels
 export function rebuyOpen(t: TournamentSettings, clock: TournamentState, now: number): boolean {
   return clock.endedAt === null && clockAt(t, clock, now).index < t.rebuyLevels
+}
+
+// Сколько мс ребай ещё открыт по часам (на «Перерыве» не убывает). Без ребая или ребай до конца
+// последнего уровня — он не кончается — null
+export function rebuyLeft(t: TournamentSettings, clock: TournamentState, now: number): number | null {
+  const end = rebuyEndMs(t)
+  return end === null ? null : Math.max(0, end - elapsedMs(clock, now))
+}
+
+// Когда ребай закроется по часам — срок будильника сервера (#94); часы стоят или не закроется — null
+export function rebuyClosesAt(t: TournamentSettings, clock: TournamentState): number | null {
+  const end = rebuyEndMs(t)
+  return end === null || clock.pausedAt !== null ? null : clock.startedAt + clock.pausedMs + end
+}
+
+// Ребай закрывается в конце уровня rebuyLevels — столько мс игры от старта
+function rebuyEndMs(t: TournamentSettings): number | null {
+  return t.rebuyLevels > 0 && t.rebuyLevels < LEVEL_COUNT ? t.rebuyLevels * t.levelMinutes * 60_000 : null
+}
+
+// Мс игры от старта: часы стоят на паузе — минус все паузы, идущая — до её начала
+function elapsedMs(clock: TournamentState, now: number): number {
+  return Math.max(0, (clock.pausedAt ?? now) - clock.startedAt - clock.pausedMs)
 }
 
 // Выбывшие в одной раздаче: в журнал по возрастанию стека до неё — у кого было больше, тот выше

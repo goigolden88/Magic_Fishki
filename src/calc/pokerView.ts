@@ -5,13 +5,14 @@ import type { Card } from '../poker/cards'
 import { publicCards } from '../poker/game'
 import type { HandLogEntry, Stage } from '../poker/hand'
 import { buildPots } from '../poker/pots'
-import { blindsNow, HOST_TAKEOVER_MS, type TableState } from '../poker/table'
+import { blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type TableState } from '../poker/table'
 import {
   buildLevels,
   clockAt,
   defaultPrizes,
   prizeAmounts,
   prizePool,
+  rebuyLeft,
   rebuyOpen,
   standings,
   type Level,
@@ -45,7 +46,7 @@ export type SeatView = {
 // Турнир (#78): уровень, отсчёт до следующего, фонд и призы, ребай
 export type TournamentView = {
   started: boolean // «Начать турнир» нажат
-  ended: boolean // остался один с фишками
+  ended: boolean // остался один с фишками и ребай закрыт, или ведущий закончил турнир
   level: number // номер уровня, с 1
   blinds: Level // блайнды и анте уровня
   next: Level | null // следующего уровня; последний — null
@@ -58,6 +59,9 @@ export type TournamentView = {
   rebuyLevels: number // ребай до конца этого уровня; 0 — без ребая
   rebuyOpen: boolean
   canRebuy: boolean // мне — «Ребай»: я выбыл, а ребай открыт
+  waiting: boolean // «Ждём ребай» (#94): с фишками один, ребай открыт — раздачи нет
+  waitLeft: number | null // ждём ребай — мс до его закрытия по часам; не закроется сам — null
+  canEnd: boolean // мне, ведущему: «Закончить турнир» — пока ждём ребай
   results: { place: number; id: string; name: string; out: boolean; prize: number }[] // места по порядку
 }
 
@@ -209,6 +213,7 @@ export function tournamentView(table: TableState, meId: string, now: number): To
   for (const p of table.players) names.set(p.id, p.name)
   const open = clock !== null && rebuyOpen(t, clock, now)
   const ended = typeof clock?.endedAt === 'number'
+  const waiting = waitingRebuy(table, now)
   return {
     started: clock !== null,
     ended,
@@ -224,6 +229,9 @@ export function tournamentView(table: TableState, meId: string, now: number): To
     rebuyLevels: t.rebuyLevels,
     rebuyOpen: open,
     canRebuy: open && (clock?.out.some((b) => b.playerId === meId) ?? false) && table.players.some((p) => p.id === meId),
+    waiting,
+    waitLeft: waiting && clock ? rebuyLeft(t, clock, now) : null,
+    canEnd: waiting && meId === table.hostId,
     results: clock
       ? standings(table).map((s, i) => ({
           place: s.place,

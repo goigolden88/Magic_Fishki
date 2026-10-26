@@ -17,7 +17,7 @@ import { lookClass, lookOf } from '../calc/pokerLook'
 import { tournamentView, type TableView } from '../calc/pokerView'
 import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS, type Regular } from '../model'
-import type { Result, TableState } from '../poker/table'
+import { closeRebuyWait, type Result, type TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 import { openGameYear } from './openYears'
@@ -192,6 +192,13 @@ function LocalTableCard(props: {
     return () => clearInterval(id)
   }, [clockRuns])
 
+  // Ждали ребай, а он закрылся по часам (#94) — турнир окончен, как по будильнику сервера
+  useEffect(() => {
+    if (!clockRuns) return
+    const closed = closeRebuyWait(table, Date.now())
+    if (closed) apply(() => ({ ok: true, state: closed }))
+  })
+
   return (
     <div className={lookClass(table.settings)}>
       <p className="muted table-info">
@@ -200,7 +207,7 @@ function LocalTableCard(props: {
       </p>
 
       <PokerTable view={v} />
-      {t && <TournamentPanel view={t} />}
+      {t && <TournamentPanel view={t} onEnd={() => apply((s, now) => hostDo(s, { type: 'endTournament' }, now))} />}
       <PotList view={v} />
       <LastHand table={table} view={v} />
 
