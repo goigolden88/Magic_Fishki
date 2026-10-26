@@ -240,7 +240,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
       </p>
 
       <PokerTable view={v} />
-      {v.tournament && <TournamentPanel view={v.tournament} />}
+      {v.tournament && <TournamentPanel view={v.tournament} onEnd={() => room.send({ type: 'endTournament' })} />}
 
       {v.paused && (
         <p className="card warn">

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { gameFromTournament, tournamentResults } from '../calc/pokerGame'
+import { tournamentView } from '../calc/pokerView'
 import { balance, playerTotals } from '../calc/totals'
 import { PROTOCOL_VERSION, type ClientBody } from './protocol'
-import { createTable, handle, onTime, type Settings, type TableState } from './table'
+import { closeRebuyWait, createTable, handle, nextDeadline, onTime, waitingRebuy, type Settings, type TableState } from './table'
 import { allin, award, call, check, fold, MODES, newTable, play, start, type Step } from './testing'
 import {
   buildLevels,
@@ -254,6 +255,83 @@ describe.each(MODES)('турнир (%s)', (_, rt) => {
     })
     const started = won(play(s, [start('h'), fold('h')], rt), 'g')
     expect(send(started, 'h', { type: 'tableSettings', prizes: [100] })).toEqual({ ok: false, error: 'Призы меняются до начала турнира' })
+  })
+
+  describe('ждём ребай (#94)', () => {
+    // Двое, ребай до конца уровня 2 (20 минут); g выбывает на 5-й минуте
+    const bust = (t: Partial<TournamentSettings> = {}, s: Partial<Settings> = {}) =>
+      won(play(withStacks(newTable(['h', 'g'], cup({ rebuyLevels: 2, ...t }, s)), { g: 100 }), [start('h'), allin('h'), allin('g')], rt), 'h', 5 * MIN)
+
+    it('остался один, ребай открыт — турнир не окончен, раздача не начинается, срок — закрытие ребая', () => {
+      const s = bust({}, { autoStart: 'fast' })
+      expect(s.tournament?.out.map((b) => b.playerId)).toEqual(['g'])
+      expect(s.tournament?.endedAt).toBeNull()
+      expect(waitingRebuy(s, 5 * MIN)).toBe(true)
+      expect(s.nextHandAt).toBeNull()
+      expect(nextDeadline(s)).toBe(20 * MIN)
+      expect(send(s, 'h', { type: 'start' }, 6 * MIN)).toEqual({ ok: false, error: 'Нужно хотя бы двое с фишками' })
+      expect(onTime(s, 20 * MIN - 1)).toBeNull()
+      // На экране: «Ждём ребай» и сколько осталось; «Закончить турнир» — ведущему, «Ребай» — выбывшему
+      expect(tournamentView(s, 'h', 8 * MIN)).toMatchObject({ ended: false, waiting: true, waitLeft: 12 * MIN, canEnd: true })
+      expect(tournamentView(s, 'g', 8 * MIN)).toMatchObject({ waiting: true, canEnd: false, canRebuy: true })
+    })
+
+    it('ребай в ожидании — снова в игре со стартовым стеком, турнир идёт дальше', () => {
+      const s = play(bust({}, { autoStart: 'fast' }), [at({ from: 'g', msg: { type: 'tournamentRebuy' } }, 6 * MIN)], rt)
+      expect(s.players.find((p) => p.id === 'g')).toMatchObject({ chips: 1000, buyIn: 2000 })
+      expect(waitingRebuy(s, 6 * MIN)).toBe(false)
+      expect(s.nextHandAt).toBe(6 * MIN + 3000)
+      expect(onTime(s, 6 * MIN + 3000)?.hand).not.toBeNull()
+    })
+
+    it('ребай закрылся по часам — турнир окончен в минуту закрытия, места как при выбывании', () => {
+      const s = bust()
+      const ended = onTime(rt ? JSON.parse(JSON.stringify(s)) : s, 20 * MIN + 500)!
+      expect(ended.tournament?.endedAt).toBe(20 * MIN)
+      expect(nextDeadline(ended)).toBeNull()
+      expect(standings(ended).map((x) => x.playerId)).toEqual(['h', 'g'])
+      expect(tournamentResults(ended).map((r) => r.prize)).toEqual([1000, 0])
+      expect(send(ended, 'g', { type: 'tournamentRebuy' }, 21 * MIN)).toEqual({ ok: false, error: 'Турнир окончен' })
+      // Будильник опоздал, а пришло сообщение — тоже окончен
+      const r = send(s, 'h', { type: 'sitOut', sittingOut: false }, 25 * MIN)
+      expect(r.ok && r.state.tournament?.endedAt).toBe(20 * MIN)
+      expect(closeRebuyWait(s, 20 * MIN - 1)).toBeNull()
+    })
+
+    it('«Закончить турнир» — ведущий, только пока с фишками один; окончен сразу', () => {
+      const s = bust()
+      expect(send(s, 'g', { type: 'endTournament' }, 7 * MIN)).toEqual({ ok: false, error: 'Это может только ведущий' })
+      const r = send(s, 'h', { type: 'endTournament' }, 7 * MIN)
+      expect(r.ok && r.state.tournament?.endedAt).toBe(7 * MIN)
+      expect(r.ok && standings(r.state).map((x) => x.playerId)).toEqual(['h', 'g'])
+      const running = play(newTable(['h', 'g'], cup({ rebuyLevels: 2 })), [start('h')], rt)
+      expect(send(running, 'h', { type: 'endTournament' })).toEqual({ ok: false, error: 'Закончить турнир — когда с фишками остался один' })
+      expect(send(newTable(['h', 'g'], cup()), 'h', { type: 'endTournament' })).toEqual({ ok: false, error: 'Турнир ещё не начат' })
+    })
+
+    it('ребай выключен — турнир окончен сразу, как раньше', () => {
+      const s = bust({ rebuyLevels: 0 })
+      expect(s.tournament?.endedAt).toBe(5 * MIN)
+      expect(waitingRebuy(s, 5 * MIN)).toBe(false)
+    })
+
+    it('перерыв в ожидании — часы стоят, ребай не закрывается; «Продолжить» — срок сдвигается', () => {
+      let s = play(bust(), [at({ from: 'h', msg: { type: 'pause', paused: true } }, 8 * MIN)], rt)
+      expect(nextDeadline(s)).toBeNull()
+      expect(onTime(s, 30 * MIN)).toBeNull()
+      expect(waitingRebuy(s, 30 * MIN)).toBe(true)
+      s = play(s, [at({ from: 'h', msg: { type: 'pause', paused: false } }, 40 * MIN)], rt)
+      expect(s.tournament?.endedAt).toBeNull()
+      expect(nextDeadline(s)).toBe(52 * MIN) // 20 минут игры + 32 перерыва
+    })
+
+    it('выбыли сразу двое — при окончании места по стеку до раздачи', () => {
+      const base = withStacks(newTable(['h', 'a', 'b'], cup({ rebuyLevels: 1 })), { a: 300, b: 500 })
+      const s = won(play(base, [start('h'), allin('h'), allin('a'), allin('b')], rt), 'h', 5 * MIN)
+      expect(s.tournament?.endedAt).toBeNull()
+      const r = send(s, 'h', { type: 'endTournament' }, 6 * MIN)
+      expect(r.ok && standings(r.state).map((x) => x.playerId)).toEqual(['h', 'b', 'a'])
+    })
   })
 
   it('хедз-ап — блайнды как в кэше: кнопка ставит малый', () => {

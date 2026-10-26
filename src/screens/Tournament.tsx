@@ -170,14 +170,39 @@ export function PrizeFields(props: {
   )
 }
 
-// Под столом: уровень, отсчёт, следующий уровень, ребай и призы. Окончен — места и призы
-export function TournamentPanel({ view: t }: { view: TournamentView }) {
+// Под столом: уровень, отсчёт, следующий уровень, ребай и призы. Окончен — места и призы.
+// Ждём ребай (#94) — до какого уровня и сколько осталось; ведущему (onEnd) — «Закончить турнир»
+export function TournamentPanel({ view: t, onEnd }: { view: TournamentView; onEnd?: () => void }) {
   return (
     <section className="card tournament">
       {t.ended ? (
         <h2>Турнир окончен</h2>
       ) : (
         <>
+          {t.waiting && (
+            <>
+              <p className="warn">
+                Ждём ребай — до конца уровня {t.rebuyLevels}
+                {t.waitLeft !== null && (
+                  <>
+                    , <strong className="num">{clockText(t.waitLeft)}</strong>
+                  </>
+                )}
+              </p>
+              <p className="muted">С фишками остался один. Ребай не сделали до срока — турнир окончен.</p>
+              {t.canEnd && onEnd && (
+                <button
+                  type="button"
+                  className="big wide danger"
+                  onClick={() => {
+                    if (confirm('Закончить турнир? Ребая больше не будет, места и призы — как сейчас.')) onEnd()
+                  }}
+                >
+                  Закончить турнир
+                </button>
+              )}
+            </>
+          )}
           <h2>
             Уровень {t.level}: {levelText(t.blinds)}
           </h2>

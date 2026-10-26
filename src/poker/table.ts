@@ -15,6 +15,7 @@ import {
   clockAt,
   defaultPrizes,
   pauseClock,
+  rebuyClosesAt,
   rebuyOpen,
   resumeClock,
   tournamentError,
@@ -189,20 +190,26 @@ export function handle(state: TableState, from: string, message: unknown, now: n
   const next = structuredClone(state)
   const error = apply(next, from, message as ClientBody, now, deck) ?? settle(next, now)
   if (error) return { ok: false, error }
+  endWait(next, now)
   clock(next, now)
   return { ok: true, state: next }
 }
 
-// Ближайший срок стола — истечение хода или раздача «сама»; нет — null. По нему сервер ставит будильник
+// Ближайший срок стола — истечение хода, раздача «сама» или закрытие ребая, пока его ждут (#94);
+// нет — null. По нему сервер ставит будильник
 export function nextDeadline(state: TableState): number | null {
-  const times = [state.turn?.deadline, state.nextHandAt].filter((t): t is number => typeof t === 'number')
+  const t = state.settings.tournament
+  const rebuyCloses = t && state.tournament && alone(state) ? rebuyClosesAt(t, state.tournament) : null
+  const times = [state.turn?.deadline, state.nextHandAt, rebuyCloses].filter((x): x is number => typeof x === 'number')
   return times.length > 0 ? Math.min(...times) : null
 }
 
-// Будильник сервера: истёк ход — за игрока чек, если можно, иначе пас («время вышло»);
-// пора — новая раздача (deck — колода от сервера, как на start). Сверяет срок с состоянием:
-// сработал раньше срока или повторно — null, стол не меняется
+// Будильник сервера: ребай закрылся, пока его ждали, — турнир окончен; истёк ход — за игрока
+// чек, если можно, иначе пас («время вышло»); пора — новая раздача (deck — колода от сервера,
+// как на start). Сверяет срок с состоянием: сработал раньше срока или повторно — null, стол не меняется
 export function onTime(state: TableState, now: number, deck?: Card[]): TableState | null {
+  const closed = closeRebuyWait(state, now)
+  if (closed) return closed
   const hand = state.hand
   const turn = state.turn
   if (hand && turn && now >= turn.deadline && sameTurn(turn, hand) && !state.paused) {
@@ -259,12 +266,12 @@ function sameTurn(turn: TurnClock, hand: Hand): boolean {
   return turn.hand === hand.number && turn.move === hand.log.length && hand.toAct !== -1
 }
 
-// Раздача «сама» — через паузу из настроек; выкл, перерыв, идёт раздача, раздач ещё не было
-// или турнир окончен — нет
+// Раздача «сама» — через паузу из настроек; выкл, перерыв, идёт раздача, раздач ещё не было,
+// турнир окончен или ждёт ребая — нет
 function armNext(state: TableState, now: number): void {
   const mode = state.settings.autoStart ?? 'off'
   const ended = typeof state.tournament?.endedAt === 'number'
-  const ready = mode !== 'off' && !state.hand && !state.paused && state.handCount > 0 && !ended
+  const ready = mode !== 'off' && !state.hand && !state.paused && state.handCount > 0 && !ended && !alone(state)
   state.nextHandAt = ready ? now + AUTO_START_MS[mode] : null
 }
 
@@ -305,6 +312,8 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
       return state.paused ? 'Перерыв — сначала «Продолжить»' : start(state, deck, now)
     case 'tournamentRebuy':
       return tournamentRebuy(state, me, now)
+    case 'endTournament':
+      return isHost ? endTournament(state, now) : hostOnly
     case 'act':
       if (!state.hand) return 'Раздачи сейчас нет'
       if (!isAction(msg.action)) return 'Неизвестный ход — обновите приложение'
@@ -450,13 +459,55 @@ function tournamentRebuy(state: TableState, me: TablePlayer, now: number): strin
   return null
 }
 
-// Турнир: у кого после раздачи ноль — выбыл; остался один с фишками — турнир окончен
+// Турнир: у кого после раздачи ноль — выбыл; остался один с фишками — турнир окончен,
+// а при открытом ребае — ждёт ребая выбывших (#94)
 function settleTournament(state: TableState, busts: Bust[], now: number): void {
   const clock = state.tournament
   if (!clock || clock.endedAt !== null) return
   addBusts(clock, busts)
+  if (alone(state) && !waitingRebuy(state, now)) clock.endedAt = now
+}
+
+// Турнир идёт, а с фишками не больше одного: дальше — только ребай выбывших или конец
+function alone(state: TableState): boolean {
+  const clock = state.tournament
+  if (!clock || clock.endedAt !== null) return false
   const out = new Set(clock.out.map((b) => b.playerId))
-  if (state.players.filter((p) => !out.has(p.id)).length <= 1) clock.endedAt = now
+  return state.players.filter((p) => !out.has(p.id)).length <= 1
+}
+
+// «Ждём ребай» (#94): остался один с фишками, а ребай открыт — турнир не окончен, раздачи нет
+export function waitingRebuy(state: TableState, now: number): boolean {
+  const t = state.settings.tournament
+  return alone(state) && t !== undefined && rebuyOpen(t, state.tournament as TournamentState, now)
+}
+
+// Ребай закрылся по часам, пока его ждали, — турнир окончен в минуту закрытия; не пора — null.
+// Зовут будильник сервера (onTime) и часы стола на одном телефоне
+export function closeRebuyWait(state: TableState, now: number): TableState | null {
+  if (!alone(state) || waitingRebuy(state, now)) return null
+  const next = structuredClone(state)
+  endWait(next, now)
+  return next
+}
+
+function endWait(state: TableState, now: number): void {
+  const t = state.settings.tournament
+  const clock = state.tournament
+  if (!t || !clock || !alone(state) || waitingRebuy(state, now)) return
+  clock.endedAt = Math.min(now, rebuyClosesAt(t, clock) ?? now)
+  state.nextHandAt = null
+}
+
+// «Закончить турнир» (#94): ведущий, пока ждём ребай, — турнир окончен сейчас, места — по выбыванию
+function endTournament(state: TableState, now: number): string | null {
+  const clock = state.tournament
+  if (state.settings.format !== 'tournament' || !clock) return 'Турнир ещё не начат'
+  if (clock.endedAt !== null) return 'Турнир окончен'
+  if (!alone(state)) return 'Закончить турнир — когда с фишками остался один'
+  clock.endedAt = now
+  state.nextHandAt = null
+  return null
 }
 
 function skip(state: TableState): string | null {
