@@ -19,9 +19,18 @@ export type Settings = {
   // Время на ход, секунд (TURN_MIN_S…TURN_MAX_S); null — без таймера. У столов до #75 полей нет — выкл
   turnSeconds?: number | null
   autoStart?: AutoStart // следующая раздача сама — пауза после раздачи банков
+  // Вид стола (#77) — выбор ведущего из готовых; у столов до него полей нет — зелёное и классика
+  felt?: Felt
+  cardBack?: CardBack
 }
 
 export type AutoStart = 'off' | 'fast' | 'medium' | 'slow'
+
+export const FELTS = ['green', 'blue', 'burgundy', 'graphite'] as const
+export type Felt = (typeof FELTS)[number]
+
+export const CARD_BACKS = ['classic', 'blue', 'green', 'geo'] as const
+export type CardBack = (typeof CARD_BACKS)[number]
 
 // Пауза перед раздачей «сама», мс
 export const AUTO_START_MS: Record<Exclude<AutoStart, 'off'>, number> = { fast: 3000, medium: 6000, slow: 10_000 }
@@ -41,6 +50,8 @@ export const DEFAULT_SETTINGS: Settings = {
   cards: 'live',
   turnSeconds: null,
   autoStart: 'off',
+  felt: 'green',
+  cardBack: 'classic',
 }
 
 // Описание игры для новой раздачи: карты на телефонах — холдем (пока одно); живые — null.
@@ -291,6 +302,8 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
       return isHost ? pause(state, msg.paused === true, now) : hostOnly
     case 'tableSettings':
       return isHost ? changeSettings(state, msg, now) : hostOnly
+    case 'look':
+      return isHost ? changeLook(state, msg) : hostOnly
     case 'remove':
       return isHost ? remove(state, from, msg.playerId, now) : hostOnly
     case 'passHost': {
@@ -477,6 +490,17 @@ function changeSettings(state: TableState, msg: Extract<ClientBody, { type: 'tab
   return null
 }
 
+// Вид стола (#77) — сукно и рубашка: не правило игры, меняется и во время раздачи
+function changeLook(state: TableState, msg: Extract<ClientBody, { type: 'look' }>): string | null {
+  const s: Settings = { ...state.settings }
+  if ('felt' in msg) s.felt = msg.felt
+  if ('cardBack' in msg) s.cardBack = msg.cardBack
+  const error = settingsError(s)
+  if (error) return error
+  state.settings = s
+  return null
+}
+
 // Игрок походил сам или вернулся в раздачи — истечения подряд с нуля
 function resetTimeouts(state: TableState, playerId: string): null {
   if (state.timeouts) delete state.timeouts[playerId]
@@ -588,6 +612,10 @@ function settingsError(s: Settings): string | null {
   }
   const a = s.autoStart ?? 'off'
   if (a !== 'off' && !Object.keys(AUTO_START_MS).includes(a)) return 'Следующая раздача сама — выкл, быстро, средне или медленно'
+  if (s.felt !== undefined && !(FELTS as readonly unknown[]).includes(s.felt)) return 'Сукно — зелёное, синее, бордовое или графит'
+  if (s.cardBack !== undefined && !(CARD_BACKS as readonly unknown[]).includes(s.cardBack)) {
+    return 'Рубашка карт — классика, синяя, зелёная или гео'
+  }
   return null
 }
 

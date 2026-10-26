@@ -17,6 +17,7 @@ import {
   type TableView,
 } from '../calc/pokerView'
 import { gameFromTable } from '../calc/pokerGame'
+import { lookClass, lookOf } from '../calc/pokerLook'
 import { timerSettings, turnSecondsOf } from '../calc/pokerTimer'
 import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS } from '../model'
@@ -26,6 +27,7 @@ import type { TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 import { openGameYear } from './openYears'
+import { LookFields } from './LookFields'
 import { loadOpenCards, loadRecordedGame, loadTurnSound, saveOpenCards, saveRecordedGame } from './pokerStorage'
 import { TimerFields, timerForm, type TimerForm } from './TimerFields'
 import { signalTurn, unlockSound } from './turnSignal'
@@ -226,8 +228,9 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   const v = tableView(table, me, room.serverNow())
   const { sb, bb } = table.settings
 
+  // Вид стола (#77) — классом на обёртке: сукно и рубашки своих и чужих карт
   return (
-    <>
+    <div className={lookClass(table.settings)}>
       <p className="muted table-info">
         Блайнды {formatNumber(sb)}/{formatNumber(bb)} · {v.handNumber > 0 ? `раздача ${v.handNumber} · ` : ''}
         {v.stageLabel} · ведущий — {v.hostName}
@@ -291,7 +294,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
       {v.isHost && <HostCard room={room} table={table} view={v} code={code} gameId={gameId} onFinish={onFinish} />}
 
       <MyCard room={room} table={table} view={v} amounts={amounts} />
-    </>
+    </div>
   )
 }
 
@@ -828,6 +831,18 @@ function HostCard(props: {
       </button>
 
       {!hand && <TableSettingsCard key={JSON.stringify(timerSettings(table.settings))} room={room} table={table} view={v} />}
+
+      {/* Вид стола (#77) — и во время раздачи; у всех меняется сразу */}
+      <details className="table-settings">
+        <summary>Вид стола</summary>
+        <LookFields
+          look={lookOf(table.settings)}
+          backs
+          disabled={!room.online}
+          onChange={(look) => room.send({ type: 'look', ...look })}
+        />
+        {table.settings.cards !== 'phones' && <p className="muted">Карты живые — рубашка на экране не видна.</p>}
+      </details>
 
       {hand && hand.stage !== 'showdown' && v.toActName && (
         <button type="button" className="big wide" onClick={() => room.send({ type: 'skip' })}>

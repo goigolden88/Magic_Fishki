@@ -12,6 +12,7 @@ import {
   type LocalTable,
 } from '../calc/localTable'
 import { gameFromTable } from '../calc/pokerGame'
+import { lookClass, lookOf } from '../calc/pokerLook'
 import type { TableView } from '../calc/pokerView'
 import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS, type Regular } from '../model'
@@ -19,6 +20,7 @@ import type { Result, TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 import { openGameYear } from './openYears'
+import { LookFields } from './LookFields'
 import { clearLocalTable, loadLocalTable, saveLocalTable, storageWorks } from './pokerStorage'
 import { ActionsCard, AwardPanel, FinalStacks, LastHand, PokerTable, PotList } from './PokerRoom'
 
@@ -177,7 +179,7 @@ function LocalTableCard(props: {
   const hand = table.hand
 
   return (
-    <>
+    <div className={lookClass(table.settings)}>
       <p className="muted table-info">
         Блайнды {formatNumber(sb)}/{formatNumber(bb)} · {v.handNumber > 0 ? `раздача ${v.handNumber} · ` : ''}
         {v.stageLabel}
@@ -234,6 +236,16 @@ function LocalTableCard(props: {
         <PlayerList table={table} view={v} amounts={amounts} apply={apply} />
         <SeatNew table={table} regulars={regulars} apply={apply} />
 
+        {/* Вид стола (#77): карты здесь живые (Р-21) — только сукно */}
+        <details className="table-settings">
+          <summary>Вид стола</summary>
+          <LookFields
+            look={lookOf(table.settings)}
+            backs={false}
+            onChange={(look) => apply((t, now) => hostDo(t, { type: 'look', ...look }, now))}
+          />
+        </details>
+
         <button type="button" className="big wide danger" disabled={finishing} onClick={onFinish}>
           Закончить игру
         </button>
@@ -241,7 +253,7 @@ function LocalTableCard(props: {
           Удалить стол
         </button>
       </section>
-    </>
+    </div>
   )
 }
 
