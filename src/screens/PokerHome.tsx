@@ -4,6 +4,7 @@ import { localStartError, startLocalTable } from '../calc/localTable'
 import { allPicked, toggleAll } from '../calc/pick'
 import { createFailure, DEFAULT_SERVER, NO_CONNECTION, parseRoomLink, roomHash, roomsUrl, serverBase } from '../calc/pokerLink'
 import type { Regular } from '../model'
+import type { CardsMode } from '../poker/game'
 import { PROTOCOL_VERSION, type CreateRoomRequest, type CreateRoomResponse } from '../poker/protocol'
 import { DEFAULT_SETTINGS } from '../poker/table'
 import { getSettings } from '../store/db'
@@ -60,8 +61,9 @@ export function PokerHomeScreen() {
       </header>
       <h1>Покер онлайн</h1>
       <p className="muted">
-        Карты — настоящие, на столе; ставки — с телефонов. Ведущий заводит комнату и кидает ссылку в чат. Все за одним
-        столом — «Стол на этом телефоне»: ведущий ходит за каждого, сеть не нужна.
+        Ставки — с телефонов; карты — настоящие на столе или на телефонах, это выбирается в новой комнате. Ведущий заводит
+        комнату и кидает ссылку в чат. Все за одним столом — «Стол на этом телефоне»: ведущий ходит за каждого, сеть не
+        нужна, карты живые.
       </p>
 
       {local && (
@@ -129,6 +131,7 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
   const [sbText, setSbText] = useState(String(DEFAULT_SETTINGS.sb))
   const [bbText, setBbText] = useState(String(DEFAULT_SETTINGS.bb))
   const [stackText, setStackText] = useState('')
+  const [cards, setCards] = useState<CardsMode>(DEFAULT_SETTINGS.cards)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -176,7 +179,7 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
       name,
       ...(me ? { regularId: me.id } : {}),
       roster,
-      settings: { sb, bb, startingStack: stack },
+      settings: { sb, bb, startingStack: stack, cards },
     }
     setBusy(true)
     setError(null)
@@ -276,6 +279,29 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
 
       <TableFields sb={[sbText, setSbText]} bb={[bbText, setBbText]} stack={[stackText, setStackText]} />
 
+      {/* Р-23: стол на одном телефоне — только живые, выбора там нет */}
+      <fieldset className="players-pick">
+        <legend className="muted">Карты</legend>
+        <div className="row">
+          {CARDS_MODES.map(([mode, label]) => (
+            <button
+              key={mode}
+              type="button"
+              className={cards === mode ? 'big primary grow' : 'big grow'}
+              aria-pressed={cards === mode}
+              onClick={() => setCards(mode)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="muted">
+          {cards === 'live'
+            ? 'Настоящая колода на столе; банк после торгов отдаёт ведущий.'
+            : 'Программа тасует и раздаёт: у каждого свои карты на своём телефоне, банк раздаётся сам.'}
+        </p>
+      </fieldset>
+
       {error && <p className="warn">{error}</p>}
       <div className="row">
         <button className="big primary grow" disabled={!ready}>
@@ -288,6 +314,11 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
     </form>
   )
 }
+
+const CARDS_MODES: [CardsMode, string][] = [
+  ['live', 'Живые'],
+  ['phones', 'На телефонах'],
+]
 
 type Field = [string, (text: string) => void]
 

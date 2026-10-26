@@ -197,6 +197,21 @@ describe('стол на одном телефоне', () => {
     expect(parseLocalTable(JSON.stringify({ ...local, gameId: 'g1' }))?.gameId).toBe('g1')
   })
 
+  it('стол на телефоне — только живые карты; сохранённый до карт (без настройки) поднимается и доигрывается', () => {
+    const local = start()
+    expect(local.table.settings.cards).toBe('live')
+    const old = JSON.parse(JSON.stringify(local)) as LocalTable
+    delete (old.table.settings as Partial<TableState['settings']>).cards
+    const back = parseLocalTable(JSON.stringify(old))
+    if (!back) throw new Error('стол не поднялся')
+    let t = ok(hostDo(back.table, { type: 'start' }, 0))
+    expect(t.hand?.cards).toBeUndefined()
+    t = ok(actFor(t, { type: 'fold' }, 0))
+    t = ok(actFor(t, { type: 'fold' }, 0))
+    t = ok(hostDo(t, { type: 'award', winners: [[t.players[2].id]] }, 0))
+    expect(t.players.map((p) => p.chips)).toEqual([1000, 995, 1005])
+  })
+
   it('не стол — null', () => {
     expect(parseLocalTable('')).toBeNull()
     expect(parseLocalTable('не json')).toBeNull()

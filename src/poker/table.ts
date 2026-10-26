@@ -1,8 +1,12 @@
 // Стол кэш-игры: места, ведущий, раздачи, докупы, правки стека, уход, журнал фишек.
 // handle — чистая функция: сообщение игрока → новое состояние или отказ с причиной
 // (тогда состояние не меняется). Состояние — обычный JSON: сервер сохраняет его между
-// сообщениями и поднимает снова. Время — параметром now (мс), не из часов
-import { act, awardPots, startHand, type Hand } from './hand'
+// сообщениями и поднимает снова. Время — параметром now (мс), не из часов.
+// Карты на телефонах (Р-23): колоду тасует сервер и подаёт в handle; после торгов банки
+// раздаются сами по силе руки; каждому телефону — свой вид стола (viewFor)
+import { bestHand, winners as bestHands, type Card } from './cards'
+import { cardsNeeded, HOLDEM_GAME, isDeckOf, publicCards, runOut, type CardsMode, type GameDef } from './game'
+import { act, awardPots, dealOrder, startHand, type Hand, type HandLogEntry } from './hand'
 import { PROTOCOL_VERSION, VERSION_ERROR, type BetAction, type ClientBody } from './protocol'
 
 export type Settings = {
@@ -11,9 +15,16 @@ export type Settings = {
   startingStack: number // закуп при посадке
   maxSeats: number
   rebuyMaxBB: number | null // докуп за раз — не больше стольких больших блайндов; 0 — без докупов, null — без предела
+  cards: CardsMode // у столов до этапа 2 поля нет — живые карты
 }
 
-export const DEFAULT_SETTINGS: Settings = { sb: 5, bb: 10, startingStack: 1000, maxSeats: 9, rebuyMaxBB: null }
+export const DEFAULT_SETTINGS: Settings = { sb: 5, bb: 10, startingStack: 1000, maxSeats: 9, rebuyMaxBB: null, cards: 'live' }
+
+// Описание игры для новой раздачи: карты на телефонах — холдем (пока одно); живые — null.
+// У столов до этапа 2 поля cards нет — живые. По нему сервер знает, какую колоду тасовать
+export function gameFor(settings: Settings): GameDef | null {
+  return settings.cards === 'phones' ? HOLDEM_GAME : null
+}
 
 // Ведущий вне сети дольше этого — остальные могут взять ведение
 export const HOST_TAKEOVER_MS = 60_000
@@ -42,6 +53,21 @@ export type HandResult = {
   number: number
   pots: { amount: number; winners: string[] }[]
   payouts: Record<string, number>
+  record?: HandRecord // карты на телефонах — полная запись раздачи
+}
+
+// Запись раздачи с картами — под журнал раздач (этап 3). Карты сбросивших сюда не попадают
+export type HandRecord = {
+  game: GameDef
+  sb: number
+  bb: number
+  seats: { id: string; name: string; chips: number }[] // по местам; стек в начале раздачи
+  button: number // индекс в seats
+  board: Card[]
+  log: HandLogEntry[] // ходы по кругам торгов
+  shown: Record<string, (Card | null)[]> // видны всем: дошедшие до вскрытия, открытые и показанные; null — не показана
+  hands: Record<string, string> // у дошедших до вскрытия — что у него: «Две пары, короли и семёрки»
+  hidden: { playerId: string; cards: Card[] } | null // взял банк без вскрытия: карты видны только ему, пока не покажет
 }
 
 export type TableState = {
@@ -85,11 +111,27 @@ export function createTable(
   return sitError ? { ok: false, error: sitError } : { ok: true, state }
 }
 
-export function handle(state: TableState, from: string, message: unknown, now: number): Result {
+// deck — перемешанная колода для новой раздачи с картами на телефонах (тасует сервер)
+export function handle(state: TableState, from: string, message: unknown, now: number, deck?: Card[]): Result {
   if (!isRecord(message) || message.v !== PROTOCOL_VERSION) return { ok: false, error: VERSION_ERROR }
   const next = structuredClone(state)
-  const error = apply(next, from, message as ClientBody, now)
+  const error = apply(next, from, message as ClientBody, now, deck) ?? settle(next, now)
   return error ? { ok: false, error } : { ok: true, state: next }
+}
+
+// Что видит телефон игрока playerId: без колоды и без чужих закрытых карт — ни в раздаче,
+// ни в записи прошлой (карты взявшего без вскрытия — только ему). null — не вошедший
+export function viewFor(table: TableState, playerId: string | null): TableState {
+  if (!table.hand?.cards && !table.lastHand?.record?.hidden) return table
+  const view = structuredClone(table)
+  const cards = view.hand?.cards
+  if (cards) {
+    cards.deck = []
+    for (const id of Object.keys(cards.hole)) if (id !== playerId) cards.hole[id] = publicCards(cards, id)
+  }
+  const record = view.lastHand?.record
+  if (record?.hidden && record.hidden.playerId !== playerId) record.hidden = null
+  return view
 }
 
 // Соединение игрока открылось или закрылось (зовёт сервер)
@@ -102,7 +144,7 @@ export function setOnline(state: TableState, playerId: string, online: boolean, 
   return next
 }
 
-function apply(state: TableState, from: string, msg: ClientBody, now: number): string | null {
+function apply(state: TableState, from: string, msg: ClientBody, now: number, deck: Card[] | undefined): string | null {
   if (msg.type === 'sit') return sit(state, from, msg.name, now, msg.regularId)
   const me = state.players.find((p) => p.id === from)
   if (!me) return 'Вас нет за столом'
@@ -110,7 +152,7 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number): s
   const hostOnly = 'Это может только ведущий'
   switch (msg.type) {
     case 'start':
-      return isHost ? start(state) : hostOnly
+      return isHost ? start(state, deck) : hostOnly
     case 'act':
       if (!state.hand) return 'Раздачи сейчас нет'
       if (!isAction(msg.action)) return 'Неизвестный ход — обновите приложение'
@@ -144,6 +186,8 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number): s
     }
     case 'takeHost':
       return takeHost(state, from, now)
+    case 'show':
+      return show(state, from, msg.cards)
     default:
       return 'Неизвестное сообщение — обновите приложение'
   }
@@ -176,10 +220,18 @@ function sit(state: TableState, id: string, name: unknown, now: number, regularI
   return null
 }
 
-function start(state: TableState): string | null {
+function start(state: TableState, deck: Card[] | undefined): string | null {
   if (state.hand) return 'Раздача ещё идёт'
   const playing = state.players.filter((p) => p.chips > 0 && !p.sittingOut).sort((a, b) => a.seat - b.seat)
   if (playing.length < 2) return 'Нужно хотя бы двое с фишками'
+  // Карты на телефонах: описание игры — у раздачи (сейчас одно — холдем), колода — от сервера
+  let deal: { game: GameDef; deck: Card[] } | undefined
+  const game = gameFor(state.settings)
+  if (game) {
+    if (!isDeckOf(game, deck)) return 'Нет колоды — раздача не начата'
+    if (cardsNeeded(game, playing.length) > deck.length) return 'Карт в колоде на всех не хватит'
+    deal = { game, deck }
+  }
   // Кнопка — следующее играющее место по кругу после прошлой
   const prev = state.buttonSeat
   const after = prev === null ? -1 : playing.findIndex((p) => p.seat > prev)
@@ -187,7 +239,7 @@ function start(state: TableState): string | null {
   state.buttonSeat = playing[button].seat
   state.handCount++
   const { sb, bb } = state.settings
-  state.hand = startHand(state.handCount, playing, button, sb, bb)
+  state.hand = startHand(state.handCount, playing, button, sb, bb, deal)
   return null
 }
 
@@ -201,24 +253,108 @@ function skip(state: TableState): string | null {
 function award(state: TableState, winners: unknown, now: number): string | null {
   const hand = state.hand
   if (!hand) return 'Раздачи сейчас нет'
+  if (hand.cards) return 'Банки раздаются сами — по картам'
   if (!Array.isArray(winners) || !winners.every((w) => Array.isArray(w) && w.every((id) => typeof id === 'string'))) {
     return 'Неизвестное сообщение — обновите приложение'
   }
   const payouts = awardPots(hand, winners as string[][])
   if (typeof payouts === 'string') return payouts
+  finishHand(state, hand, winners as string[][], payouts, now)
+  return null
+}
+
+// Карты на телефонах, торги закрыты: досдать стол, открыть карты дошедших и раздать каждый
+// банк лучшей руке среди его претендентов; остался один — он берёт всё без вскрытия
+function settle(state: TableState, now: number): string | null {
+  const hand = state.hand
+  const cards = hand?.cards
+  if (!hand || !cards || hand.stage !== 'showdown') return null
+  const { variant } = cards.game
+  const live = hand.seats.filter((s) => !s.folded).map((s) => s.id)
+  const hole = (id: string) => cards.hole[id] as Card[] // на сервере все карты на месте
+  const shown: Record<string, (Card | null)[]> = {}
+  const hands: Record<string, string> = {}
+  let hidden: HandRecord['hidden'] = null
+  let winners: string[][]
+  if (live.length > 1) {
+    runOut(cards, dealOrder(hand))
+    winners = hand.pots.map((pot) => bestHands(variant, cards.board, pot.eligible.map((id) => ({ id, cards: hole(id) }))))
+    for (const id of live) {
+      shown[id] = hole(id)
+      hands[id] = bestHand(variant, hole(id), cards.board).name
+    }
+  } else {
+    winners = hand.pots.map((pot) => [...pot.eligible])
+    hidden = { playerId: live[0], cards: hole(live[0]) }
+  }
+  // Открытые по описанию карты остальных — их и так видели все
+  for (const s of hand.seats) {
+    const open = publicCards(cards, s.id)
+    if (!shown[s.id] && open.some((c) => c !== null)) shown[s.id] = open
+  }
+  const payouts = awardPots(hand, winners)
+  if (typeof payouts === 'string') return payouts
+  const names = new Map(state.players.map((p) => [p.id, p.name]))
+  const record: HandRecord = {
+    game: cards.game,
+    sb: hand.sb,
+    bb: hand.bb,
+    // В начале раздачи: стек сейчас минус выигрыш плюс вложенное
+    seats: hand.seats.map((s) => ({ id: s.id, name: names.get(s.id) ?? 'Ушёл', chips: s.chips - (payouts[s.id] ?? 0) + s.committed })),
+    button: hand.button,
+    board: [...cards.board],
+    log: hand.log,
+    shown,
+    hands,
+    hidden,
+  }
+  finishHand(state, hand, winners, payouts, now, record)
+  return null
+}
+
+// Раздача окончена: стеки — игрокам, итог — в «прошлую раздачу», одобренные в ней докупы — в стек
+function finishHand(
+  state: TableState,
+  hand: Hand,
+  winners: string[][],
+  payouts: Record<string, number>,
+  now: number,
+  record?: HandRecord,
+): void {
   for (const seat of hand.seats) {
     const p = state.players.find((x) => x.id === seat.id)
     if (p) p.chips = seat.chips
   }
   state.lastHand = {
     number: hand.number,
-    pots: hand.pots.map((pot, k) => ({ amount: pot.amount, winners: winners[k] as string[] })),
+    pots: hand.pots.map((pot, k) => ({ amount: pot.amount, winners: winners[k] })),
     payouts,
+    ...(record ? { record } : {}),
   }
   state.hand = null
   // Докупы, одобренные во время раздачи, — в стек сейчас, между раздачами
   for (const r of state.approvedRebuys) addRebuy(state, r.playerId, r.amount, r.by, now)
   state.approvedRebuys = []
+}
+
+// «Показать»: взявший банк без вскрытия открывает всем свои карты — обе или одну (по номерам)
+function show(state: TableState, from: string, which: unknown): string | null {
+  const record = state.lastHand?.record
+  const hidden = record?.hidden
+  if (state.hand || !record || !hidden || hidden.playerId !== from) return 'Показать карты может взявший банк без вскрытия — до новой раздачи'
+  const n = hidden.cards.length
+  if (
+    !Array.isArray(which) ||
+    which.length === 0 ||
+    !which.every((i) => Number.isInteger(i) && i >= 0 && i < n) ||
+    new Set(which).size !== which.length
+  ) {
+    return 'Выберите, какие карты показать'
+  }
+  const before = record.shown[from] ?? []
+  const shown = hidden.cards.map((c, i) => (which.includes(i) || before[i] ? c : null))
+  record.shown[from] = shown
+  if (shown.every((c) => c !== null)) record.hidden = null
   return null
 }
 
@@ -299,6 +435,7 @@ function settingsError(s: Settings): string | null {
   if (!isPositiveInt(s.startingStack)) return 'Закуп — целое число фишек больше нуля'
   if (!Number.isInteger(s.maxSeats) || s.maxSeats < 2 || s.maxSeats > 10) return 'Мест за столом — от 2 до 10'
   if (s.rebuyMaxBB !== null && (!Number.isInteger(s.rebuyMaxBB) || s.rebuyMaxBB < 0)) return 'Предел докупа — целое число, не меньше нуля'
+  if (s.cards !== 'live' && s.cards !== 'phones') return 'Карты — живые или на телефонах'
   return null
 }
 

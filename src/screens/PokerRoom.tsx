@@ -3,8 +3,10 @@ import { formatChips, formatNumber, parseChips } from '../calc/format'
 import { aroundTable, betSlider, seatSpot, sliderAmount, sliderIndex, stepAmount, type BetSlider } from '../calc/pokerLayout'
 import { NO_CONNECTION, roomLink, ROOM_CLOSED, UPDATE_APP, type Seat } from '../calc/pokerLink'
 import {
+  cardFace,
   defaultWinners,
   finalStacks,
+  lastHandRecord,
   lastHandWins,
   tableView,
   toggleWinner,
@@ -16,6 +18,7 @@ import {
 import { gameFromTable } from '../calc/pokerGame'
 import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS } from '../model'
+import type { Card } from '../poker/cards'
 import { FINISHED, type ClientBody } from '../poker/protocol'
 import type { TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
@@ -25,7 +28,8 @@ import { loadRecordedGame, saveRecordedGame } from './pokerStorage'
 import { useRoom, type Lobby, type Room } from './useRoom'
 
 // Стол покера онлайн (Р-14, Р-19): вход по ссылке, ставки с телефонов, кнопки ведущего.
-// Карты живые — на столе; экран ведёт фишки, банки и очередь хода
+// Карты живые — на столе; экран ведёт фишки, банки и очередь хода. Карты на телефонах (Р-23) —
+// свои карты под пальцем («Подглядеть»), общие — в центре стола, банки раздаются сами
 export function PokerRoomScreen({ code }: { code: string }) {
   const room = useRoom(code)
   const [note, setNote] = useState<string | null>(null)
@@ -208,13 +212,22 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
       <PokerTable view={v} />
 
       <PotList view={v} />
-      {v.stage === 'showdown' && !v.isHost && <p className="muted">Торги закрыты — ведущий отмечает победителя</p>}
+      {v.stage === 'showdown' && !v.isHost && !v.phoneCards && <p className="muted">Торги закрыты — ведущий отмечает победителя</p>}
       <LastHand table={table} view={v} />
+
+      {v.canShow && <ShowCard show={v.canShow} online={room.online} onShow={(cards) => room.send({ type: 'show', cards })} />}
 
       {room.error && (
         <p className="warn" onClick={room.clearError}>
           {room.error}
         </p>
+      )}
+
+      {v.myCards && (
+        <section className="card">
+          <h2>Мои карты</h2>
+          <PeekCards cards={v.myCards} />
+        </section>
       )}
 
       {v.actions && (
@@ -256,11 +269,131 @@ export function PotList({ view: v }: { view: TableView }) {
   )
 }
 
-// Между раздачами — кто сколько забрал в прошлой
+// Между раздачами — кто сколько забрал в прошлой; с картами на телефонах — вся запись раздачи
 export function LastHand({ table, view: v }: { table: TableState; view: TableView }) {
   const wins = lastHandWins(table)
+  const record = lastHandRecord(table)
   if (v.stage !== null || wins.length === 0) return null
-  return <p className="muted">Прошлая раздача: {wins.map((w) => `${w.name} +${formatNumber(w.amount)}`).join(', ')}</p>
+  if (!record) return <p className="muted">Прошлая раздача: {wins.map((w) => `${w.name} +${formatNumber(w.amount)}`).join(', ')}</p>
+  return (
+    <section className="card last-hand">
+      <h2>Прошлая раздача {record.number}</h2>
+      {record.board.length > 0 && <CardRow cards={record.board} />}
+      <ul className="list">
+        {record.players.map((p, i) => (
+          <li key={i} className="row">
+            <span className="grow">
+              {p.name}
+              {p.hand && <span className="muted"> · {p.hand}</span>}
+            </span>
+            {p.cards && <CardRow cards={p.cards} small />}
+            {p.won > 0 && <span className="num plus">+{formatNumber(p.won)}</span>}
+          </li>
+        ))}
+      </ul>
+      {record.rounds.length > 0 && (
+        <details>
+          <summary>Ходы</summary>
+          {record.rounds.map((r) => (
+            <p key={r.label}>
+              <strong>{r.label}:</strong> {r.moves.join('; ')}
+            </p>
+          ))}
+        </details>
+      )}
+    </section>
+  )
+}
+
+// Карта лицом или рубашкой (null)
+export function PlayingCard({ card, size }: { card: Card | null; size?: 'small' | 'big' }) {
+  const f = card === null ? null : cardFace(card)
+  const cls = ['playing-card', size, !f && 'back', f?.red && 'red'].filter(Boolean).join(' ')
+  if (!f) return <span className={cls} aria-label="карта рубашкой" />
+  return (
+    <span className={cls}>
+      {f.rank}
+      {f.suit}
+    </span>
+  )
+}
+
+function CardRow({ cards, small }: { cards: (Card | null)[]; small?: boolean }) {
+  return (
+    <span className="card-row">
+      {cards.map((c, i) => (
+        <PlayingCard key={i} card={c} size={small ? 'small' : undefined} />
+      ))}
+    </span>
+  )
+}
+
+// «Подглядеть»: свои карты рубашкой; держишь палец — лицом, отпустил — снова рубашкой
+function PeekCards({ cards }: { cards: Card[] }) {
+  const [peek, setPeek] = useState(false)
+  const on = () => setPeek(true)
+  const off = () => setPeek(false)
+
+  // Ушли с экрана с пальцем на картах — закрыть
+  useEffect(() => {
+    document.addEventListener('visibilitychange', off)
+    return () => document.removeEventListener('visibilitychange', off)
+  }, [])
+
+  return (
+    <>
+      <div
+        className="peek-cards"
+        role="button"
+        tabIndex={0}
+        aria-pressed={peek}
+        aria-label="Подглядеть свои карты — держите палец"
+        onPointerDown={(e) => {
+          e.preventDefault()
+          on()
+        }}
+        onPointerUp={off}
+        onPointerLeave={off}
+        onPointerCancel={off}
+        onContextMenu={(e) => e.preventDefault()}
+        onKeyDown={(e) => (e.key === ' ' || e.key === 'Enter') && on()}
+        onKeyUp={off}
+        onBlur={off}
+      >
+        {cards.map((c, i) => (
+          <PlayingCard key={i} card={peek ? c : null} size="big" />
+        ))}
+      </div>
+      <p className="muted">{peek ? 'Отпустите — карты закроются' : 'Подглядеть — держите палец на картах'}</p>
+    </>
+  )
+}
+
+const ORDINALS = ['первую', 'вторую', 'третью', 'четвёртую', 'пятую']
+
+// Взял банк без вскрытия: показать всем обе карты или одну — по желанию
+function ShowCard(props: { show: { cards: Card[]; shown: boolean[] }; online: boolean; onShow: (cards: number[]) => void }) {
+  const { show, online, onShow } = props
+  const left = show.cards.map((_, i) => i).filter((i) => !show.shown[i])
+  return (
+    <section className="card">
+      <h2>Банк ваш без вскрытия</h2>
+      <p className="muted">Можно показать карты всем — все или одну. До новой раздачи.</p>
+      <PeekCards cards={show.cards} />
+      <div className="amounts">
+        {left.length > 1 && (
+          <button type="button" className="big primary" disabled={!online} onClick={() => onShow(left)}>
+            Показать все
+          </button>
+        )}
+        {left.map((i) => (
+          <button key={i} type="button" className="big" disabled={!online} onClick={() => onShow([i])}>
+            Показать {ORDINALS[i] ?? i + 1}
+          </button>
+        ))}
+      </div>
+    </section>
+  )
 }
 
 // Овальный стол: я внизу по центру, остальные по порядку мест по часовой; ставка улицы —
@@ -285,6 +418,11 @@ export function PokerTable({ view: v }: { view: TableView }) {
                 {p.label} {formatNumber(p.amount)}
               </div>
             ))}
+          {v.board.length > 0 && (
+            <div className="board">
+              <CardRow cards={v.board} />
+            </div>
+          )}
           {v.toActName && <div>Ход: {v.toActName}</div>}
         </div>
         {seats.map((s, i) => (
@@ -325,6 +463,8 @@ function SeatSpot({ seat: s, at }: { seat: SeatView; at: { x: number; y: number 
         {s.isMe && <span className="visually-hidden"> (вы)</span>}
       </span>
       <span className="seat-chips">{formatNumber(s.chips)}</span>
+      {s.cards && <CardRow cards={s.cards} small />}
+      {s.handName && <span className="seat-mark">{s.handName}</span>}
       {marks.length > 0 && <span className="seat-mark">{marks.join(' · ')}</span>}
     </div>
   )
@@ -598,7 +738,7 @@ function HostCard(props: {
         </button>
       )}
 
-      {hand && hand.stage === 'showdown' && (
+      {hand && hand.stage === 'showdown' && !hand.cards && (
         <AwardPanel
           key={hand.number}
           table={table}

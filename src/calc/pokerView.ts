@@ -1,11 +1,19 @@
 // Экран стола: что показать каждому по состоянию стола. Правил не держит — только читает
 // стол (src/poker/) и решает, какие кнопки показать и с какими суммами; отказ всё равно
 // скажет сервер. Время — параметром now, как у стола
-import type { Stage } from '../poker/hand'
+import type { Card } from '../poker/cards'
+import { publicCards } from '../poker/game'
+import type { HandLogEntry, Stage } from '../poker/hand'
 import { buildPots } from '../poker/pots'
 import { HOST_TAKEOVER_MS, type TableState } from '../poker/table'
+import { formatNumber } from './format'
 
 export type SeatView = {
+  // Карты у места (карты на телефонах): в раздаче — рубашки (null), открытые всем — лицом,
+  // свои — тоже рубашкой: их видно, пока держишь палец (myCards); между раздачами — открытые
+  // на вскрытии и показанные. Нет карт — null
+  cards: (Card | null)[] | null
+  handName: string | null // между раздачами — что было у дошедшего до вскрытия
   id: string
   name: string
   chips: number // стек сейчас: в раздаче — без поставленного
@@ -56,6 +64,10 @@ export type TableView = {
   canTakeHost: boolean // ведущий вне сети дольше минуты — можно взять ведение
   rebuyRequests: { playerId: string; name: string; amount: number }[]
   myRebuy: number | null // мой запрос на докуп ждёт ведущего
+  phoneCards: boolean // карты на телефонах: банки раздаются сами
+  board: Card[] // общие карты; между раздачами — прошлой раздачи
+  myCards: Card[] | null // мои закрытые и открытые карты в раздаче — для «Подглядеть»
+  canShow: { cards: Card[]; shown: boolean[] } | null // взял банк без вскрытия: что можно показать
 }
 
 const STAGE_LABELS: Record<Stage, string> = {
@@ -72,6 +84,8 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
   const nameOf = (id: string) => names.get(id) ?? 'Ушёл'
   const host = table.players.find((p) => p.id === table.hostId)
   const positions = hand ? positionLabels(hand.seats.length) : []
+  const cards = hand?.cards
+  const record = hand ? undefined : table.lastHand?.record // прошлая раздача — пока новой нет
 
   const seats: SeatView[] = [...table.players]
     .sort((a, b) => a.seat - b.seat)
@@ -79,6 +93,8 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
       const index = hand ? hand.seats.findIndex((s) => s.id === p.id) : -1
       const s = hand && index !== -1 ? hand.seats[index] : null
       return {
+        cards: cards ? (s && !s.folded ? publicCards(cards, p.id) : null) : (record?.shown[p.id] ?? null),
+        handName: record?.hands[p.id] ?? null,
         id: p.id,
         name: p.name,
         chips: s ? s.chips : p.chips,
@@ -97,6 +113,8 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
     })
   const me = seats.find((s) => s.isMe) ?? null
   const isHost = meId === table.hostId
+  const myHole = cards?.hole[meId]
+  const hidden = record?.hidden?.playerId === meId ? record.hidden : null
 
   return {
     seats,
@@ -116,6 +134,10 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
       !isHost && host !== undefined && !host.online && now - (host.offlineSince ?? now) > HOST_TAKEOVER_MS,
     rebuyRequests: table.rebuyRequests.map((r) => ({ ...r, name: nameOf(r.playerId) })),
     myRebuy: table.rebuyRequests.find((r) => r.playerId === meId)?.amount ?? null,
+    phoneCards: table.settings.cards === 'phones',
+    board: cards?.board ?? record?.board ?? [],
+    myCards: myHole && myHole.length > 0 && myHole.every((c) => c !== null) ? (myHole as Card[]) : null,
+    canShow: hidden && record ? { cards: hidden.cards, shown: hidden.cards.map((_, i) => Boolean(record.shown[meId]?.[i])) } : null,
   }
 }
 
@@ -219,6 +241,62 @@ export function lastHandWins(table: TableState): { name: string; amount: number 
   return Object.entries(last.payouts)
     .filter(([, amount]) => amount > 0)
     .map(([id, amount]) => ({ name: names.get(id) ?? 'Ушёл', amount }))
+}
+
+// Карта на экране: ранг и масть значком; черви и бубны — красные
+export function cardFace(card: Card): { rank: string; suit: string; red: boolean } {
+  const suits: Record<string, string> = { s: '♠', h: '♥', d: '♦', c: '♣' }
+  return { rank: card[0] === 'T' ? '10' : card[0], suit: suits[card[1]] ?? '?', red: card[1] === 'h' || card[1] === 'd' }
+}
+
+export type LastHandView = {
+  number: number
+  board: Card[]
+  players: { name: string; cards: (Card | null)[] | null; hand: string | null; won: number }[] // сданные, по местам
+  rounds: { label: string; moves: string[] }[] // ходы по кругам торгов
+}
+
+// Прошлая раздача с картами на телефонах — вся запись: места, карты, ходы, кто что взял.
+// Пока идёт новая раздача или карт не было — null
+export function lastHandRecord(table: TableState): LastHandView | null {
+  const last = table.lastHand
+  const record = last?.record
+  if (!last || !record || table.hand) return null
+  const names = new Map(record.seats.map((s) => [s.id, s.name]))
+  const rounds: LastHandView['rounds'] = []
+  for (const e of record.log) {
+    const label = STAGE_LABELS[e.street]
+    if (rounds.at(-1)?.label !== label) rounds.push({ label, moves: [] })
+    rounds[rounds.length - 1].moves.push(`${names.get(e.playerId) ?? 'Ушёл'}: ${moveText(e)}`)
+  }
+  return {
+    number: last.number,
+    board: record.board,
+    players: record.seats.map((s) => ({
+      name: s.name,
+      cards: record.shown[s.id] ?? null,
+      hand: record.hands[s.id] ?? null,
+      won: last.payouts[s.id] ?? 0,
+    })),
+    rounds,
+  }
+}
+
+// Ход словами; сумма — до какой ставки на этой улице
+function moveText(e: HandLogEntry): string {
+  const to = formatNumber(e.bet)
+  switch (e.type) {
+    case 'fold':
+      return 'пас'
+    case 'check':
+      return 'чек'
+    case 'call':
+      return e.allIn ? `колл до ${to}, олл-ин` : `колл до ${to}`
+    case 'raise':
+      return e.allIn ? `рейз до ${to}, олл-ин` : `рейз до ${to}`
+    case 'allin':
+      return `олл-ин до ${to}`
+  }
 }
 
 // Конец игры: стек, закуп и разница у каждого, кто остался за столом

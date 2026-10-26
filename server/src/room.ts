@@ -18,8 +18,9 @@ import {
   type RosterEntry,
   type ServerMessage,
 } from '../../src/poker/protocol'
-import { createTable, handle, setOnline, type Settings, type TableState } from '../../src/poker/table'
-import { canRejoin, issueToken } from '../../src/poker/tokens'
+import { deckFor, shuffle } from '../../src/poker/game'
+import { createTable, gameFor, handle, setOnline, viewFor, type Settings, type TableState } from '../../src/poker/table'
+import { canRejoin, issueToken, type RandomBytes } from '../../src/poker/tokens'
 
 // Отказ «комнаты нет» и коды закрытия соединения — общие с экраном, в протоколе
 export { CLOSE_ENDED, CLOSE_NO_ROOM, CLOSE_REPLACED, CLOSE_SILENT, CLOSE_VERSION, NO_ROOM, SILENT_MS }
@@ -62,6 +63,7 @@ export type RoomEnv = {
   storage: RoomStorage
   peers: () => Peer[] // все открытые соединения комнаты
   release: (code: string) => Promise<void> // освободить место в реестре комнат
+  random?: RandomBytes // случайность тасовки; нет — Web Crypto (тесты подменяют)
 }
 
 const KEY = 'room'
@@ -135,7 +137,10 @@ export async function message(env: RoomEnv, peer: Peer, raw: string, now: number
     return end(env, room, FINISHED)
   }
   if (msg.type === 'reseat') return reseat(env, room, peer, me, msg.playerId, now)
-  const r = handle(room.table, me, msg, now)
+  // Новая раздача с картами на телефонах — колоду тасует комната, стол её только сдаёт
+  const game = msg.type === 'start' ? gameFor(room.table.settings) : null
+  const deck = game ? shuffle(deckFor(game), env.random) : undefined
+  const r = handle(room.table, me, msg, now, deck)
   if (!r.ok) return send(peer, { type: 'error', error: r.error })
   room.table = r.state
   room.lastMoveAt = now
@@ -265,17 +270,18 @@ async function end(env: RoomEnv, room: RoomRecord, reason: string): Promise<void
   await env.storage.deleteAlarm()
   await env.storage.deleteAll()
   for (const p of env.peers()) {
-    send(p, { type: 'ended', table: room.table, reason })
+    send(p, { type: 'ended', table: viewFor(room.table, p.playerId()), reason })
     p.close(CLOSE_ENDED, 'room ended')
   }
   await env.release(room.code)
 }
 
-// Сохранить и разослать стол всем, кто вошёл
+// Сохранить и разослать стол всем, кто вошёл, — каждому свой вид: без колоды и чужих закрытых карт
 async function save(env: RoomEnv, room: RoomRecord): Promise<void> {
   await env.storage.put<RoomRecord>(KEY, room)
   for (const p of env.peers()) {
-    if (p.playerId()) send(p, { type: 'state', table: room.table })
+    const id = p.playerId()
+    if (id) send(p, { type: 'state', table: viewFor(room.table, id) })
   }
 }
 

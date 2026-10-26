@@ -32,9 +32,9 @@ describe('создание комнаты', () => {
 
   it('верный пароль — код комнаты и токен ведущего', async () => {
     const { d, calls } = deps('пароль компании')
-    const r = await createRoom(body('пароль компании', { settings: { bb: 20, sb: 10, junk: 1 } }), d)
+    const r = await createRoom(body('пароль компании', { settings: { bb: 20, sb: 10, cards: 'phones', junk: 1 } }), d)
     expect(r).toEqual({ status: 200, body: { v: PROTOCOL_VERSION, code: 'KQ7MZP', playerId: 'host1', token: 'secret-token' } })
-    expect(calls.inits).toEqual([['KQ7MZP', 'Ведущий', { bb: 20, sb: 10 }, [], null]])
+    expect(calls.inits).toEqual([['KQ7MZP', 'Ведущий', { bb: 20, sb: 10, cards: 'phones' }, [], null]])
   })
 
   it('список постоянных: только верные строки без повторов; ведущий — из списка или гость', async () => {

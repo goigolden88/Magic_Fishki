@@ -1,5 +1,6 @@
 // Помощник тестов: прогоняет сообщения через стол. roundtrip — состояние сохраняется
 // в JSON и поднимается между каждыми двумя сообщениями, как на сервере со сном
+import { buildDeck, HOLDEM, type Card } from './cards'
 import { PROTOCOL_VERSION, type ClientBody } from './protocol'
 import { createTable, handle, setOnline, type Settings, type TableState } from './table'
 
@@ -12,8 +13,9 @@ export function newTable(ids: string[], settings: Partial<Settings> = {}, stacks
   return play(r.state, steps, false)
 }
 
+// deck — колода, которую подал бы сервер (карты на телефонах)
 export type Step =
-  | { from: string; msg: ClientBody; now?: number }
+  | { from: string; msg: ClientBody; now?: number; deck?: Card[] }
   | { from: string; online: boolean; now?: number }
 
 export function play(state: TableState, steps: Step[], roundtrip: boolean): TableState {
@@ -24,7 +26,7 @@ export function play(state: TableState, steps: Step[], roundtrip: boolean): Tabl
       state = setOnline(state, step.from, step.online, now)
       return
     }
-    const r = handle(state, step.from, { ...step.msg, v: PROTOCOL_VERSION }, now)
+    const r = handle(state, step.from, { ...step.msg, v: PROTOCOL_VERSION }, now, step.deck)
     if (!r.ok) throw new Error(`Шаг ${i + 1} (${step.from} ${step.msg.type}): ${r.error}`)
     state = r.state
   })
@@ -42,7 +44,16 @@ export const call = (from: string) => bet(from, { type: 'call' })
 export const raise = (from: string, to: number) => bet(from, { type: 'raise', to })
 export const allin = (from: string) => bet(from, { type: 'allin' })
 export const sit = (from: string, name: string, now = 0): Step => ({ from, msg: { type: 'sit', name }, now })
-export const start = (host: string): Step => ({ from: host, msg: { type: 'start' } })
+export const start = (host: string, deck?: Card[]): Step => ({ from: host, msg: { type: 'start' }, deck })
+
+// Колода холдема, где карты лягут как задано: hole — руки по порядку сдачи (с первого после
+// кнопки), затем стол по улицам; дальше — остальные карты по порядку
+export function stackedDeck(hole: Card[][], board: Card[] = []): Card[] {
+  const top: Card[] = []
+  for (let k = 0; k < (hole[0]?.length ?? 0); k++) for (const h of hole) top.push(h[k])
+  top.push(...board)
+  return [...top, ...buildDeck(HOLDEM).filter((c) => !top.includes(c))]
+}
 export const award = (host: string, winners: string[][], now = 0): Step => ({ from: host, msg: { type: 'award', winners }, now })
 
 // Оба способа прогона — для describe.each

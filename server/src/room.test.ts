@@ -228,6 +228,122 @@ describe('комната', () => {
   })
 })
 
+// Комната с картами на телефонах: ведущий и двое гостей
+async function cardsRoom() {
+  const r = fakeRoom()
+  const created = await initRoom(r.env, 'ABCDEF', 'Ведущий', { cards: 'phones' }, 0)
+  if (!created.ok) throw new Error(created.error)
+  const host = await connect(r)
+  await send(r, host, { type: 'join', playerId: created.playerId, token: created.token })
+  const guests: { peer: FakePeer; id: string; token: string }[] = []
+  for (const name of ['Гость', 'Третий']) {
+    const peer = await connect(r)
+    await send(r, peer, { type: 'join', name })
+    const w = peer.sent.find((m) => m.type === 'welcome') as { playerId: string; token: string }
+    guests.push({ peer, id: w.playerId, token: w.token })
+  }
+  return { r, host, hostId: created.playerId, guests }
+}
+
+// Карты, которых этот игрок видеть не должен: колода и чужие закрытые — по столу в хранилище
+function secretsFor(room: RoomRecord | undefined, me: string): string[] {
+  const cards = room?.table.hand?.cards
+  if (!cards) return []
+  const others = Object.entries(cards.hole).filter(([id]) => id !== me).flatMap(([, c]) => c)
+  return [...cards.deck, ...others].filter((c): c is string => c !== null)
+}
+
+const leaked = (peer: FakePeer, secrets: string[]) => {
+  const text = JSON.stringify(peer.sent)
+  return secrets.filter((c) => text.includes(`"${c}"`))
+}
+
+describe('карты на телефонах', () => {
+  it('каждому телефону — свои карты; чужих закрытых и колоды в присланном нет', async () => {
+    const { r, host, hostId, guests } = await cardsRoom()
+    await send(r, host, { type: 'start' })
+    const room = await stored(r)
+    expect(room?.table.hand?.cards?.deck).toHaveLength(52 - 6)
+    for (const { peer, id } of [{ peer: host, id: hostId }, ...guests]) {
+      expect(leaked(peer, secretsFor(room, id))).toEqual([])
+      const mine = tableOf(peer).hand?.cards?.hole[id]
+      expect(mine).toEqual(room?.table.hand?.cards?.hole[id])
+      expect(mine?.every((c) => typeof c === 'string')).toBe(true)
+      expect(tableOf(peer).hand?.cards?.deck).toEqual([])
+    }
+  })
+
+  it('колода — новая каждую раздачу, тасует комната', async () => {
+    const { r, host } = await cardsRoom()
+    await send(r, host, { type: 'start' })
+    const first = (await stored(r))?.table.hand?.cards?.hole
+    await send(r, host, { type: 'finish' })
+    const again = await cardsRoom()
+    await send(again.r, again.host, { type: 'start' })
+    // 6 карт из 52 — совпасть случайно почти невозможно
+    expect((await stored(again.r))?.table.hand?.cards?.hole).not.toEqual(first)
+  })
+
+  it('вышел посреди раздачи и вернулся по токену — его карты на месте', async () => {
+    const { r, host, guests } = await cardsRoom()
+    await send(r, host, { type: 'start' })
+    const [g] = guests
+    const mine = (await stored(r))?.table.hand?.cards?.hole[g.id]
+    g.peer.close(1006, '')
+    await close(r.env, g.peer, 5)
+    const back = await connect(r)
+    await send(r, back, { type: 'join', playerId: g.id, token: g.token })
+    expect(tableOf(back).hand?.cards?.hole[g.id]).toEqual(mine)
+    expect(leaked(back, secretsFor(await stored(r), g.id))).toEqual([])
+  })
+
+  it('«Пересадить» на новое устройство — карты там же', async () => {
+    const { r, host, guests } = await cardsRoom()
+    await send(r, host, { type: 'start' })
+    const [g] = guests
+    await send(r, host, { type: 'reseat', playerId: g.id })
+    const reseated = host.sent.find((m) => m.type === 'reseated') as { token: string }
+    const phone = await connect(r)
+    await send(r, phone, { type: 'join', playerId: g.id, token: reseated.token })
+    expect(tableOf(phone).hand?.cards?.hole[g.id]).toEqual((await stored(r))?.table.hand?.cards?.hole[g.id])
+  })
+
+  it('сон между сообщениями: раздача с картами доигрывается из хранилища, банк — сам', async () => {
+    const { r, host, guests } = await cardsRoom()
+    await send(r, host, { type: 'start' })
+    // На троих первой ходит кнопка — ведущий
+    for (const peer of [host, guests[0].peer]) {
+      r.storage.data.set('room', JSON.stringify(await stored(r))) // как после пробуждения
+      await send(r, peer, { type: 'act', action: { type: 'allin' } })
+    }
+    r.storage.data.set('room', JSON.stringify(await stored(r)))
+    await send(r, guests[1].peer, { type: 'act', action: { type: 'fold' } })
+    const room = await stored(r)
+    expect(room?.table.hand).toBeNull()
+    expect(room?.table.lastHand?.record?.board).toHaveLength(5)
+    expect(Object.keys(room?.table.lastHand?.record?.shown ?? {})).toHaveLength(2)
+    expect(room?.table.players.reduce((sum, p) => sum + p.chips, 0)).toBe(3000)
+    expect(tableOf(guests[1].peer).lastHand?.record?.board).toEqual(room?.table.lastHand?.record?.board)
+  })
+
+  it('конец комнаты посреди раздачи — в итоговом столе тоже только свои карты', async () => {
+    const { r, host, hostId, guests } = await cardsRoom()
+    await send(r, host, { type: 'start' })
+    const room = await stored(r)
+    await send(r, host, { type: 'finish' })
+    const ended = guests[0].peer.last() as { type: string; table: TableState }
+    expect(ended.type).toBe('ended')
+    expect(ended.table.hand?.cards?.hole[hostId]).toEqual([null, null])
+    expect(leaked(guests[0].peer, secretsFor(room, guests[0].id))).toEqual([])
+  })
+
+  it('комната без настройки карт — живые, как раньше: колоды у раздачи нет', async () => {
+    const { r, host } = await twoPlayers()
+    await send(r, host, { type: 'start' })
+    expect((await stored(r))?.table.hand?.cards).toBeUndefined()
+  })
+})
+
 const ROSTER = [
   { id: 'r-anna', name: 'Анна' },
   { id: 'r-boris', name: 'Борис' },
