@@ -31,6 +31,8 @@ export type Room = {
   resume: () => void // после «стол открыт на другом устройстве» — вернуться сюда
   clearError: () => void
   clearReseated: () => void
+  // Время сервера по часам телефона: поправка — по времени, присланному со столом. Сроки хода — в нём
+  serverNow: () => number
 }
 
 const OPEN_TIMEOUT_MS = 8000
@@ -55,6 +57,7 @@ export function useRoom(code: string): Room {
   const stopped = useRef(false)
   const connectRef = useRef<() => void>(() => {})
   const heardAt = useRef(0) // когда сервер последний раз что-то прислал
+  const clockOffset = useRef(0) // время сервера минус часы телефона — при последнем столе
 
   function forgetSeat() {
     seat.current = null
@@ -92,6 +95,8 @@ export function useRoom(code: string): Room {
         return
       }
       case 'state':
+        // Отсчёт хода — от остатка у сервера: часы телефона могут расходиться с ним
+        if (typeof msg.now === 'number') clockOffset.current = msg.now - Date.now()
         setTable(msg.table as TableState)
         return
       case 'reseated':
@@ -273,5 +278,6 @@ export function useRoom(code: string): Room {
     },
     clearError: () => setError(null),
     clearReseated: () => setReseated(null),
+    serverNow: () => Date.now() + clockOffset.current,
   }
 }

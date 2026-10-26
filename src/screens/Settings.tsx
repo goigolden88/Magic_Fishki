@@ -8,7 +8,7 @@ import { deleteDemoGames, getSettings, listGames, restoreGames, saveSettings } f
 import { ulid } from '../ulid'
 import { loadLastBackup, saveLastBackup } from './lastBackup'
 import { DEFAULT_SERVER, serverBase } from '../calc/pokerLink'
-import { loadServer, saveServer } from './pokerStorage'
+import { loadServer, loadTurnSound, saveServer, saveTurnSound } from './pokerStorage'
 
 export function SettingsScreen() {
   const [settings, setSettings] = useState<Settings | null>(null)
@@ -438,6 +438,7 @@ function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (p
 function PokerServerCard() {
   const [text, setText] = useState(loadServer)
   const [saved, setSaved] = useState(false)
+  const [sound, setSound] = useState(loadTurnSound) // звук «ваш ход» на этом устройстве (#75) — сохраняется сразу
   const base = serverBase(text)
 
   function save(e: FormEvent) {
@@ -471,6 +472,18 @@ function PokerServerCard() {
       <button className="big primary wide" disabled={base === null}>
         Сохранить
       </button>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={sound}
+          onChange={(e) => {
+            setSound(e.target.checked)
+            saveTurnSound(e.target.checked)
+          }}
+        />
+        Звук «Ваш ход»
+      </label>
+      <p className="muted">Короткий звук, когда за столом наступил ваш ход; вибрация — где телефон умеет. Только на этом устройстве.</p>
     </form>
   )
 }

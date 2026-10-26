@@ -8,6 +8,7 @@ import {
   finalStacks,
   lastHandRecord,
   lastHandWins,
+  myTurnMark,
   tableView,
   toggleWinner,
   winnersReady,
@@ -16,6 +17,7 @@ import {
   type TableView,
 } from '../calc/pokerView'
 import { gameFromTable } from '../calc/pokerGame'
+import { timerSettings, turnSecondsOf } from '../calc/pokerTimer'
 import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS } from '../model'
 import type { Card } from '../poker/cards'
@@ -24,7 +26,9 @@ import type { TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 import { openGameYear } from './openYears'
-import { loadRecordedGame, saveRecordedGame } from './pokerStorage'
+import { loadRecordedGame, loadTurnSound, saveRecordedGame } from './pokerStorage'
+import { TimerFields, timerForm, type TimerForm } from './TimerFields'
+import { signalTurn, unlockSound } from './turnSignal'
 import { useRoom, type Lobby, type Room } from './useRoom'
 
 // Стол покера онлайн (Р-14, Р-19): вход по ссылке, ставки с телефонов, кнопки ведущего.
@@ -186,12 +190,14 @@ type Finish = (table: TableState) => Promise<string | null> // отказ — т
 
 function TableCard(props: { room: Room; table: TableState; me: string; code: string; gameId: string | null; onFinish: Finish }) {
   const { room, table, me, code, gameId, onFinish } = props
-  const [now, setNow] = useState(() => Date.now())
+  const [, setTick] = useState(0)
   const [amounts, setAmounts] = useState<number[]>(DEFAULT_QUICK_AMOUNTS)
+  const signaled = useRef<string | null>(null)
 
-  // Часы — для «Взять ведение»: ведущий вне сети дольше минуты
+  // Часы раз в секунду — секунды на ход и «Взять ведение»: ведущий вне сети дольше минуты.
+  // Время — сервера (room.serverNow), не телефона
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 5000)
+    const id = setInterval(() => setTick((t) => t + 1), 1000)
     return () => clearInterval(id)
   }, [])
 
@@ -199,7 +205,20 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
     void getSettings().then((s) => setAmounts(s.quickAmounts))
   }, [])
 
-  const v = tableView(table, me, now)
+  // Звук браузер пускает только после касания страницы
+  useEffect(() => {
+    document.addEventListener('pointerdown', unlockSound)
+    return () => document.removeEventListener('pointerdown', unlockSound)
+  }, [])
+
+  // Мой ход начался — знак: звук (если не выключен на этом устройстве) и вибрация; раз на ход
+  const mark = myTurnMark(table, me)
+  useEffect(() => {
+    if (mark !== null && mark !== signaled.current) signalTurn(loadTurnSound())
+    signaled.current = mark
+  }, [mark])
+
+  const v = tableView(table, me, room.serverNow())
   const { sb, bb } = table.settings
 
   return (
@@ -210,6 +229,13 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
       </p>
 
       <PokerTable view={v} />
+
+      {v.paused && (
+        <p className="card warn">
+          Перерыв: {v.stage !== null ? 'раздача доигрывается без таймера, ' : ''}новая не начнётся, пока ведущий не нажмёт
+          «Продолжить»
+        </p>
+      )}
 
       <PotList view={v} />
       {v.stage === 'showdown' && !v.isHost && !v.phoneCards && <p className="muted">Торги закрыты — ведущий отмечает победителя</p>}
@@ -237,6 +263,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
           actions={v.actions}
           sb={sb}
           who={null}
+          left={v.actions.myTurn ? v.turnLeft : null}
           online={room.online}
           onAct={(body) => room.send(body)}
         />
@@ -423,7 +450,18 @@ export function PokerTable({ view: v }: { view: TableView }) {
               <CardRow cards={v.board} />
             </div>
           )}
-          {v.toActName && <div>Ход: {v.toActName}</div>}
+          {v.toActName && (
+            <div>
+              Ход: {v.toActName}
+              {v.turnLeft !== null && <strong> · {v.turnLeft} с</strong>}
+            </div>
+          )}
+          {v.paused && v.stage !== null && (
+            <div>
+              <strong>Перерыв</strong>
+            </div>
+          )}
+          {v.nextHandLeft !== null && <div>Новая раздача через {v.nextHandLeft} с</div>}
         </div>
         {seats.map((s, i) => (
           <SeatSpot key={s.id} seat={s} at={seatSpot(i, n)} />
@@ -463,6 +501,7 @@ function SeatSpot({ seat: s, at }: { seat: SeatView; at: { x: number; y: number 
         {s.isMe && <span className="visually-hidden"> (вы)</span>}
       </span>
       <span className="seat-chips">{formatNumber(s.chips)}</span>
+      {s.turnLeft !== null && <span className="seat-timer">{s.turnLeft} с</span>}
       {s.cards && <CardRow cards={s.cards} small />}
       {s.handName && <span className="seat-mark">{s.handName}</span>}
       {marks.length > 0 && <span className="seat-mark">{marks.join(' · ')}</span>}
@@ -471,15 +510,16 @@ function SeatSpot({ seat: s, at }: { seat: SeatView; at: { x: number; y: number 
 }
 
 // Кнопки хода. who — за кого ход на одном телефоне («Ход: имя»); null — свои: «Ваш ход».
-// online — есть связь: без неё кнопки неактивны
+// left — секунд на мой ход (таймер стола); online — есть связь: без неё кнопки неактивны
 export function ActionsCard(props: {
   actions: ActionsView
   sb: number
   who: string | null
+  left?: number | null
   online: boolean
   onAct: (body: Extract<ClientBody, { type: 'act' }>) => void
 }) {
-  const { actions: a, sb, who, online, onAct: act } = props
+  const { actions: a, sb, who, left = null, online, onAct: act } = props
   const r = a.raise
   const slider = a.myTurn ? betSlider(r, sb) : null
   const [text, setText] = useState(r ? String(r.min) : '')
@@ -496,7 +536,13 @@ export function ActionsCard(props: {
   const off = !a.myTurn || !online
   return (
     <section className={a.myTurn ? 'card actions my-turn' : 'card actions'}>
-      {who !== null ? <h2>Ход: {who}</h2> : a.myTurn ? <h2>Ваш ход</h2> : <p className="muted">Ждём своего хода</p>}
+      {who !== null ? (
+        <h2>Ход: {who}</h2>
+      ) : a.myTurn ? (
+        <h2>Ваш ход{left !== null && ` · ${left} с`}</h2>
+      ) : (
+        <p className="muted">Ждём своего хода</p>
+      )}
       <div className="action-grid">
         <button type="button" className="big danger" disabled={off} onClick={() => act({ type: 'act', action: { type: 'fold' } })}>
           Пас
@@ -723,7 +769,7 @@ function HostCard(props: {
         </div>
       ))}
 
-      {!hand && (
+      {!hand && !v.paused && (
         <>
           <button type="button" className="big primary wide" disabled={!v.canStart} onClick={() => room.send({ type: 'start' })}>
             Начать раздачу
@@ -731,6 +777,17 @@ function HostCard(props: {
           {!v.canStart && <p className="muted">Нужно хотя бы двое с фишками, которые не пропускают раздачи</p>}
         </>
       )}
+
+      {/* «Перерыв»: новая раздача не начинается, таймер стоит; «Продолжить» — снимает */}
+      <button
+        type="button"
+        className={v.paused ? 'big primary wide' : 'big wide'}
+        onClick={() => room.send({ type: 'pause', paused: !v.paused })}
+      >
+        {v.paused ? 'Продолжить' : 'Перерыв'}
+      </button>
+
+      {!hand && <TableSettingsCard key={JSON.stringify(timerSettings(table.settings))} room={room} table={table} view={v} />}
 
       {hand && hand.stage !== 'showdown' && v.toActName && (
         <button type="button" className="big wide" onClick={() => room.send({ type: 'skip' })}>
@@ -867,6 +924,33 @@ function HostCard(props: {
         Закончить игру
       </button>
     </section>
+  )
+}
+
+// «Настройки стола» ведущего между раздачами (#75): время на ход и раздача «сама» — со следующей раздачи.
+// Сохранили — форма заново из стола (key)
+function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableState; view: TableView }) {
+  const saved = timerSettings(table.settings)
+  const [form, setForm] = useState<TimerForm>(() => timerForm(saved.turnSeconds, saved.autoStart))
+  const turn = turnSecondsOf(form.choice, form.text)
+  const changed = turn.ok && (turn.seconds !== saved.turnSeconds || form.autoStart !== saved.autoStart)
+  return (
+    <details className="table-settings">
+      <summary>Настройки стола</summary>
+      {saved.autoStart !== 'off' && !v.paused && (
+        <p className="muted">Раздача начнётся сама — чтобы спокойно поменять, сначала «Перерыв».</p>
+      )}
+      <TimerFields form={form} onChange={setForm} />
+      <button
+        type="button"
+        className="big primary wide"
+        disabled={!changed || !room.online}
+        onClick={() => turn.ok && room.send({ type: 'tableSettings', turnSeconds: turn.seconds, autoStart: form.autoStart })}
+      >
+        Сохранить
+      </button>
+      <p className="muted">Действует со следующей раздачи.</p>
+    </details>
   )
 }
 
