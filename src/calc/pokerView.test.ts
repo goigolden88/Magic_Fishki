@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { allin, award, call, fold, newTable, play, raise, start } from '../poker/testing'
-import { HOST_TAKEOVER_MS } from '../poker/table'
+import { allin, award, call, check, fold, newTable, play, raise, stackedDeck, start } from '../poker/testing'
+import { HOST_TAKEOVER_MS, viewFor } from '../poker/table'
 import {
+  cardFace,
   defaultWinners,
   finalStacks,
+  lastHandRecord,
   lastHandWins,
   positionLabels,
   tableView,
@@ -189,5 +191,82 @@ describe('экран стола', () => {
     ])
     // Между раздачами кнопка — у места прошлой раздачи
     expect(tableView(s, 'p0', 0).seats.map((x) => x.button)).toEqual([true, false, false])
+  })
+})
+
+describe('экран стола: карты на телефонах', () => {
+  const PHONES = { cards: 'phones' as const }
+  // Кнопка p0, сдача с p1: p1 — Kh Qh, p2 — 2c 7d, p0 — Ah Ad
+  const deck = stackedDeck([['Kh', 'Qh'], ['2c', '7d'], ['Ah', 'Ad']], ['2s', '7h', '9d', 'Jc', '3s'])
+
+  it('в раздаче: у мест рубашки, свои — под пальцем, сбросивший — без карт; общие — по улицам', () => {
+    let s = play(newTable(['p0', 'p1', 'p2'], PHONES), [start('p0', deck)], false)
+    const v = tableView(viewFor(s, 'p1'), 'p1', 0)
+    expect(v.phoneCards).toBe(true)
+    expect(v.seats.map((x) => x.cards)).toEqual([
+      [null, null],
+      [null, null],
+      [null, null],
+    ])
+    expect(v.myCards).toEqual(['Kh', 'Qh'])
+    expect(v.board).toEqual([])
+    s = play(s, [call('p0'), fold('p1'), check('p2')], false)
+    const flop = tableView(viewFor(s, 'p0'), 'p0', 0)
+    expect(flop.board).toEqual(['2s', '7h', '9d'])
+    expect(flop.seats.map((x) => x.cards)).toEqual([[null, null], null, [null, null]])
+    expect(flop.myCards).toEqual(['Ah', 'Ad'])
+    expect(flop.canShow).toBeNull()
+  })
+
+  it('после вскрытия: карты дошедших и что у них — у мест и в записи прошлой раздачи', () => {
+    const steps = [start('p0', deck), call('p0'), fold('p1'), check('p2'), raise('p2', 20), call('p0')]
+    for (let k = 0; k < 2; k++) steps.push(check('p2'), check('p0'))
+    const s = play(newTable(['p0', 'p1', 'p2'], PHONES), steps, false)
+    const v = tableView(viewFor(s, 'p1'), 'p1', 0)
+    expect(v.stage).toBeNull()
+    expect(v.board).toEqual(['2s', '7h', '9d', 'Jc', '3s'])
+    expect(v.seats.map((x) => [x.cards, x.handName])).toEqual([
+      [['Ah', 'Ad'], 'Пара, тузы'],
+      [null, null],
+      [['2c', '7d'], 'Две пары, семёрки и двойки'],
+    ])
+    expect(v.myCards).toBeNull()
+    expect(lastHandRecord(viewFor(s, 'p1'))).toEqual({
+      number: 1,
+      board: ['2s', '7h', '9d', 'Jc', '3s'],
+      players: [
+        { name: 'P0', cards: ['Ah', 'Ad'], hand: 'Пара, тузы', won: 0 },
+        { name: 'P1', cards: null, hand: null, won: 0 },
+        { name: 'P2', cards: ['2c', '7d'], hand: 'Две пары, семёрки и двойки', won: 65 },
+      ],
+      rounds: [
+        { label: 'Префлоп', moves: ['P0: колл до 10', 'P1: пас', 'P2: чек'] },
+        { label: 'Флоп', moves: ['P2: рейз до 20', 'P0: колл до 20'] },
+        { label: 'Тёрн', moves: ['P2: чек', 'P0: чек'] },
+        { label: 'Ривер', moves: ['P2: чек', 'P0: чек'] },
+      ],
+    })
+  })
+
+  it('банк без вскрытия: «Показать» — только у взявшего', () => {
+    const s = play(newTable(['p0', 'p1', 'p2'], PHONES), [start('p0', deck), raise('p0', 30), fold('p1'), fold('p2')], false)
+    expect(tableView(viewFor(s, 'p0'), 'p0', 0).canShow).toEqual({ cards: ['Ah', 'Ad'], shown: [false, false] })
+    expect(tableView(viewFor(s, 'p1'), 'p1', 0).canShow).toBeNull()
+    const shown = play(s, [{ from: 'p0', msg: { type: 'show', cards: [1] } }], false)
+    expect(tableView(viewFor(shown, 'p0'), 'p0', 0).canShow).toEqual({ cards: ['Ah', 'Ad'], shown: [false, true] })
+    expect(tableView(viewFor(shown, 'p1'), 'p1', 0).seats[0].cards).toEqual([null, 'Ad'])
+  })
+
+  it('живые карты — карт на экране нет', () => {
+    const s = play(three(), [start('p0')], false)
+    const v = tableView(s, 'p0', 0)
+    expect([v.phoneCards, v.board, v.myCards, v.canShow]).toEqual([false, [], null, null])
+    expect(v.seats.every((x) => x.cards === null && x.handName === null)).toBe(true)
+    expect(lastHandRecord(s)).toBeNull()
+  })
+
+  it('карта на экране: ранг, масть значком, красные — черви и бубны', () => {
+    expect(cardFace('Td')).toEqual({ rank: '10', suit: '♦', red: true })
+    expect(cardFace('As')).toEqual({ rank: 'A', suit: '♠', red: false })
   })
 })

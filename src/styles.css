@@ -736,6 +736,90 @@ a.button-link.primary {
   white-space: nowrap;
 }
 
+/* Карты на телефонах: лицом — ранг и масть, рубашкой — узор; у мест — маленькие */
+.card-row {
+  display: inline-flex;
+  gap: 2px;
+  justify-content: center;
+  vertical-align: middle;
+}
+
+.playing-card {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 34px;
+  border-radius: 4px;
+  background: #f7f7f2;
+  color: #111;
+  font-size: 0.8rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.playing-card.red {
+  color: #c62828;
+}
+
+.playing-card.back {
+  border: 2px solid #f7f7f2;
+  background: repeating-linear-gradient(45deg, #7a1f2b 0 4px, #a8323f 4px 8px);
+}
+
+.playing-card.small {
+  width: 18px;
+  height: 25px;
+  border-radius: 3px;
+  font-size: 0.6rem;
+  letter-spacing: -0.04em;
+}
+
+.playing-card.big {
+  width: 72px;
+  height: 100px;
+  border-radius: 8px;
+  font-size: 1.6rem;
+}
+
+.seat .card-row {
+  margin: 2px 0;
+}
+
+.felt-center .board {
+  margin: 4px 0;
+  overflow: visible;
+}
+
+/* «Подглядеть»: палец на картах — без выделения, меню и прокрутки */
+.peek-cards {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  padding: 8px 0;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: pointer;
+}
+
+.last-hand h2 {
+  margin-top: 0;
+}
+
+.last-hand li {
+  gap: 8px;
+  align-items: center;
+  min-height: 40px;
+}
+
+.last-hand details p {
+  margin: 6px 0;
+  font-size: 0.9rem;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
