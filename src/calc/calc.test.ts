@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Entry, EntryKind, Player } from '../model'
-import { balanceText, chipsGenitive, formatRub, parseChips, parseRate } from './format'
+import { balanceText, chipsGenitive, formatRub, parseChips, parseRate, pluralForm } from './format'
 import { balance, playerTotals, toKopecks } from './totals'
 import { transfers } from './transfers'
 
@@ -122,6 +122,22 @@ describe('мелочи расчёта', () => {
 
   it('падеж фишек', () => {
     expect([1, 2, 5, 11, 21, 111].map(chipsGenitive)).toEqual(['фишки', 'фишек', 'фишек', 'фишек', 'фишки', 'фишек'])
+  })
+
+  it('форма слова после числа', () => {
+    const tables = (n: number) => pluralForm(n, 'стол', 'стола', 'столов')
+    expect([1, 2, 4, 5, 11, 12, 21, 22, 25, 101].map(tables)).toEqual([
+      'стол',
+      'стола',
+      'стола',
+      'столов',
+      'столов',
+      'столов',
+      'стол',
+      'стола',
+      'столов',
+      'стол',
+    ])
   })
 
   it('ввод чисел', () => {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { GamesScreen } from './screens/Games'
 import { GameScreen } from './screens/Game'
+import { CasinoDealScreen } from './screens/CasinoDeal'
 import { SettingsScreen } from './screens/Settings'
 import { ImportScreen } from './screens/Import'
 import { PlayersScreen } from './screens/Players'
@@ -12,13 +13,14 @@ import { PokerLocalScreen } from './screens/PokerLocal'
 import { normalizeCode, roomHash, type Seat } from './calc/pokerLink'
 import { saveSeat } from './screens/pokerStorage'
 
-// Маршруты: #/ — игры, #/game/:id — игра, #/settings — настройки, #/import — из Телеграма, #/players — игроки,
+// Маршруты: #/ — игры, #/game/:id — игра, #/game/:id/deal — раунд казино с картами, #/settings — настройки, #/import — из Телеграма, #/players — игроки,
 // #/players/:id — карточка постоянного игрока, #/help — справка, #/poker — покер онлайн,
 // #/poker/:код — стол, #/poker/:код/:игрок/:токен — стол с местом («пересадить»),
 // #/poker/local — стол на этом телефоне (под код из 6 знаков не подходит)
 type Route =
   | { screen: 'games' }
   | { screen: 'game'; id: string }
+  | { screen: 'casinoDeal'; id: string }
   | { screen: 'settings' }
   | { screen: 'import' }
   | { screen: 'players' }
@@ -33,6 +35,8 @@ function parseRoute(hash: string): Route {
   if (path === '/poker/local') return { screen: 'pokerLocal' }
   const game = path.match(/^\/game\/([^/]+)$/)
   if (game) return { screen: 'game', id: decodeURIComponent(game[1]) }
+  const deal = path.match(/^\/game\/([^/]+)\/deal$/)
+  if (deal) return { screen: 'casinoDeal', id: decodeURIComponent(deal[1]) }
   const player = path.match(/^\/players\/([^/]+)$/)
   if (player) return { screen: 'player', id: decodeURIComponent(player[1]) }
   const room = path.match(/^\/poker\/([^/]+)(?:\/([^/]+)\/([^/]+))?$/)
@@ -74,6 +78,8 @@ export function App() {
   switch (route.screen) {
     case 'game':
       return <GameScreen key={route.id} id={route.id} />
+    case 'casinoDeal':
+      return <CasinoDealScreen key={route.id} id={route.id} />
     case 'settings':
       return <SettingsScreen />
     case 'import':

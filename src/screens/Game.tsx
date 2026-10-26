@@ -210,6 +210,7 @@ export function GameScreen({ id }: { id: string }) {
           closed={!!current.closed}
           onAdd={saveRound}
           onDelete={deleteRound}
+          onDeal={() => (location.hash = `#/game/${encodeURIComponent(current.id)}/deal`)}
         />
       )}
 
@@ -330,10 +331,11 @@ type CasinoBlockProps = {
   closed: boolean
   onAdd: (text: string) => boolean // false — передумали добавлять новых участников
   onDelete: (round: CasinoRound) => void
+  onDeal: () => void // «Раздать раунд» — экран раунда с картами
 }
 
 // Казино (Р-13): раунды строками «Эрик, Артём +150» — каждый названный получает число в рублях
-function CasinoBlock({ rounds, nameById, players, closed, onAdd, onDelete }: CasinoBlockProps) {
+function CasinoBlock({ rounds, nameById, players, closed, onAdd, onDelete, onDeal }: CasinoBlockProps) {
   const [text, setText] = useState<string | null>(null) // не null — вводится раунд
   const [deleting, setDeleting] = useState<string | null>(null) // id раунда после первого нажатия (Р-09)
 
@@ -380,9 +382,15 @@ function CasinoBlock({ rounds, nameById, players, closed, onAdd, onDelete }: Cas
 
       {!closed &&
         (text === null ? (
-          <button className="big wide" onClick={() => setText('')}>
-            Добавить раунд
-          </button>
+          <div className="row">
+            <button className="big grow" onClick={() => setText('')}>
+              Добавить раунд
+            </button>
+            {/* #76: раунд с картами от программы — свой экран, итог — тем же раундом */}
+            <button className="big grow" onClick={onDeal}>
+              Раздать раунд
+            </button>
+          </div>
         ) : (
           <form onSubmit={submit}>
             <textarea

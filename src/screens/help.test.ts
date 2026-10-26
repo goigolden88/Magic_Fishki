@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatNumber } from '../calc/format'
+import { formatNumber, formatRub } from '../calc/format'
 import { HELP_VALUES, helpSections, type HelpValues } from './helpText'
 
 // Вместо чисел — метка: цифра в выводе значит, что число вписано в текст руками
@@ -17,6 +17,8 @@ const PLACEHOLDERS: HelpValues = {
   turnMax: '‹своё до›',
   sitOutAfter: '‹истечений›',
   autoStartPauses: '‹паузы›',
+  casinoStake: '‹ставка казино›',
+  casinoTables: '‹столов казино›',
 }
 
 describe('справка', () => {
@@ -64,6 +66,8 @@ describe('справка', () => {
       turnMax: '300',
       sitOutAfter: '2',
       autoStartPauses: '3, 6 и 10',
+      casinoStake: formatRub(10_000),
+      casinoTables: '5',
     })
   })
 })
