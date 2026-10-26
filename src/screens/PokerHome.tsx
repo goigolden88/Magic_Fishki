@@ -3,13 +3,15 @@ import { parseChips } from '../calc/format'
 import { localStartError, startLocalTable } from '../calc/localTable'
 import { allPicked, toggleAll } from '../calc/pick'
 import { createFailure, DEFAULT_SERVER, NO_CONNECTION, parseRoomLink, roomHash, roomsUrl, serverBase } from '../calc/pokerLink'
+import { lookOf, type Look } from '../calc/pokerLook'
 import { turnSecondsOf } from '../calc/pokerTimer'
 import type { Regular } from '../model'
 import type { CardsMode } from '../poker/game'
 import { PROTOCOL_VERSION, type CreateRoomRequest, type CreateRoomResponse } from '../poker/protocol'
-import { DEFAULT_SETTINGS } from '../poker/table'
+import { DEFAULT_SETTINGS, type Felt } from '../poker/table'
 import { getSettings } from '../store/db'
 import { ulid } from '../ulid'
+import { LookFields } from './LookFields'
 import { LOCAL_HASH, NO_STORAGE } from './PokerLocal'
 import {
   clearLocalTable,
@@ -137,6 +139,7 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
   const [timer, setTimer] = useState<TimerForm>(() =>
     timerForm(DEFAULT_SETTINGS.turnSeconds ?? null, DEFAULT_SETTINGS.autoStart ?? 'off'),
   )
+  const [look, setLook] = useState<Look>(() => lookOf(DEFAULT_SETTINGS))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -185,7 +188,7 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
       name,
       ...(me ? { regularId: me.id } : {}),
       roster,
-      settings: { sb, bb, startingStack: stack, cards, turnSeconds: turn.seconds, autoStart: timer.autoStart },
+      settings: { sb, bb, startingStack: stack, cards, turnSeconds: turn.seconds, autoStart: timer.autoStart, ...look },
     }
     setBusy(true)
     setError(null)
@@ -311,6 +314,9 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
       {/* #75: стол на одном телефоне — без таймера и раздачи «сама» */}
       <TimerFields form={timer} onChange={setTimer} />
 
+      <LookFields look={look} backs onChange={(l) => setLook({ ...look, ...l })} />
+      {cards === 'live' && <p className="muted">Карты живые — рубашка на экране не видна.</p>}
+
       {error && <p className="warn">{error}</p>}
       <div className="row">
         <button className="big primary grow" disabled={!ready}>
@@ -367,6 +373,7 @@ function NewLocalCard({ onCancel }: { onCancel: () => void }) {
   const [sbText, setSbText] = useState(String(DEFAULT_SETTINGS.sb))
   const [bbText, setBbText] = useState(String(DEFAULT_SETTINGS.bb))
   const [stackText, setStackText] = useState('')
+  const [felt, setFelt] = useState<Felt>(() => lookOf(DEFAULT_SETTINGS).felt)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -408,7 +415,7 @@ function NewLocalCard({ onCancel }: { onCancel: () => void }) {
       setError('Стол на этом телефоне уже идёт — закончите или удалите его')
       return
     }
-    const r = startLocalTable(players, { sb, bb, startingStack: stack }, Date.now(), () => ulid())
+    const r = startLocalTable(players, { sb, bb, startingStack: stack, felt }, Date.now(), () => ulid())
     if (!r.ok) {
       setError(r.error)
       return
@@ -472,6 +479,9 @@ function NewLocalCard({ onCancel }: { onCancel: () => void }) {
       </form>
 
       <TableFields sb={[sbText, setSbText]} bb={[bbText, setBbText]} stack={[stackText, setStackText]} />
+
+      {/* Карты живые (Р-21) — рубашки нет, только сукно */}
+      <LookFields look={{ ...lookOf(DEFAULT_SETTINGS), felt }} backs={false} onChange={(l) => l.felt && setFelt(l.felt)} />
 
       <p className="muted">За столом: {players.length}</p>
       {countError && <p className="warn">{countError}</p>}

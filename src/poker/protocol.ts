@@ -1,13 +1,14 @@
 // Сообщения клиента и сервера стола. Их берут сервер комнат и экран — версия одна на всех:
 // клиент с другой версией получает отказ «обновите приложение»
-import type { AutoStart, Settings, TableState } from './table'
+import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 
 // 2 — список постоянных игроков комнаты (lobby), вход под постоянным (regularId), «пересадить» (reseat)
 // 3 — признак жизни (PING): без него сервер считает игрока вне сети
 // 4 — карты на телефонах (Р-23): настройка стола cards, карты в раздаче и в записи прошлой, «Показать» (show)
 // 5 — время (#75): настройки turnSeconds и autoStart, срок хода и раздачи «сама» в столе,
 //     «Перерыв» (pause), настройки стола между раздачами (tableSettings), время сервера в state
-export const PROTOCOL_VERSION = 5
+// 6 — вид стола (#77): настройки felt и cardBack, смена ведущим в любой момент (look)
+export const PROTOCOL_VERSION = 6
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -58,6 +59,8 @@ export type ClientBody =
   | { type: 'pause'; paused: boolean } // ведущий: «Перерыв» и «Продолжить»
   // ведущий, между раздачами: время на ход (null — без таймера) и раздача «сама»; нет поля — не меняется
   | { type: 'tableSettings'; turnSeconds?: number | null; autoStart?: AutoStart }
+  // ведущий, в любой момент: вид стола — сукно и рубашка карт; нет поля — не меняется
+  | { type: 'look'; felt?: Felt; cardBack?: CardBack }
 
 export type ClientMessage = ClientBody & { v: number }
 

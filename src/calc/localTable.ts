@@ -28,7 +28,7 @@ export function localStartError(count: number): string | null {
 // Новый стол: игроки садятся по порядку, ведущим по правилам — первый (его ведение — сам телефон)
 export function startLocalTable(
   players: LocalPlayer[],
-  settings: Pick<Settings, 'sb' | 'bb' | 'startingStack'>,
+  settings: Pick<Settings, 'sb' | 'bb' | 'startingStack' | 'felt'>,
   now: number,
   makeId: () => string,
 ): LocalStart {
