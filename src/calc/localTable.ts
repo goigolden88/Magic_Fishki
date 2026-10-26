@@ -28,7 +28,8 @@ export function localStartError(count: number): string | null {
 // Новый стол: игроки садятся по порядку, ведущим по правилам — первый (его ведение — сам телефон)
 export function startLocalTable(
   players: LocalPlayer[],
-  settings: Pick<Settings, 'sb' | 'bb' | 'startingStack' | 'felt'>,
+  // Турнир и анте (#78) — те же поля, что у комнаты; нет — кэш без анте
+  settings: Pick<Settings, 'sb' | 'bb' | 'startingStack' | 'felt'> & Partial<Pick<Settings, 'ante' | 'format' | 'tournament'>>,
   now: number,
   makeId: () => string,
 ): LocalStart {
@@ -66,6 +67,11 @@ export function rebuyNow(table: TableState, playerId: string, amount: number, no
   const asked = send(table, playerId, { type: 'rebuy', amount }, now)
   if (!asked.ok) return asked
   return hostDo(asked.state, { type: 'rebuyAnswer', playerId, approve: true }, now)
+}
+
+// «Ребай» турнира (#78): на одном телефоне ведущий жмёт за выбывшего — от имени игрока
+export function tournamentRebuyFor(table: TableState, playerId: string, now: number): Result {
+  return send(table, playerId, { type: 'tournamentRebuy' }, now)
 }
 
 // Докуп, одобренный во время раздачи: ляжет в стек после неё
