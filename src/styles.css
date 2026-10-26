@@ -827,6 +827,59 @@ a.button-link.primary {
   font-size: 0.9rem;
 }
 
+/* Раунд казино с картами (#76): карты участников лицом, столы рубашкой; на открытом — победитель */
+.deal-hands,
+.deal-winners {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.deal-hands li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  border-top: 1px solid var(--line);
+}
+
+.deal-board h2 {
+  margin-top: 0;
+}
+
+.deal-board .card-row {
+  gap: 6px;
+}
+
+.deal-board .playing-card {
+  width: 44px;
+  height: 62px;
+  border-radius: 6px;
+  font-size: 1.1rem;
+}
+
+.deal-board.open {
+  border: 2px solid var(--gold);
+}
+
+.deal-winners li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.deal-winners strong {
+  color: var(--gold);
+}
+
+.deal-winners .playing-card.small {
+  width: 18px;
+  height: 25px;
+  border-radius: 3px;
+  font-size: 0.6rem;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;

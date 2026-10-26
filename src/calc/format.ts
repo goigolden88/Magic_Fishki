@@ -50,6 +50,14 @@ export function chipsGenitive(n: number): string {
   return abs % 10 === 1 && abs % 100 !== 11 ? 'фишки' : 'фишек'
 }
 
+// Форма слова после числа: 1 стол, 2 стола, 5 столов (11–14 — как 5)
+export function pluralForm(n: number, one: string, few: string, many: string): string {
+  const abs = Math.abs(n) % 100
+  if (abs >= 11 && abs <= 14) return many
+  if (abs % 10 === 1) return one
+  return abs % 10 >= 2 && abs % 10 <= 4 ? few : many
+}
+
 // Строка «сходится ли игра» — число с основанием
 export function balanceText(b: Balance): string {
   if (b.chipsIn === 0 && b.chipsOut === 0) return 'Записей пока нет'
