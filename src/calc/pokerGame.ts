@@ -3,6 +3,7 @@
 // Правка стека записей не даёт — если фишки не сошлись, игра показывает расхождение, как ручная
 import type { Entry, Game, Player } from '../model'
 import type { TableState } from '../poker/table'
+import { buyIns, prizeAmounts, prizePool, standings } from '../poker/tournament'
 import { balance, playerTotals } from './totals'
 
 export type TableGameInput = {
@@ -82,4 +83,71 @@ export function gameFromTable(table: TableState, input: TableGameInput, makeId: 
     ...(closed ? { closed } : {}),
     updatedAt: input.now,
   }
+}
+
+// Курс турнира: бай-ин и призы — в рублях, в игру они пишутся фишками по рублю
+export const TOURNAMENT_RATE = 1
+
+// Итог турнира (#78, Р-28) → обычная игра той же моделью: каждый бай-ин — «Закуп» (вход — при
+// «Начать турнир») или «Докуп» (ребай), приз — «Выход»; у каждого итог = приз − все его бай-ины.
+// Призы делят весь фонд — игра в ноль. Пишет телефон ведущего, когда турнир окончен
+export function gameFromTournament(table: TableState, input: Omit<TableGameInput, 'rate'>, makeId: () => string): Game {
+  const id = makeId()
+  const t = table.settings.tournament
+  const clock = table.tournament
+  const info = new Map<string, { name: string; regularId: string | null }>()
+  for (const e of table.chipLog) {
+    if (e.kind === 'leave') info.set(e.playerId, { name: e.name ?? LEFT_NAME, regularId: e.regularId ?? null })
+  }
+  for (const p of table.players) info.set(p.id, { name: p.name, regularId: p.regularId })
+
+  // Участники — кто играл с начала, по местам за столом
+  const byTableId = new Map<string, Player>()
+  const players: Player[] = (clock?.entrants ?? []).map((tableId) => {
+    const { name, regularId } = info.get(tableId) ?? { name: LEFT_NAME, regularId: null }
+    const player: Player = regularId ? { id: makeId(), name, regularId } : { id: makeId(), name }
+    byTableId.set(tableId, player)
+    return player
+  })
+
+  const entries: Entry[] = []
+  function add(tableId: string, kind: Entry['kind'], chips: number, at: string) {
+    const player = byTableId.get(tableId)
+    if (player && chips > 0) entries.push({ id: makeId(), playerId: player.id, kind, chips, at })
+  }
+  if (t && clock) {
+    const startedAt = new Date(clock.startedAt).toISOString()
+    for (const tableId of clock.entrants) add(tableId, 'buyin', t.buyIn, startedAt)
+    for (const e of table.chipLog) if (e.kind === 'rebuy') add(e.playerId, 'rebuy', t.buyIn, new Date(e.at).toISOString())
+    const prizes = prizeAmounts(prizePool(table, t), clock.prizes)
+    standings(table).forEach((s, i) => add(s.playerId, 'cashout', prizes[i] ?? 0, input.now))
+  }
+
+  const closed = balance(playerTotals(players, entries, TOURNAMENT_RATE)).ok
+  return {
+    id,
+    name: input.name,
+    date: input.date,
+    rate: TOURNAMENT_RATE,
+    players,
+    entries,
+    ...(closed ? { closed } : {}),
+    updatedAt: input.now,
+  }
+}
+
+// Итог турнира на экране: место, имя, бай-инов, приз и итог в рублях (приз − бай-ины)
+export function tournamentResults(table: TableState): { place: number; name: string; buyIns: number; prize: number; net: number }[] {
+  const t = table.settings.tournament
+  const clock = table.tournament
+  if (!t || !clock) return []
+  const names = new Map<string, string>()
+  for (const e of table.chipLog) if (e.kind === 'leave') names.set(e.playerId, e.name ?? LEFT_NAME)
+  for (const p of table.players) names.set(p.id, p.name)
+  const prizes = prizeAmounts(prizePool(table, t), clock.prizes)
+  return standings(table).map((s, i) => {
+    const n = buyIns(table, s.playerId)
+    const prize = prizes[i] ?? 0
+    return { place: s.place, name: names.get(s.playerId) ?? LEFT_NAME, buyIns: n, prize, net: prize - n * t.buyIn }
+  })
 }

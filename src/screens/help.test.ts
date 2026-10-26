@@ -19,6 +19,10 @@ const PLACEHOLDERS: HelpValues = {
   autoStartPauses: '‹паузы›',
   casinoStake: '‹ставка казино›',
   casinoTables: '‹столов казино›',
+  tournamentBuyIn: '‹бай-ин›',
+  levelMinutes: '‹минут на уровень›',
+  prizeRule: '‹призы›',
+  tournamentRate: '‹курс турнира›',
 }
 
 describe('справка', () => {
@@ -68,6 +72,10 @@ describe('справка', () => {
       autoStartPauses: '3, 6 и 10',
       casinoStake: formatRub(10_000),
       casinoTables: '5',
+      tournamentBuyIn: formatRub(100_000),
+      levelMinutes: '15',
+      prizeRule: 'до 4 игроков — всё первому, 5–7 — 65/35, от 8 — 50/30/20',
+      tournamentRate: '1',
     })
   })
 })

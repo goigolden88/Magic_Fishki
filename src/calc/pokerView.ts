@@ -5,7 +5,17 @@ import type { Card } from '../poker/cards'
 import { publicCards } from '../poker/game'
 import type { HandLogEntry, Stage } from '../poker/hand'
 import { buildPots } from '../poker/pots'
-import { HOST_TAKEOVER_MS, type TableState } from '../poker/table'
+import { blindsNow, HOST_TAKEOVER_MS, type TableState } from '../poker/table'
+import {
+  buildLevels,
+  clockAt,
+  defaultPrizes,
+  prizeAmounts,
+  prizePool,
+  rebuyOpen,
+  standings,
+  type Level,
+} from '../poker/tournament'
 import { formatNumber } from './format'
 
 export type SeatView = {
@@ -29,6 +39,26 @@ export type SeatView = {
   online: boolean
   sittingOut: boolean
   turnLeft: number | null // чей ход и таймер идёт — сколько секунд осталось
+  place: number | null // турнир: место выбывшего, а когда окончен — у всех; иначе null
+}
+
+// Турнир (#78): уровень, отсчёт до следующего, фонд и призы, ребай
+export type TournamentView = {
+  started: boolean // «Начать турнир» нажат
+  ended: boolean // остался один с фишками
+  level: number // номер уровня, с 1
+  blinds: Level // блайнды и анте уровня
+  next: Level | null // следующего уровня; последний — null
+  nextLeft: number | null // мс до следующего уровня (не начат — весь уровень); последний — null
+  stopped: boolean // часы стоят: «Перерыв»
+  buyIn: number // ₽
+  pool: number // призовой фонд, ₽: все бай-ины
+  prizes: { place: number; pct: number; amount: number }[] // до начала — по нынешнему числу игроков
+  prizesOwn: boolean // ведущий задал свои проценты
+  rebuyLevels: number // ребай до конца этого уровня; 0 — без ребая
+  rebuyOpen: boolean
+  canRebuy: boolean // мне — «Ребай»: я выбыл, а ребай открыт
+  results: { place: number; id: string; name: string; out: boolean; prize: number }[] // места по порядку
 }
 
 export type PotView = { label: string; amount: number; eligible: { id: string; name: string }[] }
@@ -72,6 +102,8 @@ export type TableView = {
   paused: boolean // «Перерыв»
   turnLeft: number | null // секунд на ход у того, чей ход; таймера нет — null
   nextHandLeft: number | null // секунд до раздачи «сама»; не начнётся сама — null
+  ante: number // анте с каждого: в раздаче — её, между раздачами — следующей; 0 — нет
+  tournament: TournamentView | null // кэш — null
 }
 
 const STAGE_LABELS: Record<Stage, string> = {
@@ -93,6 +125,9 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
   const positions = hand ? positionLabels(hand.seats.length) : []
   const cards = hand?.cards
   const record = hand ? undefined : table.lastHand?.record // прошлая раздача — пока новой нет
+  const tournament = tournamentView(table, meId, now)
+  // Место у места за столом: у выбывших, а когда турнир окончен — у всех
+  const places = new Map((tournament?.results ?? []).filter((r) => r.out || tournament?.ended).map((r) => [r.id, r.place]))
 
   const seats: SeatView[] = [...table.players]
     .sort((a, b) => a.seat - b.seat)
@@ -117,6 +152,7 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
         online: p.online,
         sittingOut: p.sittingOut,
         turnLeft: hand !== null && index !== -1 && index === hand.toAct ? turnLeft : null,
+        place: places.get(p.id) ?? null,
       }
     })
   const me = seats.find((s) => s.isMe) ?? null
@@ -137,7 +173,10 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
     toActName: hand && hand.toAct !== -1 ? nameOf(hand.seats[hand.toAct].id) : null,
     actions: actionsView(table, meId),
     canStart:
-      isHost && !hand && table.players.filter((p) => p.chips > 0 && !p.sittingOut).length >= 2,
+      isHost &&
+      !hand &&
+      !tournament?.ended &&
+      table.players.filter((p) => p.chips > 0 && !p.sittingOut).length >= 2,
     canTakeHost:
       !isHost && host !== undefined && !host.online && now - (host.offlineSince ?? now) > HOST_TAKEOVER_MS,
     rebuyRequests: table.rebuyRequests.map((r) => ({ ...r, name: nameOf(r.playerId) })),
@@ -149,7 +188,60 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
     paused: table.paused === true,
     turnLeft,
     nextHandLeft: !hand && typeof table.nextHandAt === 'number' ? secondsLeft(table.nextHandAt, now) : null,
+    ante: hand ? (hand.ante ?? 0) : (tournament?.blinds.ante ?? table.settings.ante ?? 0),
+    tournament,
   }
+}
+
+// Турнир на экране: до «Начать турнир» — первый уровень целиком, призы по нынешнему числу игроков.
+// now — время сервера: отсчёт до уровня не зависит от часов телефона
+export function tournamentView(table: TableState, meId: string, now: number): TournamentView | null {
+  const t = table.settings.tournament
+  if (table.settings.format !== 'tournament' || !t) return null
+  const clock = table.tournament ?? null
+  const levels = buildLevels(t, table.settings.sb, table.settings.bb)
+  const at = clock ? clockAt(t, clock, clock.endedAt ?? now) : { index: 0, msLeft: t.levelMinutes * 60_000 }
+  const pcts = clock ? clock.prizes : (t.prizes ?? defaultPrizes(table.players.length))
+  const pool = prizePool(table, t)
+  const amounts = prizeAmounts(pool, pcts)
+  const names = new Map<string, string>()
+  for (const e of table.chipLog) if (e.kind === 'leave') names.set(e.playerId, e.name ?? 'Ушёл')
+  for (const p of table.players) names.set(p.id, p.name)
+  const open = clock !== null && rebuyOpen(t, clock, now)
+  const ended = typeof clock?.endedAt === 'number'
+  return {
+    started: clock !== null,
+    ended,
+    level: at.index + 1,
+    blinds: clock ? blindsNow(table, clock.endedAt ?? now) : levels[0],
+    next: at.msLeft === null ? null : levels[at.index + 1],
+    nextLeft: ended ? null : at.msLeft,
+    stopped: typeof clock?.pausedAt === 'number' && !ended,
+    buyIn: t.buyIn,
+    pool,
+    prizes: pcts.map((pct, i) => ({ place: i + 1, pct, amount: amounts[i] })),
+    prizesOwn: t.prizes !== null,
+    rebuyLevels: t.rebuyLevels,
+    rebuyOpen: open,
+    canRebuy: open && (clock?.out.some((b) => b.playerId === meId) ?? false) && table.players.some((p) => p.id === meId),
+    results: clock
+      ? standings(table).map((s, i) => ({
+          place: s.place,
+          id: s.playerId,
+          name: names.get(s.playerId) ?? 'Ушёл',
+          out: s.out,
+          prize: ended ? (amounts[i] ?? 0) : 0,
+        }))
+      : [],
+  }
+}
+
+// Отсчёт «мм:сс» с округлением секунд вверх; час и больше — минуты всё равно числом: «75:00»
+export function clockText(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000))
+  const m = Math.floor(total / 60)
+  const s = total % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
 // Знак «ваш ход»: метка моего хода (раздача и номер хода в ней); не мой ход — null.
@@ -315,6 +407,8 @@ function moveText(e: HandLogEntry): string {
 function betText(e: HandLogEntry): string {
   const to = formatNumber(e.bet)
   switch (e.type) {
+    case 'ante':
+      return e.allIn ? `анте ${to}, олл-ин` : `анте ${to}`
     case 'fold':
       return 'пас'
     case 'check':

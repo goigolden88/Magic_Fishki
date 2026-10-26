@@ -24,8 +24,16 @@ export type HandSeat = {
   actedAt: number // ставка стола после его последнего хода
 }
 
-// timeout — ход сделан за игрока: время на ход вышло (#75, ставит table.ts)
-export type HandLogEntry = { street: Street; playerId: string; type: BetAction['type']; bet: number; allIn: boolean; timeout?: true }
+// timeout — ход сделан за игрока: время на ход вышло (#75, ставит table.ts).
+// 'ante' — анте в начале раздачи (#78): bet — сколько поставил в банк, ставкой круга оно не считается
+export type HandLogEntry = {
+  street: Street
+  playerId: string
+  type: BetAction['type'] | 'ante'
+  bet: number
+  allIn: boolean
+  timeout?: true
+}
 
 export type Hand = {
   number: number
@@ -34,6 +42,7 @@ export type Hand = {
   button: number // индекс в seats
   sb: number
   bb: number
+  ante?: number // анте с каждого (#78); у раздач до него поля нет — без анте
   toAct: number // индекс в seats; −1 — торги закрыты
   currentBet: number // ставка стола на этой улице
   minRaise: number // размер последнего полного повышения
@@ -47,7 +56,7 @@ export type Hand = {
 export type StartSeat = { id: string; chips: number }
 
 // seats — играющие в порядке мест, button — индекс кнопки в них; deal — карты на телефонах:
-// описание игры и перемешанная колода
+// описание игры и перемешанная колода; ante — анте с каждого до блайндов (0 — нет)
 export function startHand(
   number: number,
   seats: StartSeat[],
@@ -55,6 +64,7 @@ export function startHand(
   sb: number,
   bb: number,
   deal?: { game: GameDef; deck: Card[] },
+  ante = 0,
 ): Hand {
   const hand: Hand = {
     number,
@@ -79,6 +89,18 @@ export function startHand(
     pots: [],
     returned: null,
     log: [],
+  }
+  if (ante > 0) {
+    hand.ante = ante
+    // Анте — только в банк: вложено за раздачу, но не ставка круга (иначе засчитается в колл
+    // большого блайнда). Не хватает — олл-ин на остаток, как с блайндами
+    for (const s of hand.seats) {
+      const amount = Math.min(ante, s.chips)
+      s.chips -= amount
+      s.committed += amount
+      if (s.chips === 0) s.allIn = true
+      hand.log.push({ street: 'preflop', playerId: s.id, type: 'ante', bet: amount, allIn: s.allIn })
+    }
   }
   if (deal) {
     hand.cards = newCards(deal.game, deal.deck, seats.map((s) => s.id))

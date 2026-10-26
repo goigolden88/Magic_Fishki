@@ -5,6 +5,7 @@ import { allPicked, toggleAll } from '../calc/pick'
 import { createFailure, DEFAULT_SERVER, NO_CONNECTION, parseRoomLink, roomHash, roomsUrl, serverBase } from '../calc/pokerLink'
 import { lookOf, type Look } from '../calc/pokerLook'
 import { turnSecondsOf } from '../calc/pokerTimer'
+import { formSettings, tournamentForm, type TournamentForm } from '../calc/tournamentForm'
 import type { Regular } from '../model'
 import type { CardsMode } from '../poker/game'
 import { PROTOCOL_VERSION, type CreateRoomRequest, type CreateRoomResponse } from '../poker/protocol'
@@ -27,6 +28,7 @@ import {
   storageWorks,
 } from './pokerStorage'
 import { TimerFields, timerForm, type TimerForm } from './TimerFields'
+import { FormatFields } from './Tournament'
 
 const GUEST = '' // «Вы за столом» — не из постоянных
 
@@ -140,6 +142,7 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
     timerForm(DEFAULT_SETTINGS.turnSeconds ?? null, DEFAULT_SETTINGS.autoStart ?? 'off'),
   )
   const [look, setLook] = useState<Look>(() => lookOf(DEFAULT_SETTINGS))
+  const [format, setFormat] = useState<TournamentForm>(() => tournamentForm(0))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -176,11 +179,12 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
   const name = me ? me.name : myName.trim()
   const blindsOk = sb !== null && bb !== null && sb <= bb
   const turn = turnSecondsOf(timer.choice, timer.text)
-  const ready = name !== '' && blindsOk && stack !== null && turn.ok && (hasPassword || password !== '') && !busy
+  const game = formSettings(format)
+  const ready = name !== '' && blindsOk && stack !== null && turn.ok && game.ok && (hasPassword || password !== '') && !busy
 
   async function create(e: FormEvent) {
     e.preventDefault()
-    if (!ready || sb === null || bb === null || stack === null || !turn.ok) return
+    if (!ready || sb === null || bb === null || stack === null || !turn.ok || !game.ok) return
     const secret = hasPassword ? loadPassword() : password
     const body: CreateRoomRequest = {
       v: PROTOCOL_VERSION,
@@ -188,7 +192,7 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
       name,
       ...(me ? { regularId: me.id } : {}),
       roster,
-      settings: { sb, bb, startingStack: stack, cards, turnSeconds: turn.seconds, autoStart: timer.autoStart, ...look },
+      settings: { sb, bb, startingStack: stack, cards, turnSeconds: turn.seconds, autoStart: timer.autoStart, ...look, ...game.settings },
     }
     setBusy(true)
     setError(null)
@@ -286,7 +290,15 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
         </label>
       )}
 
-      <TableFields sb={[sbText, setSbText]} bb={[bbText, setBbText]} stack={[stackText, setStackText]} />
+      <TableFields
+        sb={[sbText, setSbText]}
+        bb={[bbText, setBbText]}
+        stack={[stackText, setStackText]}
+        tournament={format.format === 'tournament'}
+      />
+      {/* #78: кэш с анте или турнир; призы по умолчанию — по отмеченным, гостей до входа не видно */}
+      <FormatFields form={format} players={roster.length} onChange={setFormat} />
+      {!game.ok && <p className="warn">{game.error}</p>}
 
       {/* Р-23: стол на одном телефоне — только живые, выбора там нет */}
       <fieldset className="players-pick">
@@ -337,8 +349,8 @@ const CARDS_MODES: [CardsMode, string][] = [
 
 type Field = [string, (text: string) => void]
 
-// Блайнды и стартовый стек — одни у комнаты и у стола на телефоне
-function TableFields({ sb, bb, stack }: { sb: Field; bb: Field; stack: Field }) {
+// Блайнды и стартовый стек — одни у комнаты и у стола на телефоне; в турнире блайнды — стартовые
+function TableFields({ sb, bb, stack, tournament }: { sb: Field; bb: Field; stack: Field; tournament: boolean }) {
   const sbN = parseChips(sb[0])
   const bbN = parseChips(bb[0])
   const blindsOk = sbN !== null && bbN !== null && sbN <= bbN
@@ -346,11 +358,11 @@ function TableFields({ sb, bb, stack }: { sb: Field; bb: Field; stack: Field }) 
     <>
       <div className="draft-grid">
         <label className="field">
-          Малый блайнд
+          {tournament ? 'Малый блайнд, старт' : 'Малый блайнд'}
           <input inputMode="numeric" pattern="[0-9 ]*" value={sb[0]} onChange={(e) => sb[1](e.target.value)} />
         </label>
         <label className="field">
-          Большой блайнд
+          {tournament ? 'Большой блайнд, старт' : 'Большой блайнд'}
           <input inputMode="numeric" pattern="[0-9 ]*" value={bb[0]} onChange={(e) => bb[1](e.target.value)} />
         </label>
         <label className="field rebuys">
@@ -374,6 +386,7 @@ function NewLocalCard({ onCancel }: { onCancel: () => void }) {
   const [bbText, setBbText] = useState(String(DEFAULT_SETTINGS.bb))
   const [stackText, setStackText] = useState('')
   const [felt, setFelt] = useState<Felt>(() => lookOf(DEFAULT_SETTINGS).felt)
+  const [format, setFormat] = useState<TournamentForm>(() => tournamentForm(0))
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -407,15 +420,16 @@ function NewLocalCard({ onCancel }: { onCancel: () => void }) {
     ...guests.map((name) => ({ name, regularId: null })),
   ]
   const countError = localStartError(players.length)
-  const ready = countError === null && sb !== null && bb !== null && sb <= bb && stack !== null
+  const game = formSettings(format)
+  const ready = countError === null && sb !== null && bb !== null && sb <= bb && stack !== null && game.ok
 
   function begin() {
-    if (!ready || sb === null || bb === null || stack === null) return
+    if (!ready || sb === null || bb === null || stack === null || !game.ok) return
     if (loadLocalTable()) {
       setError('Стол на этом телефоне уже идёт — закончите или удалите его')
       return
     }
-    const r = startLocalTable(players, { sb, bb, startingStack: stack, felt }, Date.now(), () => ulid())
+    const r = startLocalTable(players, { sb, bb, startingStack: stack, felt, ...game.settings }, Date.now(), () => ulid())
     if (!r.ok) {
       setError(r.error)
       return
@@ -478,7 +492,15 @@ function NewLocalCard({ onCancel }: { onCancel: () => void }) {
         </button>
       </form>
 
-      <TableFields sb={[sbText, setSbText]} bb={[bbText, setBbText]} stack={[stackText, setStackText]} />
+      <TableFields
+        sb={[sbText, setSbText]}
+        bb={[bbText, setBbText]}
+        stack={[stackText, setStackText]}
+        tournament={format.format === 'tournament'}
+      />
+      {/* #78: те же кэш с анте и турнир, что у комнаты */}
+      <FormatFields form={format} players={players.length} onChange={setFormat} />
+      {!game.ok && <p className="warn">{game.error}</p>}
 
       {/* Карты живые (Р-21) — рубашки нет, только сукно */}
       <LookFields look={{ ...lookOf(DEFAULT_SETTINGS), felt }} backs={false} onChange={(l) => l.felt && setFelt(l.felt)} />

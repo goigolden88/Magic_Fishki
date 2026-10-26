@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { formatChips, formatNumber, parseChips } from '../calc/format'
+import { formatChips, formatNumber, formatRub, parseChips } from '../calc/format'
 import { aroundTable, betSlider, seatSpot, sliderAmount, sliderIndex, stepAmount, type BetSlider } from '../calc/pokerLayout'
 import { NO_CONNECTION, roomLink, ROOM_CLOSED, UPDATE_APP, type Seat } from '../calc/pokerLink'
 import {
@@ -16,9 +16,10 @@ import {
   type SeatView,
   type TableView,
 } from '../calc/pokerView'
-import { gameFromTable } from '../calc/pokerGame'
+import { gameFromTable, gameFromTournament } from '../calc/pokerGame'
 import { lookClass, lookOf } from '../calc/pokerLook'
 import { timerSettings, turnSecondsOf } from '../calc/pokerTimer'
+import { levelText, prizesOf } from '../calc/tournamentForm'
 import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS } from '../model'
 import type { Card } from '../poker/cards'
@@ -30,6 +31,7 @@ import { openGameYear } from './openYears'
 import { LookFields } from './LookFields'
 import { loadOpenCards, loadRecordedGame, loadTurnSound, saveOpenCards, saveRecordedGame } from './pokerStorage'
 import { TimerFields, timerForm, type TimerForm } from './TimerFields'
+import { PrizeFields, TournamentPanel, TournamentResults } from './Tournament'
 import { signalTurn, unlockSound } from './turnSignal'
 import { useRoom, type Lobby, type Room } from './useRoom'
 
@@ -51,20 +53,21 @@ export function PokerRoomScreen({ code }: { code: string }) {
   }
 
   // «Закончить игру» (Р-20): итог — игрой в историю на этом телефоне, затем комната закрывается у всех.
-  // Без связи игра всё равно записывается — из стола, который уже есть; повтор второй игры не пишет
+  // Без связи игра всё равно записывается — из стола, который уже есть; повтор второй игры не пишет.
+  // Турнир (#78) пишется, только когда окончен, — по курсу 1 ₽ за фишку; не окончен — комната закрывается без записи
   async function finish(table: TableState): Promise<string | null> {
     const me = room.me
     if (!me) return null
     let id = loadRecordedGame(code, me)
-    if (!id) {
+    const tournament = table.settings.format === 'tournament'
+    if (!id && (!tournament || typeof table.tournament?.endedAt === 'number')) {
       try {
         const settings = await getSettings()
         const date = today()
-        const game = gameFromTable(
-          table,
-          { name: formatDate(date), date, rate: settings.defaultRate, now: new Date().toISOString() },
-          () => ulid(),
-        )
+        const now = new Date().toISOString()
+        const game = tournament
+          ? gameFromTournament(table, { name: `Турнир ${formatDate(date)}`, date, now }, () => ulid())
+          : gameFromTable(table, { name: formatDate(date), date, rate: settings.defaultRate, now }, () => ulid())
         await saveGame(game)
         saveRecordedGame(code, me, game.id)
         openGameYear(date)
@@ -226,17 +229,18 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   }, [mark])
 
   const v = tableView(table, me, room.serverNow())
-  const { sb, bb } = table.settings
+  const sb = table.hand?.sb ?? table.settings.sb
 
   // Вид стола (#77) — классом на обёртке: сукно и рубашки своих и чужих карт
   return (
     <div className={lookClass(table.settings)}>
       <p className="muted table-info">
-        Блайнды {formatNumber(sb)}/{formatNumber(bb)} · {v.handNumber > 0 ? `раздача ${v.handNumber} · ` : ''}
+        {blindsLine(table, v)} · {v.handNumber > 0 ? `раздача ${v.handNumber} · ` : ''}
         {v.stageLabel} · ведущий — {v.hostName}
       </p>
 
       <PokerTable view={v} />
+      {v.tournament && <TournamentPanel view={v.tournament} />}
 
       {v.paused && (
         <p className="card warn">
@@ -296,6 +300,14 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
       <MyCard room={room} table={table} view={v} amounts={amounts} />
     </div>
   )
+}
+
+// Строка над столом: блайнды и анте раздачи (между раздачами — следующей); в турнире — с уровнем
+export function blindsLine(table: TableState, v: TableView): string {
+  const hand = table.hand
+  const t = v.tournament
+  const blinds = hand ? { sb: hand.sb, bb: hand.bb, ante: hand.ante ?? 0 } : t ? t.blinds : { ...table.settings, ante: v.ante }
+  return `${t ? 'Турнир · ' : ''}Блайнды ${levelText(blinds)}`
 }
 
 // Под столом — банки с претендентами
@@ -529,7 +541,13 @@ function spotStyle(at: { x: number; y: number }) {
 }
 
 function SeatSpot({ seat: s, at }: { seat: SeatView; at: { x: number; y: number } }) {
-  const marks = [s.allIn && 'олл-ин', !s.online && 'вне сети', s.sittingOut && 'пропуск', s.folded && 'пас'].filter(Boolean)
+  const marks = [
+    s.place !== null && `${s.place} место`,
+    s.allIn && 'олл-ин',
+    !s.online && 'вне сети',
+    s.sittingOut && 'пропуск',
+    s.folded && 'пас',
+  ].filter(Boolean)
   const cls = ['seat', s.toAct && 'to-act', s.folded && 'folded', s.isMe && 'me'].filter(Boolean).join(' ')
   return (
     <div className={cls} style={spotStyle(at)}>
@@ -691,6 +709,25 @@ function MyCard({ room, table, view: v, amounts }: { room: Room; table: TableSta
   }
 
   if (!me) return null
+  const t = v.tournament
+  if (t) {
+    // Турнир (#78): докупов нет; выбыл, а ребай открыт — «Ребай» сам, без одобрения ведущего
+    return (
+      <section className="card">
+        <h2>Мои фишки</h2>
+        <p>Бай-ин {formatRub(t.buyIn * 100)}</p>
+        {t.canRebuy && (
+          <button type="button" className="big rebuy wide" disabled={!room.online} onClick={() => room.send({ type: 'tournamentRebuy' })}>
+            Ребай за {formatRub(t.buyIn * 100)} — стек {formatNumber(startingStack)}
+          </button>
+        )}
+        {me.place !== null && !t.ended && !t.canRebuy && <p className="muted">Вы выбыли: {me.place} место</p>}
+        <button type="button" className="big wide" onClick={() => room.send({ type: 'sitOut', sittingOut: !me.sittingOut })}>
+          {me.sittingOut ? 'Вернуться в раздачи' : 'Пропускать раздачи'}
+        </button>
+      </section>
+    )
+  }
   return (
     <section className="card">
       <h2>Мои фишки</h2>
@@ -773,11 +810,16 @@ function HostCard(props: {
     setNote(await shareLink(`${name}, ваше место за столом ${code}: ${roomLink(location.href, code, seat)}`))
   }
 
+  const t = v.tournament
   async function finish() {
     const question = gameId
       ? 'Игра уже записана в историю. Закрыть комнату у всех?'
-      : 'Закончить игру? Итог запишется в историю на этом телефоне, комната закроется у всех.' +
-        (hand ? ' Раздача не доиграна — она отменится, в итог пойдут стеки до неё.' : '')
+      : t && !t.ended
+        ? 'Турнир не окончен — в историю он не запишется. Закрыть комнату у всех?'
+        : t
+          ? 'Записать турнир в историю на этом телефоне? Комната закроется у всех.'
+          : 'Закончить игру? Итог запишется в историю на этом телефоне, комната закроется у всех.' +
+            (hand ? ' Раздача не доиграна — она отменится, в итог пойдут стеки до неё.' : '')
     if (finishing || !confirm(question)) return
     setFinishing(true)
     setFinishError(await onFinish(table))
@@ -812,25 +854,42 @@ function HostCard(props: {
         </div>
       ))}
 
-      {!hand && !v.paused && (
+      {t?.ended ? (
         <>
-          <button type="button" className="big primary wide" disabled={!v.canStart} onClick={() => room.send({ type: 'start' })}>
-            Начать раздачу
-          </button>
-          {!v.canStart && <p className="muted">Нужно хотя бы двое с фишками, которые не пропускают раздачи</p>}
+          <h2>Места и призы</h2>
+          <TournamentResults table={table} />
         </>
+      ) : (
+        !hand &&
+        !v.paused && (
+          <>
+            <button type="button" className="big primary wide" disabled={!v.canStart} onClick={() => room.send({ type: 'start' })}>
+              {t && !t.started ? 'Начать турнир' : 'Начать раздачу'}
+            </button>
+            {!v.canStart && <p className="muted">Нужно хотя бы двое с фишками, которые не пропускают раздачи</p>}
+          </>
+        )
       )}
 
-      {/* «Перерыв»: новая раздача не начинается, таймер стоит; «Продолжить» — снимает */}
-      <button
-        type="button"
-        className={v.paused ? 'big primary wide' : 'big wide'}
-        onClick={() => room.send({ type: 'pause', paused: !v.paused })}
-      >
-        {v.paused ? 'Продолжить' : 'Перерыв'}
-      </button>
+      {/* «Перерыв»: новая раздача не начинается, таймер стоит, в турнире — и часы уровней; «Продолжить» — снимает */}
+      {!t?.ended && (
+        <button
+          type="button"
+          className={v.paused ? 'big primary wide' : 'big wide'}
+          onClick={() => room.send({ type: 'pause', paused: !v.paused })}
+        >
+          {v.paused ? 'Продолжить' : 'Перерыв'}
+        </button>
+      )}
 
-      {!hand && <TableSettingsCard key={JSON.stringify(timerSettings(table.settings))} room={room} table={table} view={v} />}
+      {!hand && (
+        <TableSettingsCard
+          key={JSON.stringify([timerSettings(table.settings), table.settings.ante, table.settings.tournament?.prizes])}
+          room={room}
+          table={table}
+          view={v}
+        />
+      )}
 
       {/* Вид стола (#77) — и во время раздачи; у всех меняется сразу */}
       <details className="table-settings">
@@ -893,34 +952,38 @@ function HostCard(props: {
             >
               <span className="grow">{p.name}</span>
               <span className="num">
-                {formatNumber(p.chips)} · закуп {formatNumber(p.buyIn)}
+                {formatNumber(p.chips)}
+                {t ? '' : ` · закуп ${formatNumber(p.buyIn)}`}
               </span>
             </button>
             {open === p.id && (
               <div className="player-actions">
-                <form
-                  className="row"
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    if (stack !== null) room.send({ type: 'setStack', playerId: p.id, chips: stack })
-                  }}
-                >
-                  <input
-                    className="grow"
-                    inputMode="numeric"
-                    pattern="[0-9 ]*"
-                    aria-label="Стек"
-                    disabled={hand !== null}
-                    value={stackText}
-                    onChange={(e) => setStackText(e.target.value)}
-                  />
-                  <button className="big primary" disabled={hand !== null || stack === null || stack === p.chips}>
-                    Поправить стек
-                  </button>
-                </form>
-                {hand !== null && <p className="muted">Стек правится между раздачами</p>}
-                {p.chips !== p.buyIn && (
-                  <p className="muted">Итог сейчас: {formatChips(p.chips - p.buyIn, true)}</p>
+                {/* Турнир (#78): стек не правится, итог — по местам */}
+                {!t && (
+                  <>
+                    <form
+                      className="row"
+                      onSubmit={(e) => {
+                        e.preventDefault()
+                        if (stack !== null) room.send({ type: 'setStack', playerId: p.id, chips: stack })
+                      }}
+                    >
+                      <input
+                        className="grow"
+                        inputMode="numeric"
+                        pattern="[0-9 ]*"
+                        aria-label="Стек"
+                        disabled={hand !== null}
+                        value={stackText}
+                        onChange={(e) => setStackText(e.target.value)}
+                      />
+                      <button className="big primary" disabled={hand !== null || stack === null || stack === p.chips}>
+                        Поправить стек
+                      </button>
+                    </form>
+                    {hand !== null && <p className="muted">Стек правится между раздачами</p>}
+                    {p.chips !== p.buyIn && <p className="muted">Итог сейчас: {formatChips(p.chips - p.buyIn, true)}</p>}
+                  </>
                 )}
                 <button
                   type="button"
@@ -947,9 +1010,8 @@ function HostCard(props: {
                       type="button"
                       className="big wide danger-text"
                       onClick={() => {
-                        if (confirm(`Убрать «${p.name}» со стола? Его остаток запишется в журнал.`)) {
-                          room.send({ type: 'remove', playerId: p.id })
-                        }
+                        const note = t ? 'Он выбывает сейчас, его фишки уходят из игры.' : 'Его остаток запишется в журнал.'
+                        if (confirm(`Убрать «${p.name}» со стола? ${note}`)) room.send({ type: 'remove', playerId: p.id })
                       }}
                     >
                       Убрать со стола
@@ -975,8 +1037,13 @@ function HostCard(props: {
         </>
       )}
       {finishError && <p className="warn">{finishError}</p>}
-      <button type="button" className="big wide danger" disabled={finishing} onClick={() => void finish()}>
-        Закончить игру
+      <button
+        type="button"
+        className={t?.ended && !gameId ? 'big wide primary' : 'big wide danger'}
+        disabled={finishing}
+        onClick={() => void finish()}
+      >
+        {t?.ended && !gameId ? 'Записать игру' : 'Закончить игру'}
       </button>
     </section>
   )
@@ -984,11 +1051,38 @@ function HostCard(props: {
 
 // «Настройки стола» ведущего между раздачами (#75): время на ход и раздача «сама» — со следующей раздачи.
 // Сохранили — форма заново из стола (key)
+// Кэш (#78) — ещё и анте; турнир до «Начать турнир» — призы по местам: тогда видно, сколько пришло
 function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableState; view: TableView }) {
   const saved = timerSettings(table.settings)
   const [form, setForm] = useState<TimerForm>(() => timerForm(saved.turnSeconds, saved.autoStart))
+  const savedAnte = table.settings.ante ?? 0
+  const [anteText, setAnteText] = useState(String(savedAnte))
+  const savedPrizes = table.settings.tournament?.prizes ?? null
+  const [prizesOwn, setPrizesOwn] = useState(savedPrizes !== null)
+  const [prizes, setPrizes] = useState<string[]>(() => (savedPrizes ?? []).map(String))
   const turn = turnSecondsOf(form.choice, form.text)
-  const changed = turn.ok && (turn.seconds !== saved.turnSeconds || form.autoStart !== saved.autoStart)
+  const t = v.tournament
+  const ante = t ? savedAnte : (parseChips(anteText) ?? (anteText.trim() === '0' ? 0 : null))
+  const editPrizes = t !== null && !t.started
+  const ownPrizes = prizesOf(prizes)
+  const newPrizes = prizesOwn ? (ownPrizes.ok ? ownPrizes.prizes : undefined) : null
+  const prizesChanged = editPrizes && newPrizes !== undefined && JSON.stringify(newPrizes) !== JSON.stringify(savedPrizes)
+  const ok = turn.ok && ante !== null && newPrizes !== undefined
+  const changed =
+    turn.ok &&
+    (turn.seconds !== saved.turnSeconds || form.autoStart !== saved.autoStart || ante !== savedAnte || prizesChanged)
+
+  function save() {
+    if (!turn.ok || ante === null) return
+    room.send({
+      type: 'tableSettings',
+      turnSeconds: turn.seconds,
+      autoStart: form.autoStart,
+      ...(t ? {} : { ante }),
+      ...(prizesChanged && newPrizes !== undefined ? { prizes: newPrizes } : {}),
+    })
+  }
+
   return (
     <details className="table-settings">
       <summary>Настройки стола</summary>
@@ -996,12 +1090,25 @@ function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableS
         <p className="muted">Раздача начнётся сама — чтобы спокойно поменять, сначала «Перерыв».</p>
       )}
       <TimerFields form={form} onChange={setForm} />
-      <button
-        type="button"
-        className="big primary wide"
-        disabled={!changed || !room.online}
-        onClick={() => turn.ok && room.send({ type: 'tableSettings', turnSeconds: turn.seconds, autoStart: form.autoStart })}
-      >
+      {!t && (
+        <label className="field">
+          Анте, фишек — 0, если нет
+          <input inputMode="numeric" pattern="[0-9 ]*" value={anteText} onChange={(e) => setAnteText(e.target.value)} />
+        </label>
+      )}
+      {!t && ante === null && <p className="warn">Анте — целое число фишек, не меньше нуля</p>}
+      {editPrizes && (
+        <PrizeFields
+          own={prizesOwn}
+          prizes={prizes}
+          players={table.players.length}
+          onChange={(own, list) => {
+            setPrizesOwn(own)
+            setPrizes(list)
+          }}
+        />
+      )}
+      <button type="button" className="big primary wide" disabled={!changed || !ok || !room.online} onClick={save}>
         Сохранить
       </button>
       <p className="muted">Действует со следующей раздачи.</p>
@@ -1055,8 +1162,9 @@ export function AwardPanel(props: {
   )
 }
 
-// Конец стола: стек и итог против закупа у каждого, кто остался
+// Конец стола: стек и итог против закупа у каждого, кто остался; турнир — места и призы
 export function FinalStacks({ table }: { table: TableState }) {
+  if (table.settings.format === 'tournament') return <TournamentResults table={table} />
   const stacks = finalStacks(table)
   if (stacks.length === 0) return null
   return (

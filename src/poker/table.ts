@@ -1,4 +1,5 @@
-// Стол кэш-игры: места, ведущий, раздачи, докупы, правки стека, уход, журнал фишек.
+// Стол кэш-игры или турнира (#78, tournament.ts): места, ведущий, раздачи, докупы, правки стека,
+// уход, журнал фишек.
 // handle — чистая функция: сообщение игрока → новое состояние или отказ с причиной
 // (тогда состояние не меняется). Состояние — обычный JSON: сервер сохраняет его между
 // сообщениями и поднимает снова. Время — параметром now (мс), не из часов.
@@ -8,6 +9,20 @@ import { bestHand, winners as bestHands, type Card } from './cards'
 import { cardsNeeded, HOLDEM_GAME, isDeckOf, publicCards, runOut, type CardsMode, type GameDef } from './game'
 import { act, awardPots, dealOrder, startHand, type Hand, type HandLogEntry } from './hand'
 import { PROTOCOL_VERSION, VERSION_ERROR, type BetAction, type ClientBody } from './protocol'
+import {
+  addBusts,
+  buildLevels,
+  clockAt,
+  defaultPrizes,
+  pauseClock,
+  rebuyOpen,
+  resumeClock,
+  tournamentError,
+  type Bust,
+  type Level,
+  type TournamentSettings,
+  type TournamentState,
+} from './tournament'
 
 export type Settings = {
   sb: number
@@ -22,7 +37,14 @@ export type Settings = {
   // Вид стола (#77) — выбор ведущего из готовых; у столов до него полей нет — зелёное и классика
   felt?: Felt
   cardBack?: CardBack
+  // Турнир (#78): режим стола; у столов до него полей нет — кэш без анте.
+  // В турнире sb и bb — стартовые блайнды, startingStack — стартовый стек, ante не действует
+  format?: TableFormat
+  ante?: number // анте кэша с каждого, фишек; 0 — нет
+  tournament?: TournamentSettings // структура турнира; есть, когда format — 'tournament'
 }
+
+export type TableFormat = 'cash' | 'tournament'
 
 export type AutoStart = 'off' | 'fast' | 'medium' | 'slow'
 
@@ -95,6 +117,7 @@ export type HandRecord = {
   game: GameDef
   sb: number
   bb: number
+  ante?: number // анте раздачи (#78); нет — без анте
   seats: { id: string; name: string; chips: number }[] // по местам; стек в начале раздачи
   button: number // индекс в seats
   board: Card[]
@@ -120,6 +143,8 @@ export type TableState = {
   paused?: boolean // «Перерыв»: новая раздача не начинается, таймер стоит
   nextHandAt?: number | null // когда начнётся раздача «сама»; null — не начнётся
   timeouts?: Record<string, number> // истечений хода подряд у игрока
+  // Турнир (#78): часы уровней, места, призы; null — турнир не начат или стол — кэш. У столов до #78 поля нет
+  tournament?: TournamentState | null
 }
 
 // Срок хода: ход — номер раздачи и число ходов в ней (log), чтобы будильник не принял старый срок за новый
@@ -152,6 +177,7 @@ export function createTable(
     paused: false,
     nextHandAt: null,
     timeouts: {},
+    tournament: null,
   }
   const sitError = sit(state, hostId, hostName, now, hostRegularId)
   return sitError ? { ok: false, error: sitError } : { ok: true, state }
@@ -189,7 +215,7 @@ export function onTime(state: TableState, now: number, deck?: Card[]): TableStat
     const next = structuredClone(state)
     next.nextHandAt = null
     // Не начать (меньше двоих с фишками, перерыв) — раздача «сама» стоит до ведущего
-    if (!next.paused) start(next, deck)
+    if (!next.paused) start(next, deck, now)
     clock(next, now)
     return next
   }
@@ -233,10 +259,12 @@ function sameTurn(turn: TurnClock, hand: Hand): boolean {
   return turn.hand === hand.number && turn.move === hand.log.length && hand.toAct !== -1
 }
 
-// Раздача «сама» — через паузу из настроек; выкл, перерыв, идёт раздача или раздач ещё не было — нет
+// Раздача «сама» — через паузу из настроек; выкл, перерыв, идёт раздача, раздач ещё не было
+// или турнир окончен — нет
 function armNext(state: TableState, now: number): void {
   const mode = state.settings.autoStart ?? 'off'
-  const ready = mode !== 'off' && !state.hand && !state.paused && state.handCount > 0
+  const ended = typeof state.tournament?.endedAt === 'number'
+  const ready = mode !== 'off' && !state.hand && !state.paused && state.handCount > 0 && !ended
   state.nextHandAt = ready ? now + AUTO_START_MS[mode] : null
 }
 
@@ -274,7 +302,9 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
   switch (msg.type) {
     case 'start':
       if (!isHost) return hostOnly
-      return state.paused ? 'Перерыв — сначала «Продолжить»' : start(state, deck)
+      return state.paused ? 'Перерыв — сначала «Продолжить»' : start(state, deck, now)
+    case 'tournamentRebuy':
+      return tournamentRebuy(state, me, now)
     case 'act':
       if (!state.hand) return 'Раздачи сейчас нет'
       if (!isAction(msg.action)) return 'Неизвестный ход — обновите приложение'
@@ -325,6 +355,7 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
 // regularId — постоянный игрок; за столом он один: второй раз под ним не сесть
 function sit(state: TableState, id: string, name: unknown, now: number, regularId: unknown): string | null {
   if (state.players.some((p) => p.id === id)) return 'Вы уже за столом'
+  if (state.tournament) return 'Турнир уже идёт — новых не сажаем'
   const trimmed = typeof name === 'string' ? name.trim() : ''
   if (!trimmed) return 'Нужно имя'
   const regular = typeof regularId === 'string' && regularId ? regularId : null
@@ -349,8 +380,10 @@ function sit(state: TableState, id: string, name: unknown, now: number, regularI
   return null
 }
 
-function start(state: TableState, deck: Card[] | undefined): string | null {
+// now — время начала: в турнире по нему уровень блайндов и анте; первая раздача запускает часы
+function start(state: TableState, deck: Card[] | undefined, now: number): string | null {
   if (state.hand) return 'Раздача ещё идёт'
+  if (typeof state.tournament?.endedAt === 'number') return 'Турнир окончен'
   const playing = state.players.filter((p) => p.chips > 0 && !p.sittingOut).sort((a, b) => a.seat - b.seat)
   if (playing.length < 2) return 'Нужно хотя бы двое с фишками'
   // Карты на телефонах: описание игры — у раздачи (сейчас одно — холдем), колода — от сервера
@@ -361,15 +394,69 @@ function start(state: TableState, deck: Card[] | undefined): string | null {
     if (cardsNeeded(game, playing.length) > deck.length) return 'Карт в колоде на всех не хватит'
     deal = { game, deck }
   }
+  const t = state.settings.tournament
+  if (state.settings.format === 'tournament' && t && !state.tournament) {
+    const error = beginTournament(state, t, now)
+    if (error) return error
+  }
   // Кнопка — следующее играющее место по кругу после прошлой
   const prev = state.buttonSeat
   const after = prev === null ? -1 : playing.findIndex((p) => p.seat > prev)
   const button = after === -1 ? 0 : after
   state.buttonSeat = playing[button].seat
   state.handCount++
-  const { sb, bb } = state.settings
-  state.hand = startHand(state.handCount, playing, button, sb, bb, deal)
+  const { sb, bb, ante } = blindsNow(state, now)
+  state.hand = startHand(state.handCount, playing, button, sb, bb, deal, ante)
   return null
+}
+
+// «Начать турнир»: часы идут с этой минуты; играют все за столом, призы — заданные или по числу игроков
+function beginTournament(state: TableState, t: TournamentSettings, now: number): string | null {
+  const entrants = [...state.players].sort((a, b) => a.seat - b.seat).map((p) => p.id)
+  const prizes = t.prizes ?? defaultPrizes(entrants.length)
+  if (prizes.length > entrants.length) {
+    return `Призовых мест — ${prizes.length}, а игроков — ${entrants.length}: поправьте призы`
+  }
+  state.tournament = { startedAt: now, pausedAt: null, pausedMs: 0, entrants, prizes, out: [], endedAt: null }
+  return null
+}
+
+// Блайнды и анте новой раздачи: в турнире — уровня по часам, в кэше — из настроек стола
+export function blindsNow(state: TableState, now: number): Level {
+  const t = state.settings.tournament
+  if (state.settings.format === 'tournament' && t && state.tournament) {
+    return buildLevels(t, state.settings.sb, state.settings.bb)[clockAt(t, state.tournament, now).index]
+  }
+  return { sb: state.settings.sb, bb: state.settings.bb, ante: state.settings.ante ?? 0 }
+}
+
+// «Ребай» турнира: сам игрок (на одном телефоне — ведущий за него), только выбывший и пока ребай
+// открыт; стек — стартовый, бай-ин — в журнал фишек. Докупы кэша в турнире выключены
+function tournamentRebuy(state: TableState, me: TablePlayer, now: number): string | null {
+  const t = state.settings.tournament
+  const clock = state.tournament
+  if (state.settings.format !== 'tournament' || !t) return 'Ребай — только в турнире'
+  if (!clock) return 'Турнир ещё не начат'
+  if (clock.endedAt !== null) return 'Турнир окончен'
+  const index = clock.out.findIndex((b) => b.playerId === me.id)
+  if (index === -1) return 'Ребай — когда кончились фишки'
+  if (!rebuyOpen(t, clock, now)) return t.rebuyLevels === 0 ? 'В этом турнире без ребая' : `Ребай был до конца уровня ${t.rebuyLevels}`
+  clock.out.splice(index, 1)
+  const chips = state.settings.startingStack
+  state.chipLog.push({ kind: 'rebuy', playerId: me.id, by: me.id, from: me.chips, to: chips, at: now })
+  me.chips = chips
+  me.buyIn += chips
+  if (!state.hand && state.nextHandAt == null) armNext(state, now)
+  return null
+}
+
+// Турнир: у кого после раздачи ноль — выбыл; остался один с фишками — турнир окончен
+function settleTournament(state: TableState, busts: Bust[], now: number): void {
+  const clock = state.tournament
+  if (!clock || clock.endedAt !== null) return
+  addBusts(clock, busts)
+  const out = new Set(clock.out.map((b) => b.playerId))
+  if (state.players.filter((p) => !out.has(p.id)).length <= 1) clock.endedAt = now
 }
 
 function skip(state: TableState): string | null {
@@ -428,6 +515,7 @@ function settle(state: TableState, now: number): string | null {
     game: cards.game,
     sb: hand.sb,
     bb: hand.bb,
+    ...(hand.ante ? { ante: hand.ante } : {}),
     // В начале раздачи: стек сейчас минус выигрыш плюс вложенное
     seats: hand.seats.map((s) => ({ id: s.id, name: names.get(s.id) ?? 'Ушёл', chips: s.chips - (payouts[s.id] ?? 0) + s.committed })),
     button: hand.button,
@@ -464,14 +552,26 @@ function finishHand(
   // Докупы, одобренные во время раздачи, — в стек сейчас, между раздачами
   for (const r of state.approvedRebuys) addRebuy(state, r.playerId, r.amount, r.by, now)
   state.approvedRebuys = []
+  // Турнир: без фишек после раздачи — выбыл; стек до неё — сейчас минус выигрыш плюс вложенное
+  const seated = new Set(state.players.map((p) => p.id))
+  const busts = hand.seats
+    .filter((s) => s.chips === 0 && seated.has(s.id))
+    .map((s) => ({ playerId: s.id, hand: hand.number, chips: s.chips - (payouts[s.id] ?? 0) + s.committed }))
+  settleTournament(state, busts, now)
   armNext(state, now)
 }
 
 // «Перерыв»: новая раздача не начинается, идущая доигрывается без таймера. «Продолжить» —
-// ход получает срок заново, между раздачами — раздача «сама» снова через паузу
+// ход получает срок заново, между раздачами — раздача «сама» снова через паузу.
+// В турнире «Перерыв» ещё и стоит часы уровней, «Продолжить» пускает их с того же места
 function pause(state: TableState, paused: boolean, now: number): string | null {
   if (state.paused === paused) return paused ? 'Перерыв уже идёт' : 'Перерыва нет'
   state.paused = paused
+  const clock = state.tournament
+  if (clock && clock.endedAt === null) {
+    if (paused) pauseClock(clock, now)
+    else resumeClock(clock, now)
+  }
   armNext(state, now)
   return null
 }
@@ -482,6 +582,18 @@ function changeSettings(state: TableState, msg: Extract<ClientBody, { type: 'tab
   const s: Settings = { ...state.settings }
   if ('turnSeconds' in msg) s.turnSeconds = msg.turnSeconds
   if ('autoStart' in msg) s.autoStart = msg.autoStart
+  const tournament = s.format === 'tournament'
+  // Анте кэша (#78) — со следующей раздачи; в турнире анте — по уровням
+  if ('ante' in msg) {
+    if (tournament) return 'В турнире анте — по уровням'
+    s.ante = msg.ante
+  }
+  // Призы турнира — до «Начать турнир»: тогда известно, сколько игроков
+  if ('prizes' in msg) {
+    if (!tournament || !s.tournament) return 'Призы — только в турнире'
+    if (state.tournament) return 'Призы меняются до начала турнира'
+    s.tournament = { ...s.tournament, prizes: msg.prizes ?? null }
+  }
   const error = settingsError(s)
   if (error) return error
   const was = state.settings.autoStart ?? 'off'
@@ -529,6 +641,7 @@ function show(state: TableState, from: string, which: unknown): string | null {
 }
 
 function requestRebuy(state: TableState, me: TablePlayer, amount: unknown): string | null {
+  if (state.settings.format === 'tournament') return 'В турнире докупов нет — ребай, когда кончились фишки'
   if (!isPositiveInt(amount)) return 'Докуп — целое число фишек больше нуля'
   const { rebuyMaxBB, bb } = state.settings
   if (rebuyMaxBB === 0) return 'Докупы за этим столом выключены'
@@ -562,6 +675,7 @@ function addRebuy(state: TableState, playerId: string, amount: number, by: strin
 }
 
 function setStack(state: TableState, by: string, playerId: string, chips: unknown, now: number): string | null {
+  if (state.settings.format === 'tournament') return 'В турнире стек не правится'
   if (state.hand) return 'Стек правится между раздачами'
   const p = state.players.find((x) => x.id === playerId)
   if (!p) return 'Такого игрока нет за столом'
@@ -574,6 +688,7 @@ function setStack(state: TableState, by: string, playerId: string, chips: unknow
 // Игрок уходит со стола с остатком фишек: запись об уходе — в журнал, чтобы итог вечера сошёлся
 function remove(state: TableState, by: string, playerId: string, now: number): string | null {
   if (playerId === state.hostId) return 'Ведущего не убрать — сначала передайте ведение'
+  if (typeof state.tournament?.endedAt === 'number') return 'Турнир окончен — места уже распределены'
   const p = state.players.find((x) => x.id === playerId)
   if (!p) return 'Такого игрока нет за столом'
   const seat = state.hand?.seats.find((s) => s.id === playerId)
@@ -588,6 +703,11 @@ function remove(state: TableState, by: string, playerId: string, now: number): s
   state.players = state.players.filter((x) => x.id !== playerId)
   state.rebuyRequests = state.rebuyRequests.filter((r) => r.playerId !== playerId)
   state.approvedRebuys = state.approvedRebuys.filter((r) => r.playerId !== playerId)
+  // Турнир: ушёл — выбыл сразу, место — по моменту ухода, его фишки из игры уходят
+  const clock = state.tournament
+  if (clock && !clock.out.some((b) => b.playerId === playerId)) {
+    settleTournament(state, [{ playerId, hand: state.handCount, chips }], now)
+  }
   return null
 }
 
@@ -616,6 +736,10 @@ function settingsError(s: Settings): string | null {
   if (s.cardBack !== undefined && !(CARD_BACKS as readonly unknown[]).includes(s.cardBack)) {
     return 'Рубашка карт — классика, синяя, зелёная или гео'
   }
+  if (s.ante !== undefined && (!Number.isInteger(s.ante) || s.ante < 0)) return 'Анте — целое число фишек, не меньше нуля'
+  const format = s.format ?? 'cash'
+  if (format !== 'cash' && format !== 'tournament') return 'Игра — кэш или турнир'
+  if (format === 'tournament') return tournamentError(s.tournament)
   return null
 }
 
