@@ -1,11 +1,13 @@
 // Сообщения клиента и сервера стола. Их берут сервер комнат и экран — версия одна на всех:
 // клиент с другой версией получает отказ «обновите приложение»
-import type { Settings, TableState } from './table'
+import type { AutoStart, Settings, TableState } from './table'
 
 // 2 — список постоянных игроков комнаты (lobby), вход под постоянным (regularId), «пересадить» (reseat)
 // 3 — признак жизни (PING): без него сервер считает игрока вне сети
 // 4 — карты на телефонах (Р-23): настройка стола cards, карты в раздаче и в записи прошлой, «Показать» (show)
-export const PROTOCOL_VERSION = 4
+// 5 — время (#75): настройки turnSeconds и autoStart, срок хода и раздачи «сама» в столе,
+//     «Перерыв» (pause), настройки стола между раздачами (tableSettings), время сервера в state
+export const PROTOCOL_VERSION = 5
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -53,6 +55,9 @@ export type ClientBody =
   | { type: 'passHost'; to: string } // ведущий: передать ведение
   | { type: 'takeHost' } // взять ведение, если ведущий вне сети дольше минуты
   | { type: 'show'; cards: number[] } // взявший банк без вскрытия: показать всем свои карты — номера по порядку сдачи
+  | { type: 'pause'; paused: boolean } // ведущий: «Перерыв» и «Продолжить»
+  // ведущий, между раздачами: время на ход (null — без таймера) и раздача «сама»; нет поля — не меняется
+  | { type: 'tableSettings'; turnSeconds?: number | null; autoStart?: AutoStart }
 
 export type ClientMessage = ClientBody & { v: number }
 
@@ -87,7 +92,8 @@ export type ServerMessage = { v: number } & (
   | { type: 'welcome'; playerId: string; token: string } // токен возврата на своё место
   | { type: 'reseated'; playerId: string; token: string } // ведущему: новый токен игрока для ссылки
   // Стол — в виде для этого телефона (viewFor): без колоды и чужих закрытых карт
-  | { type: 'state'; table: TableState }
+  // now — время сервера при отправке: отсчёт хода на экране — от остатка (deadline − now), не от часов телефона
+  | { type: 'state'; table: TableState; now: number }
   | { type: 'ended'; table: TableState; reason: string } // комната стёрта; table — стол на момент конца, тоже в виде телефона
   | { type: 'error'; error: string }
 )

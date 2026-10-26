@@ -19,7 +19,18 @@ import {
   type ServerMessage,
 } from '../../src/poker/protocol'
 import { deckFor, shuffle } from '../../src/poker/game'
-import { createTable, gameFor, handle, setOnline, viewFor, type Settings, type TableState } from '../../src/poker/table'
+import type { Card } from '../../src/poker/cards'
+import {
+  createTable,
+  gameFor,
+  handle,
+  nextDeadline,
+  onTime,
+  setOnline,
+  viewFor,
+  type Settings,
+  type TableState,
+} from '../../src/poker/table'
 import { canRejoin, issueToken, type RandomBytes } from '../../src/poker/tokens'
 
 // Отказ «комнаты нет» и коды закрытия соединения — общие с экраном, в протоколе
@@ -137,10 +148,7 @@ export async function message(env: RoomEnv, peer: Peer, raw: string, now: number
     return end(env, room, FINISHED)
   }
   if (msg.type === 'reseat') return reseat(env, room, peer, me, msg.playerId, now)
-  // Новая раздача с картами на телефонах — колоду тасует комната, стол её только сдаёт
-  const game = msg.type === 'start' ? gameFor(room.table.settings) : null
-  const deck = game ? shuffle(deckFor(game), env.random) : undefined
-  const r = handle(room.table, me, msg, now, deck)
+  const r = handle(room.table, me, msg, now, msg.type === 'start' ? newDeck(env, room.table) : undefined)
   if (!r.ok) return send(peer, { type: 'error', error: r.error })
   room.table = r.state
   room.lastMoveAt = now
@@ -148,7 +156,16 @@ export async function message(env: RoomEnv, peer: Peer, raw: string, now: number
   for (const id of Object.keys(room.tokens)) {
     if (!r.state.players.some((p) => p.id === id)) delete room.tokens[id]
   }
-  await save(env, room)
+  await save(env, room, now)
+  // Новый срок хода или раздачи «сама» — будильник не позже него
+  await wake(env, room, now)
+}
+
+// Новая раздача с картами на телефонах — колоду тасует комната, стол её только сдаёт.
+// Один путь и для «Начать раздачу» ведущего, и для раздачи «сама» из будильника
+function newDeck(env: RoomEnv, table: TableState): Card[] | undefined {
+  const game = gameFor(table.settings)
+  return game ? shuffle(deckFor(game), env.random) : undefined
 }
 
 // Соединение закрылось: у игрока не осталось других — он вне сети
@@ -159,11 +176,13 @@ export async function close(env: RoomEnv, peer: Peer, now: number): Promise<void
   const room = await env.storage.get<RoomRecord>(KEY)
   if (!room) return
   room.table = setOnline(room.table, me, false, now)
-  await save(env, room)
+  await save(env, room, now)
 }
 
-// Будильник: сутки без ходов — стереть; иначе найти пропавших молча и завести снова.
-// Будильник может сработать повторно — тогда комнаты уже нет, и делать нечего
+// Будильник один на всё: сутки без ходов — стереть; иначе найти пропавших молча, истёкший ход
+// сделать за игрока, начать раздачу «сама» — и завести снова на ближайший срок. Может сработать
+// повторно или раньше срока: комнаты уже нет — ничего; срок сверяет со столом сам стол (onTime).
+// Ход по таймеру и раздача «сама» lastMoveAt не двигают — брошенная комната стирается через IDLE_MS
 export async function alarm(env: RoomEnv, now: number): Promise<void> {
   const room = await env.storage.get<RoomRecord>(KEY)
   if (!room) return
@@ -183,14 +202,31 @@ export async function alarm(env: RoomEnv, now: number): Promise<void> {
   for (const pl of room.table.players) {
     if (pl.online && !env.peers().some((q) => q.playerId() === pl.id)) room.table = setOnline(room.table, pl.id, false, now)
   }
-  if (online() !== before) await save(env, room)
+  let changed = online() !== before
+  const timed = onTime(room.table, now, newDeck(env, room.table))
+  if (timed) {
+    room.table = timed
+    changed = true
+  }
+  if (changed) await save(env, room, now)
   await env.storage.setAlarm(nextAlarm(room, now))
 }
 
-// Кто-то в сети — проверка через CHECK_MS; никого — только сутки после последнего хода
+// Ближайшее из: срок хода или раздачи «сама» (идут и без ведущего в сети); кто-то в сети —
+// проверка через CHECK_MS; сутки после последнего хода
 function nextAlarm(room: RoomRecord, now: number): number {
-  const idle = room.lastMoveAt + IDLE_MS
-  return room.table.players.some((p) => p.online) ? Math.min(idle, now + CHECK_MS) : idle
+  const times = [room.lastMoveAt + IDLE_MS]
+  if (room.table.players.some((p) => p.online)) times.push(now + CHECK_MS)
+  const deadline = nextDeadline(room.table)
+  if (deadline !== null) times.push(deadline)
+  return Math.min(...times)
+}
+
+// Ближе назначенный будильник не отодвигаем; нужен раньше — переводим
+async function wake(env: RoomEnv, room: RoomRecord, now: number): Promise<void> {
+  const at = await env.storage.getAlarm()
+  const next = nextAlarm(room, now)
+  if (at === null || at > next) await env.storage.setAlarm(next)
 }
 
 async function join(
@@ -225,11 +261,9 @@ async function join(
   room.lastMoveAt = now
   peer.setPlayerId(id, now)
   send(peer, { type: 'welcome', playerId: id, token: room.tokens[id] })
-  await save(env, room)
-  // Игрок в сети — проверки живости идут; ближе назначенный будильник не отодвигаем
-  const at = await env.storage.getAlarm()
-  const next = nextAlarm(room, now)
-  if (at === null || at > next) await env.storage.setAlarm(next)
+  await save(env, room, now)
+  // Игрок в сети — проверки живости идут
+  await wake(env, room, now)
 }
 
 // Посадка: под постоянным — имя из списка комнаты; гостем — своё
@@ -258,7 +292,7 @@ async function reseat(env: RoomEnv, room: RoomRecord, peer: Peer, me: string, pl
   }
   room.table = setOnline(room.table, playerId, false, now)
   send(peer, { type: 'reseated', playerId, token })
-  await save(env, room)
+  await save(env, room, now)
 }
 
 function sendLobby(peer: Peer, room: RoomRecord): void {
@@ -276,12 +310,13 @@ async function end(env: RoomEnv, room: RoomRecord, reason: string): Promise<void
   await env.release(room.code)
 }
 
-// Сохранить и разослать стол всем, кто вошёл, — каждому свой вид: без колоды и чужих закрытых карт
-async function save(env: RoomEnv, room: RoomRecord): Promise<void> {
+// Сохранить и разослать стол всем, кто вошёл, — каждому свой вид: без колоды и чужих закрытых карт;
+// с временем сервера — отсчёт хода на телефоне от остатка
+async function save(env: RoomEnv, room: RoomRecord, now: number): Promise<void> {
   await env.storage.put<RoomRecord>(KEY, room)
   for (const p of env.peers()) {
     const id = p.playerId()
-    if (id) send(p, { type: 'state', table: viewFor(room.table, id) })
+    if (id) send(p, { type: 'state', table: viewFor(room.table, id), now })
   }
 }
 
