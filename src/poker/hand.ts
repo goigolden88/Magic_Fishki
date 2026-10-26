@@ -1,7 +1,10 @@
-// Одна раздача кэш-игры в холдем без карт: блайнды, очередь хода, ставки, улицы, банки.
+// Одна раздача кэш-игры в холдем: блайнды, очередь хода, ставки, улицы, банки.
 // Карты живые — силу руки движок не знает: после торгов раздача ждёт, пока ведущий
-// отметит победителя каждого банка (awardPots).
+// отметит победителя каждого банка (awardPots). Карты на телефонах (cards) — сдаются
+// по описанию игры перед каждым кругом торгов; банки после торгов раздаёт table.ts.
 // Функции меняют переданную раздачу; копию состояния делает table.ts (handle)
+import type { Card } from './cards'
+import { dealRound, newCards, type GameDef, type HandCards } from './game'
 import type { BetAction } from './protocol'
 import { buildPots, splitPot, type Pot } from './pots'
 
@@ -37,12 +40,21 @@ export type Hand = {
   pots: Pot[] // после торгов — банки на раздачу ведущим
   returned: { playerId: string; amount: number } | null // непокрытая ставка, вернувшаяся игроку
   log: HandLogEntry[]
+  cards?: HandCards // карты на телефонах; нет — живые карты (и у раздач до этапа 2)
 }
 
 export type StartSeat = { id: string; chips: number }
 
-// seats — играющие в порядке мест, button — индекс кнопки в них
-export function startHand(number: number, seats: StartSeat[], button: number, sb: number, bb: number): Hand {
+// seats — играющие в порядке мест, button — индекс кнопки в них; deal — карты на телефонах:
+// описание игры и перемешанная колода
+export function startHand(
+  number: number,
+  seats: StartSeat[],
+  button: number,
+  sb: number,
+  bb: number,
+  deal?: { game: GameDef; deck: Card[] },
+): Hand {
   const hand: Hand = {
     number,
     stage: 'preflop',
@@ -66,6 +78,10 @@ export function startHand(number: number, seats: StartSeat[], button: number, sb
     pots: [],
     returned: null,
     log: [],
+  }
+  if (deal) {
+    hand.cards = newCards(deal.game, deal.deck, seats.map((s) => s.id))
+    dealRound(hand.cards, dealOrder(hand))
   }
   const n = seats.length
   // Хедз-ап: кнопка ставит малый блайнд и ходит первой до флопа
@@ -199,9 +215,14 @@ function proceed(hand: Hand, from: number): void {
 }
 
 function nextStreet(hand: Hand): void {
-  // Ривер закрыт или ставить больше некому (остальные олл-ин) — карты дилер досдаст вживую
-  if (hand.stage === 'river' || hand.seats.filter(canAct).length < 2) return closeBetting(hand)
-  hand.stage = STREETS[STREETS.indexOf(hand.stage as Street) + 1]
+  // Круги торгов — по описанию игры у раздачи; живые карты — четыре улицы холдема
+  const streets = hand.cards ? hand.cards.game.rounds.map((r) => r.street) : STREETS
+  const next = streets.indexOf(hand.stage as Street) + 1
+  // Последний круг закрыт или ставить больше некому (остальные олл-ин) — живые карты дилер
+  // досдаст вживую, на телефонах — досдаёт table.ts
+  if (next >= streets.length || hand.seats.filter(canAct).length < 2) return closeBetting(hand)
+  hand.stage = streets[next]
+  if (hand.cards) dealRound(hand.cards, dealOrder(hand))
   for (const s of hand.seats) {
     s.bet = 0
     s.acted = false
@@ -226,6 +247,11 @@ function closeBetting(hand: Hand): void {
   hand.pots = buildPots(hand.seats)
   hand.stage = 'showdown'
   hand.toAct = -1
+}
+
+// Кому сдавать: не сбросившие, по кругу от первого после кнопки
+export function dealOrder(hand: Hand): string[] {
+  return fromButton(hand, hand.seats.filter((s) => !s.folded).map((s) => s.id))
 }
 
 // Игроки по кругу, начиная с первого после кнопки

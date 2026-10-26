@@ -4,7 +4,8 @@ import type { Settings, TableState } from './table'
 
 // 2 — список постоянных игроков комнаты (lobby), вход под постоянным (regularId), «пересадить» (reseat)
 // 3 — признак жизни (PING): без него сервер считает игрока вне сети
-export const PROTOCOL_VERSION = 3
+// 4 — карты на телефонах (Р-23): настройка стола cards, карты в раздаче и в записи прошлой, «Показать» (show)
+export const PROTOCOL_VERSION = 4
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -51,6 +52,7 @@ export type ClientBody =
   | { type: 'remove'; playerId: string } // ведущий: убрать игрока со стола
   | { type: 'passHost'; to: string } // ведущий: передать ведение
   | { type: 'takeHost' } // взять ведение, если ведущий вне сети дольше минуты
+  | { type: 'show'; cards: number[] } // взявший банк без вскрытия: показать всем свои карты — номера по порядку сдачи
 
 export type ClientMessage = ClientBody & { v: number }
 
@@ -84,7 +86,8 @@ export type ServerMessage = { v: number } & (
   | { type: 'lobby'; roster: RosterEntry[]; seated: string[] }
   | { type: 'welcome'; playerId: string; token: string } // токен возврата на своё место
   | { type: 'reseated'; playerId: string; token: string } // ведущему: новый токен игрока для ссылки
+  // Стол — в виде для этого телефона (viewFor): без колоды и чужих закрытых карт
   | { type: 'state'; table: TableState }
-  | { type: 'ended'; table: TableState; reason: string } // комната стёрта; table — стол на момент конца
+  | { type: 'ended'; table: TableState; reason: string } // комната стёрта; table — стол на момент конца, тоже в виде телефона
   | { type: 'error'; error: string }
 )

@@ -60,7 +60,7 @@ export function json(status: number, body: unknown): Response {
 function pickSettings(x: unknown): Partial<Settings> {
   if (!isRecord(x)) return {}
   const out: Record<string, unknown> = {}
-  for (const key of ['sb', 'bb', 'startingStack', 'maxSeats', 'rebuyMaxBB'] as const) {
+  for (const key of ['sb', 'bb', 'startingStack', 'maxSeats', 'rebuyMaxBB', 'cards'] as const) {
     if (key in x) out[key] = x[key]
   }
   return out as Partial<Settings>
