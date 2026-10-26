@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { allin, award, call, check, fold, newTable, play, raise, stackedDeck, start } from '../poker/testing'
-import { HOST_TAKEOVER_MS, viewFor } from '../poker/table'
+import { HOST_TAKEOVER_MS, onTime, viewFor } from '../poker/table'
 import {
   cardFace,
   defaultWinners,
   finalStacks,
   lastHandRecord,
   lastHandWins,
+  myTurnMark,
   positionLabels,
   tableView,
   toggleWinner,
@@ -268,5 +269,46 @@ describe('экран стола: карты на телефонах', () => {
   it('карта на экране: ранг, масть значком, красные — черви и бубны', () => {
     expect(cardFace('Td')).toEqual({ rank: '10', suit: '♦', red: true })
     expect(cardFace('As')).toEqual({ rank: 'A', suit: '♠', red: false })
+  })
+})
+
+describe('экран стола: время на ход, перерыв, раздача «сама»', () => {
+  const timed = () => newTable(['p0', 'p1', 'p2'], { turnSeconds: 30, autoStart: 'fast' })
+
+  it('секунды на ход — у того, чей ход, и в центре; округление вверх, после срока — 0', () => {
+    const s = play(timed(), [{ ...start('p0'), now: 1000 }], false)
+    const v = tableView(s, 'p1', 1000 + 12_300)
+    expect(v.turnLeft).toBe(18)
+    expect(v.seats.map((x) => x.turnLeft)).toEqual([18, null, null])
+    expect(tableView(s, 'p0', 1000 + 29_999).turnLeft).toBe(1)
+    expect(tableView(s, 'p0', 1000 + 40_000).turnLeft).toBe(0)
+    // Таймер выключен — секунд нет
+    const off = tableView(play(three(), [start('p0')], false), 'p0', 0)
+    expect([off.turnLeft, off.seats[0].turnLeft, off.paused, off.nextHandLeft]).toEqual([null, null, false, null])
+  })
+
+  it('перерыв — у всех «Перерыв», таймер не идёт; раздача «сама» — секунды до неё', () => {
+    let s = play(timed(), [start('p0'), fold('p0'), fold('p1'), award('p0', [['p2']], 2000)], false)
+    expect(tableView(s, 'p1', 2500).nextHandLeft).toBe(3)
+    s = play(s, [{ from: 'p0', msg: { type: 'pause', paused: true } }], false)
+    const v = tableView(s, 'p2', 2500)
+    expect([v.paused, v.stageLabel, v.nextHandLeft]).toEqual([true, 'Перерыв', null])
+  })
+
+  it('метка «ваш ход» — новая на каждый мой ход, иначе null', () => {
+    let s = play(timed(), [start('p0')], false)
+    expect(myTurnMark(s, 'p0')).toBe('1-0')
+    expect(myTurnMark(s, 'p1')).toBeNull()
+    s = play(s, [call('p0'), call('p1'), check('p2')], false)
+    // Флоп: первым — p1 после кнопки
+    expect(myTurnMark(s, 'p1')).toBe('1-3')
+  })
+
+  it('ход по таймеру — в «Ходах» с пометкой «время вышло»', () => {
+    const deck = stackedDeck([['2c', '3d'], ['Kh', 'Kd'], ['As', 'Ah']])
+    let s = play(newTable(['p0', 'p1', 'p2'], { cards: 'phones', turnSeconds: 30 }), [start('p0', deck)], false)
+    s = onTime(s, 30_000)! // p0 — пас по времени
+    s = play(s, [fold('p1')], false)
+    expect(lastHandRecord(s)?.rounds).toEqual([{ label: 'Префлоп', moves: ['P0: пас, время вышло', 'P1: пас'] }])
   })
 })

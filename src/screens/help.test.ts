@@ -12,6 +12,11 @@ const PLACEHOLDERS: HelpValues = {
   maxWindow: '‹окно до›',
   blinds: '‹блайнды›',
   takeover: '‹без ведущего›',
+  turnPresets: '‹время на ход›',
+  turnMin: '‹своё от›',
+  turnMax: '‹своё до›',
+  sitOutAfter: '‹истечений›',
+  autoStartPauses: '‹паузы›',
 }
 
 describe('справка', () => {
@@ -54,6 +59,11 @@ describe('справка', () => {
       maxWindow: '10',
       blinds: '5/10',
       takeover: '1',
+      turnPresets: '20, 30 или 60',
+      turnMin: '10',
+      turnMax: '300',
+      sitOutAfter: '2',
+      autoStartPauses: '3, 6 и 10',
     })
   })
 })

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PING_MS, PROTOCOL_VERSION, VERSION_ERROR } from '../../src/poker/protocol'
-import { HOST_TAKEOVER_MS, type TableState } from '../../src/poker/table'
+import { AUTO_START_MS, HOST_TAKEOVER_MS, type Settings, type TableState } from '../../src/poker/table'
 import {
   alarm,
   CHECK_MS,
@@ -41,9 +41,9 @@ const stored = (r: ReturnType<typeof fakeRoom>) => r.storage.get<RoomRecord>('ro
 const afterLobby = (peer: FakePeer) => peer.sent.filter((m) => m.type !== 'lobby')
 
 // Комната с ведущим «Ведущий» (вошёл по токену) и игроком «Гость»
-async function twoPlayers() {
+async function twoPlayers(settings: Partial<Settings> = {}) {
   const r = fakeRoom()
-  const created = await initRoom(r.env, 'ABCDEF', 'Ведущий', {}, 0)
+  const created = await initRoom(r.env, 'ABCDEF', 'Ведущий', settings, 0)
   if (!created.ok) throw new Error(created.error)
   const host = await connect(r)
   await send(r, host, { type: 'join', playerId: created.playerId, token: created.token })
@@ -229,9 +229,9 @@ describe('комната', () => {
 })
 
 // Комната с картами на телефонах: ведущий и двое гостей
-async function cardsRoom() {
+async function cardsRoom(settings: Partial<Settings> = {}) {
   const r = fakeRoom()
-  const created = await initRoom(r.env, 'ABCDEF', 'Ведущий', { cards: 'phones' }, 0)
+  const created = await initRoom(r.env, 'ABCDEF', 'Ведущий', { cards: 'phones', ...settings }, 0)
   if (!created.ok) throw new Error(created.error)
   const host = await connect(r)
   await send(r, host, { type: 'join', playerId: created.playerId, token: created.token })
@@ -593,5 +593,95 @@ describe('кто вне сети и с какого момента', () => {
     expect(playerOf(guest, hostId)?.online).toBe(true)
     await alarm(r.env, 10_001 + SILENT_MS)
     expect(playerOf(guest, hostId)?.online).toBe(false)
+  })
+})
+
+const T = 30_000 // время на ход в тестах — 30 с
+const foldBody = { type: 'act', action: { type: 'fold' } }
+
+describe('время на ход и раздача «сама» — будильником комнаты', () => {
+  it('ведущий вне сети — его ход истекает сам; у телефонов — стол и время сервера', async () => {
+    const { r, host, guest, hostId } = await twoPlayers({ turnSeconds: 30 })
+    await send(r, host, { type: 'start' }, 1000)
+    expect(guest.last()).toMatchObject({ type: 'state', now: 1000 })
+    expect(tableOf(guest).turn).toEqual({ hand: 1, move: 0, deadline: 1000 + T })
+    host.close(1006, '')
+    await close(r.env, host, 2000)
+    guest.ping(CHECK_MS)
+    await alarm(r.env, CHECK_MS)
+    // Ближайшее — срок хода, раньше следующей проверки живости
+    expect(r.storage.alarmAt).toBe(1000 + T)
+    guest.ping(1000 + T)
+    await alarm(r.env, 1000 + T)
+    expect(tableOf(guest).hand?.log).toMatchObject([{ playerId: hostId, type: 'fold', timeout: true }])
+    expect(guest.last()).toMatchObject({ type: 'state', now: 1000 + T })
+    // Ход по таймеру — не ход людей: сутки без ходов считаются от старта
+    expect((await stored(r))?.lastMoveAt).toBe(1000)
+  })
+
+  it('будильник сработал дважды — второй раз ничего не делает', async () => {
+    const { r, host, guest } = await twoPlayers({ turnSeconds: 30 })
+    await send(r, host, { type: 'start' }, 1000)
+    await send(r, host, { type: 'act', action: { type: 'call' } }, 2000)
+    for (const p of [host, guest]) p.ping(2000 + T)
+    await alarm(r.env, 2000 + T)
+    expect(tableOf(guest).hand?.stage).toBe('flop') // гость — чек по времени
+    const before = await stored(r)
+    const sent = guest.sent.length
+    await alarm(r.env, 2000 + T)
+    expect(guest.sent.length).toBe(sent)
+    expect(await stored(r)).toEqual(before)
+    // Сработал раньше срока — тоже ничего
+    await alarm(r.env, 2000 + T + 1)
+    expect(guest.sent.length).toBe(sent)
+  })
+
+  it('никого в сети — будильник прямо на срок хода', async () => {
+    const { r, host, guest } = await twoPlayers({ turnSeconds: 30 })
+    await send(r, host, { type: 'start' }, 1000)
+    for (const p of [host, guest]) {
+      p.close(1006, '')
+      await close(r.env, p, 2000)
+    }
+    await alarm(r.env, CHECK_MS)
+    expect(r.storage.alarmAt).toBe(1000 + T)
+  })
+
+  it('карты на телефонах: раздача «сама» сдаёт карты, каждому — только свои', async () => {
+    const { r, host, hostId, guests } = await cardsRoom({ autoStart: 'fast' })
+    await send(r, host, { type: 'start' }, 1000)
+    // На троих первой ходит кнопка — ведущий; двое сбросили — банк третьему без вскрытия
+    await send(r, host, foldBody, 2000)
+    await send(r, guests[0].peer, foldBody, 3000)
+    expect((await stored(r))?.table.nextHandAt).toBe(3000 + AUTO_START_MS.fast)
+    expect(r.storage.alarmAt).toBe(3000 + AUTO_START_MS.fast)
+    const everyone = [{ peer: host, id: hostId }, ...guests]
+    const sentBefore = everyone.map(({ peer }) => peer.sent.length)
+    await alarm(r.env, 3000 + AUTO_START_MS.fast)
+    const room = await stored(r)
+    expect(room?.table.hand?.number).toBe(2)
+    expect(room?.table.hand?.cards?.deck).toHaveLength(52 - 6)
+    everyone.forEach(({ peer, id }, i) => {
+      expect(tableOf(peer).hand?.cards?.hole[id]?.every((c) => typeof c === 'string')).toBe(true)
+      // Карты прошлой раздачи вернулись в колоду (свои в её записи взявший видит) — смотрим новую раздачу
+      const text = JSON.stringify(peer.sent.slice(sentBefore[i]).map((m) => (m.table as TableState | undefined)?.hand))
+      expect(secretsFor(room, id).filter((c) => text.includes(`"${c}"`))).toEqual([])
+    })
+  })
+
+  it('брошенная комната: все ушли — раздачи идут, пока не пропускают, и через сутки комната стирается', async () => {
+    const { r, host, guests } = await cardsRoom({ turnSeconds: 10, autoStart: 'fast' })
+    await send(r, host, { type: 'start' }, 1000)
+    for (const p of [host, ...guests.map((g) => g.peer)]) {
+      p.close(1006, '')
+      await close(r.env, p, 2000)
+    }
+    let last = 0
+    for (let n = 0; n < 200 && r.storage.alarmAt !== null; n++) {
+      last = r.storage.alarmAt
+      await alarm(r.env, last)
+    }
+    expect(r.released).toEqual(['ABCDEF'])
+    expect(last).toBe(1000 + IDLE_MS)
   })
 })

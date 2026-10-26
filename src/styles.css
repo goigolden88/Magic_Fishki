@@ -693,6 +693,13 @@ a.button-link.primary {
   font-size: 0.7rem;
 }
 
+/* Секунды на ход — у места того, чей ход (#75) */
+.seat-timer {
+  display: block;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
 .seat-pos {
   position: absolute;
   top: -10px;

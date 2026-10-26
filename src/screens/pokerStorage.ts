@@ -1,8 +1,8 @@
 import { parseLocalTable, type LocalTable } from '../calc/localTable'
 import type { Seat } from '../calc/pokerLink'
 
-// Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги
-// и стол на этом телефоне — данные этого устройства, а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21)
+// Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги,
+// звук «ваш ход» и стол на этом телефоне — данные этого устройства, а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21)
 const PASSWORD_KEY = 'fishki.poker.password'
 const SERVER_KEY = 'fishki.poker.server'
 const SEATS_KEY = 'fishki.poker.seats'
@@ -10,6 +10,7 @@ const ME_KEY = 'fishki.poker.me'
 const GAMES_KEY = 'fishki.poker.games'
 const LOCAL_KEY = 'fishki.poker.local'
 const CHECK_KEY = 'fishki.poker.check'
+const SOUND_KEY = 'fishki.poker.sound'
 
 function read(key: string): string {
   try {
@@ -34,6 +35,10 @@ export const savePassword = (password: string) => write(PASSWORD_KEY, password)
 // Свой адрес сервера; пусто — постоянный
 export const loadServer = () => read(SERVER_KEY)
 export const saveServer = (server: string) => write(SERVER_KEY, server.trim())
+
+// Звук «ваш ход» на этом устройстве (#75); сначала — включён
+export const loadTurnSound = () => read(SOUND_KEY) !== 'off'
+export const saveTurnSound = (on: boolean) => write(SOUND_KEY, on ? '' : 'off')
 
 // Кто из постоянных — ведущий на этом телефоне: отмечен в новой комнате сразу
 export const loadMe = () => read(ME_KEY)

@@ -24,7 +24,8 @@ export type HandSeat = {
   actedAt: number // ставка стола после его последнего хода
 }
 
-export type HandLogEntry = { street: Street; playerId: string; type: BetAction['type']; bet: number; allIn: boolean }
+// timeout — ход сделан за игрока: время на ход вышло (#75, ставит table.ts)
+export type HandLogEntry = { street: Street; playerId: string; type: BetAction['type']; bet: number; allIn: boolean; timeout?: true }
 
 export type Hand = {
   number: number

@@ -3,6 +3,7 @@ import { parseChips } from '../calc/format'
 import { localStartError, startLocalTable } from '../calc/localTable'
 import { allPicked, toggleAll } from '../calc/pick'
 import { createFailure, DEFAULT_SERVER, NO_CONNECTION, parseRoomLink, roomHash, roomsUrl, serverBase } from '../calc/pokerLink'
+import { turnSecondsOf } from '../calc/pokerTimer'
 import type { Regular } from '../model'
 import type { CardsMode } from '../poker/game'
 import { PROTOCOL_VERSION, type CreateRoomRequest, type CreateRoomResponse } from '../poker/protocol'
@@ -23,6 +24,7 @@ import {
   saveSeat,
   storageWorks,
 } from './pokerStorage'
+import { TimerFields, timerForm, type TimerForm } from './TimerFields'
 
 const GUEST = '' // «Вы за столом» — не из постоянных
 
@@ -132,6 +134,9 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
   const [bbText, setBbText] = useState(String(DEFAULT_SETTINGS.bb))
   const [stackText, setStackText] = useState('')
   const [cards, setCards] = useState<CardsMode>(DEFAULT_SETTINGS.cards)
+  const [timer, setTimer] = useState<TimerForm>(() =>
+    timerForm(DEFAULT_SETTINGS.turnSeconds ?? null, DEFAULT_SETTINGS.autoStart ?? 'off'),
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -167,11 +172,12 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
   const me = roster.find((r) => r.id === meId)
   const name = me ? me.name : myName.trim()
   const blindsOk = sb !== null && bb !== null && sb <= bb
-  const ready = name !== '' && blindsOk && stack !== null && (hasPassword || password !== '') && !busy
+  const turn = turnSecondsOf(timer.choice, timer.text)
+  const ready = name !== '' && blindsOk && stack !== null && turn.ok && (hasPassword || password !== '') && !busy
 
   async function create(e: FormEvent) {
     e.preventDefault()
-    if (!ready || sb === null || bb === null || stack === null) return
+    if (!ready || sb === null || bb === null || stack === null || !turn.ok) return
     const secret = hasPassword ? loadPassword() : password
     const body: CreateRoomRequest = {
       v: PROTOCOL_VERSION,
@@ -179,7 +185,7 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
       name,
       ...(me ? { regularId: me.id } : {}),
       roster,
-      settings: { sb, bb, startingStack: stack, cards },
+      settings: { sb, bb, startingStack: stack, cards, turnSeconds: turn.seconds, autoStart: timer.autoStart },
     }
     setBusy(true)
     setError(null)
@@ -301,6 +307,9 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
             : 'Программа тасует и раздаёт: у каждого свои карты на своём телефоне, банк раздаётся сам.'}
         </p>
       </fieldset>
+
+      {/* #75: стол на одном телефоне — без таймера и раздачи «сама» */}
+      <TimerFields form={timer} onChange={setTimer} />
 
       {error && <p className="warn">{error}</p>}
       <div className="row">

@@ -16,9 +16,32 @@ export type Settings = {
   maxSeats: number
   rebuyMaxBB: number | null // докуп за раз — не больше стольких больших блайндов; 0 — без докупов, null — без предела
   cards: CardsMode // у столов до этапа 2 поля нет — живые карты
+  // Время на ход, секунд (TURN_MIN_S…TURN_MAX_S); null — без таймера. У столов до #75 полей нет — выкл
+  turnSeconds?: number | null
+  autoStart?: AutoStart // следующая раздача сама — пауза после раздачи банков
 }
 
-export const DEFAULT_SETTINGS: Settings = { sb: 5, bb: 10, startingStack: 1000, maxSeats: 9, rebuyMaxBB: null, cards: 'live' }
+export type AutoStart = 'off' | 'fast' | 'medium' | 'slow'
+
+// Пауза перед раздачей «сама», мс
+export const AUTO_START_MS: Record<Exclude<AutoStart, 'off'>, number> = { fast: 3000, medium: 6000, slow: 10_000 }
+
+export const TURN_MIN_S = 10
+export const TURN_MAX_S = 300
+
+// Два истечения хода подряд — игрок пропускает раздачи
+export const TIMEOUTS_TO_SIT_OUT = 2
+
+export const DEFAULT_SETTINGS: Settings = {
+  sb: 5,
+  bb: 10,
+  startingStack: 1000,
+  maxSeats: 9,
+  rebuyMaxBB: null,
+  cards: 'live',
+  turnSeconds: null,
+  autoStart: 'off',
+}
 
 // Описание игры для новой раздачи: карты на телефонах — холдем (пока одно); живые — null.
 // У столов до этапа 2 поля cards нет — живые. По нему сервер знает, какую колоду тасовать
@@ -81,7 +104,15 @@ export type TableState = {
   rebuyRequests: { playerId: string; amount: number }[] // ждут ответа ведущего
   approvedRebuys: { playerId: string; amount: number; by: string }[] // «да» во время раздачи — в стек после неё
   chipLog: ChipLogEntry[]
+  // Время (#75); у столов до него полей нет — таймера, перерыва и раздачи «сама» нет
+  turn?: TurnClock | null // срок текущего хода; null — таймер не идёт
+  paused?: boolean // «Перерыв»: новая раздача не начинается, таймер стоит
+  nextHandAt?: number | null // когда начнётся раздача «сама»; null — не начнётся
+  timeouts?: Record<string, number> // истечений хода подряд у игрока
 }
+
+// Срок хода: ход — номер раздачи и число ходов в ней (log), чтобы будильник не принял старый срок за новый
+export type TurnClock = { hand: number; move: number; deadline: number }
 
 export type Result = { ok: true; state: TableState } | { ok: false; error: string }
 
@@ -106,6 +137,10 @@ export function createTable(
     rebuyRequests: [],
     approvedRebuys: [],
     chipLog: [],
+    turn: null,
+    paused: false,
+    nextHandAt: null,
+    timeouts: {},
   }
   const sitError = sit(state, hostId, hostName, now, hostRegularId)
   return sitError ? { ok: false, error: sitError } : { ok: true, state }
@@ -116,7 +151,82 @@ export function handle(state: TableState, from: string, message: unknown, now: n
   if (!isRecord(message) || message.v !== PROTOCOL_VERSION) return { ok: false, error: VERSION_ERROR }
   const next = structuredClone(state)
   const error = apply(next, from, message as ClientBody, now, deck) ?? settle(next, now)
-  return error ? { ok: false, error } : { ok: true, state: next }
+  if (error) return { ok: false, error }
+  clock(next, now)
+  return { ok: true, state: next }
+}
+
+// Ближайший срок стола — истечение хода или раздача «сама»; нет — null. По нему сервер ставит будильник
+export function nextDeadline(state: TableState): number | null {
+  const times = [state.turn?.deadline, state.nextHandAt].filter((t): t is number => typeof t === 'number')
+  return times.length > 0 ? Math.min(...times) : null
+}
+
+// Будильник сервера: истёк ход — за игрока чек, если можно, иначе пас («время вышло»);
+// пора — новая раздача (deck — колода от сервера, как на start). Сверяет срок с состоянием:
+// сработал раньше срока или повторно — null, стол не меняется
+export function onTime(state: TableState, now: number, deck?: Card[]): TableState | null {
+  const hand = state.hand
+  const turn = state.turn
+  if (hand && turn && now >= turn.deadline && sameTurn(turn, hand) && !state.paused) {
+    const next = structuredClone(state)
+    if (expire(next, now)) return null
+    clock(next, now)
+    return next
+  }
+  if (!hand && typeof state.nextHandAt === 'number' && now >= state.nextHandAt) {
+    const next = structuredClone(state)
+    next.nextHandAt = null
+    // Не начать (меньше двоих с фишками, перерыв) — раздача «сама» стоит до ведущего
+    if (!next.paused) start(next, deck)
+    clock(next, now)
+    return next
+  }
+  return null
+}
+
+// Истёк ход: тот же ход, что у ведущего «Пропустить», с пометкой в журнале раздачи.
+// Истечений подряд TIMEOUTS_TO_SIT_OUT — игрок пропускает раздачи. Ошибка — строка
+function expire(state: TableState, now: number): string | null {
+  const hand = state.hand as Hand
+  const id = hand.seats[hand.toAct].id
+  const error = skip(state)
+  if (error) return error
+  const entry = hand.log[hand.log.length - 1]
+  if (entry) entry.timeout = true
+  const timeouts = (state.timeouts ??= {})
+  timeouts[id] = (timeouts[id] ?? 0) + 1
+  const p = state.players.find((x) => x.id === id)
+  if (p && timeouts[id] >= TIMEOUTS_TO_SIT_OUT) {
+    p.sittingOut = true
+    delete timeouts[id]
+  }
+  return settle(state, now)
+}
+
+// Срок хода после любой перемены стола: новый ход — новый срок от now; тот же — срок прежний.
+// Перерыв или таймер выключен — срока нет; идёт раздача — раздачи «сама» нет
+function clock(state: TableState, now: number): void {
+  const hand = state.hand
+  if (hand) state.nextHandAt = null
+  const seconds = state.settings.turnSeconds ?? null
+  if (!hand || hand.toAct === -1 || seconds === null || state.paused) {
+    state.turn = null
+    return
+  }
+  if (state.turn && sameTurn(state.turn, hand)) return
+  state.turn = { hand: hand.number, move: hand.log.length, deadline: now + seconds * 1000 }
+}
+
+function sameTurn(turn: TurnClock, hand: Hand): boolean {
+  return turn.hand === hand.number && turn.move === hand.log.length && hand.toAct !== -1
+}
+
+// Раздача «сама» — через паузу из настроек; выкл, перерыв, идёт раздача или раздач ещё не было — нет
+function armNext(state: TableState, now: number): void {
+  const mode = state.settings.autoStart ?? 'off'
+  const ready = mode !== 'off' && !state.hand && !state.paused && state.handCount > 0
+  state.nextHandAt = ready ? now + AUTO_START_MS[mode] : null
 }
 
 // Что видит телефон игрока playerId: без колоды и без чужих закрытых карт — ни в раздаче,
@@ -152,11 +262,12 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
   const hostOnly = 'Это может только ведущий'
   switch (msg.type) {
     case 'start':
-      return isHost ? start(state, deck) : hostOnly
+      if (!isHost) return hostOnly
+      return state.paused ? 'Перерыв — сначала «Продолжить»' : start(state, deck)
     case 'act':
       if (!state.hand) return 'Раздачи сейчас нет'
       if (!isAction(msg.action)) return 'Неизвестный ход — обновите приложение'
-      return act(state.hand, from, msg.action)
+      return act(state.hand, from, msg.action) ?? resetTimeouts(state, from)
     case 'skip':
       return isHost ? skip(state) : hostOnly
     case 'award':
@@ -173,8 +284,13 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
       const p = state.players.find((x) => x.id === id)
       if (!p) return 'Такого игрока нет за столом'
       p.sittingOut = msg.sittingOut === true
-      return null
+      // Вернулся в раздачи — истечения считаются заново
+      return p.sittingOut ? null : resetTimeouts(state, id)
     }
+    case 'pause':
+      return isHost ? pause(state, msg.paused === true, now) : hostOnly
+    case 'tableSettings':
+      return isHost ? changeSettings(state, msg, now) : hostOnly
     case 'remove':
       return isHost ? remove(state, from, msg.playerId, now) : hostOnly
     case 'passHost': {
@@ -335,6 +451,36 @@ function finishHand(
   // Докупы, одобренные во время раздачи, — в стек сейчас, между раздачами
   for (const r of state.approvedRebuys) addRebuy(state, r.playerId, r.amount, r.by, now)
   state.approvedRebuys = []
+  armNext(state, now)
+}
+
+// «Перерыв»: новая раздача не начинается, идущая доигрывается без таймера. «Продолжить» —
+// ход получает срок заново, между раздачами — раздача «сама» снова через паузу
+function pause(state: TableState, paused: boolean, now: number): string | null {
+  if (state.paused === paused) return paused ? 'Перерыв уже идёт' : 'Перерыва нет'
+  state.paused = paused
+  armNext(state, now)
+  return null
+}
+
+// Время на ход и раздача «сама» — ведущий, между раздачами; действуют со следующей раздачи
+function changeSettings(state: TableState, msg: Extract<ClientBody, { type: 'tableSettings' }>, now: number): string | null {
+  if (state.hand) return 'Настройки стола меняются между раздачами'
+  const s: Settings = { ...state.settings }
+  if ('turnSeconds' in msg) s.turnSeconds = msg.turnSeconds
+  if ('autoStart' in msg) s.autoStart = msg.autoStart
+  const error = settingsError(s)
+  if (error) return error
+  const was = state.settings.autoStart ?? 'off'
+  state.settings = s
+  if ((s.autoStart ?? 'off') !== was) armNext(state, now)
+  return null
+}
+
+// Игрок походил сам или вернулся в раздачи — истечения подряд с нуля
+function resetTimeouts(state: TableState, playerId: string): null {
+  if (state.timeouts) delete state.timeouts[playerId]
+  return null
 }
 
 // «Показать»: взявший банк без вскрытия открывает всем свои карты — обе или одну (по номерам)
@@ -436,6 +582,12 @@ function settingsError(s: Settings): string | null {
   if (!Number.isInteger(s.maxSeats) || s.maxSeats < 2 || s.maxSeats > 10) return 'Мест за столом — от 2 до 10'
   if (s.rebuyMaxBB !== null && (!Number.isInteger(s.rebuyMaxBB) || s.rebuyMaxBB < 0)) return 'Предел докупа — целое число, не меньше нуля'
   if (s.cards !== 'live' && s.cards !== 'phones') return 'Карты — живые или на телефонах'
+  const t = s.turnSeconds ?? null
+  if (t !== null && (!Number.isInteger(t) || t < TURN_MIN_S || t > TURN_MAX_S)) {
+    return `Время на ход — от ${TURN_MIN_S} до ${TURN_MAX_S} секунд или без таймера`
+  }
+  const a = s.autoStart ?? 'off'
+  if (a !== 'off' && !Object.keys(AUTO_START_MS).includes(a)) return 'Следующая раздача сама — выкл, быстро, средне или медленно'
   return null
 }
 

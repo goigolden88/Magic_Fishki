@@ -28,6 +28,7 @@ export type SeatView = {
   allIn: boolean
   online: boolean
   sittingOut: boolean
+  turnLeft: number | null // чей ход и таймер идёт — сколько секунд осталось
 }
 
 export type PotView = { label: string; amount: number; eligible: { id: string; name: string }[] }
@@ -68,6 +69,9 @@ export type TableView = {
   board: Card[] // общие карты; между раздачами — прошлой раздачи
   myCards: Card[] | null // мои закрытые и открытые карты в раздаче — для «Подглядеть»
   canShow: { cards: Card[]; shown: boolean[] } | null // взял банк без вскрытия: что можно показать
+  paused: boolean // «Перерыв»
+  turnLeft: number | null // секунд на ход у того, чей ход; таймера нет — null
+  nextHandLeft: number | null // секунд до раздачи «сама»; не начнётся сама — null
 }
 
 const STAGE_LABELS: Record<Stage, string> = {
@@ -78,8 +82,11 @@ const STAGE_LABELS: Record<Stage, string> = {
   showdown: 'Торги закрыты',
 }
 
+// now — время сервера (телефон поправляет свои часы по присланному с столом, useRoom)
 export function tableView(table: TableState, meId: string, now: number): TableView {
   const hand = table.hand
+  const turn = table.turn
+  const turnLeft = hand && turn && hand.toAct !== -1 ? secondsLeft(turn.deadline, now) : null
   const names = new Map(table.players.map((p) => [p.id, p.name]))
   const nameOf = (id: string) => names.get(id) ?? 'Ушёл'
   const host = table.players.find((p) => p.id === table.hostId)
@@ -109,6 +116,7 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
         allIn: s?.allIn ?? false,
         online: p.online,
         sittingOut: p.sittingOut,
+        turnLeft: hand !== null && index !== -1 && index === hand.toAct ? turnLeft : null,
       }
     })
   const me = seats.find((s) => s.isMe) ?? null
@@ -122,7 +130,7 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
     isHost,
     hostName: host?.name ?? '',
     stage: hand?.stage ?? null,
-    stageLabel: hand ? STAGE_LABELS[hand.stage] : 'Между раздачами',
+    stageLabel: hand ? STAGE_LABELS[hand.stage] : table.paused ? 'Перерыв' : 'Между раздачами',
     handNumber: hand?.number ?? table.handCount,
     pot: hand ? hand.seats.reduce((sum, s) => sum + s.committed, 0) : 0,
     pots: hand ? potsView(table, nameOf) : [],
@@ -138,7 +146,23 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
     board: cards?.board ?? record?.board ?? [],
     myCards: myHole && myHole.length > 0 && myHole.every((c) => c !== null) ? (myHole as Card[]) : null,
     canShow: hidden && record ? { cards: hidden.cards, shown: hidden.cards.map((_, i) => Boolean(record.shown[meId]?.[i])) } : null,
+    paused: table.paused === true,
+    turnLeft,
+    nextHandLeft: !hand && typeof table.nextHandAt === 'number' ? secondsLeft(table.nextHandAt, now) : null,
   }
+}
+
+// Знак «ваш ход»: метка моего хода (раздача и номер хода в ней); не мой ход — null.
+// Экран подаёт звук и вибрацию, когда метка сменилась на новую — один раз на ход
+export function myTurnMark(table: TableState, meId: string): string | null {
+  const hand = table.hand
+  if (!hand || hand.stage === 'showdown' || hand.toAct === -1 || hand.seats[hand.toAct].id !== meId) return null
+  return `${hand.number}-${hand.log.length}`
+}
+
+// Целых секунд до срока, с округлением вверх: «1» до последнего мгновения; прошёл — 0
+export function secondsLeft(deadline: number, now: number): number {
+  return Math.max(0, Math.ceil((deadline - now) / 1000))
 }
 
 // Подписи позиций по числу сданных, от кнопки по ходу: «BTN», «SB», «BB», затем «UTG», а поздние —
@@ -282,8 +306,13 @@ export function lastHandRecord(table: TableState): LastHandView | null {
   }
 }
 
-// Ход словами; сумма — до какой ставки на этой улице
+// Ход словами; сумма — до какой ставки на этой улице; за игрока по таймеру — «время вышло»
 function moveText(e: HandLogEntry): string {
+  const text = betText(e)
+  return e.timeout ? `${text}, время вышло` : text
+}
+
+function betText(e: HandLogEntry): string {
   const to = formatNumber(e.bet)
   switch (e.type) {
     case 'fold':
