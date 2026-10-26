@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { formatNumber, formatRate, parseRate } from '../calc/format'
 import { defaultOpenYear, gameSummary, groupByYear, isYearOpen } from '../calc/gameList'
+import { MODE_LABEL } from '../calc/gameMode'
 import { allPicked, toggleAll } from '../calc/pick'
-import { createGame, DEFAULT_BUYIN, type Game, type Regular } from '../model'
+import { createGame, DEFAULT_BUYIN, DEFAULT_RATE, GAME_MODES, type Game, type GameMode, type Regular } from '../model'
 import { getSettings, listGames, saveGame } from '../store/db'
 import { formatDate, today } from '../dates'
 import { ulid } from '../ulid'
@@ -14,6 +15,8 @@ export function GamesScreen() {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
   const [rateText, setRateText] = useState('')
+  const [mode, setMode] = useState<GameMode>('poker') // режим новой игры (Р-29)
+  const [defaultRate, setDefaultRate] = useState(DEFAULT_RATE) // курс из настроек — у «только казино»
   const [regulars, setRegulars] = useState<Regular[]>([]) // постоянные игроки из настроек
   const [picked, setPicked] = useState<Set<string>>(new Set()) // id отмеченных — участники игры
   const [defaultBuyin, setDefaultBuyin] = useState(DEFAULT_BUYIN) // закуп по умолчанию из настроек (Р-09)
@@ -27,6 +30,8 @@ export function GamesScreen() {
     const settings = await getSettings()
     setName(formatDate(today()))
     setRateText(formatRate(settings.defaultRate))
+    setDefaultRate(settings.defaultRate)
+    setMode('poker')
     setRegulars(settings.players)
     setPicked(new Set(settings.players.map((r) => r.id)))
     setDefaultBuyin(settings.defaultBuyin)
@@ -49,15 +54,16 @@ export function GamesScreen() {
     saveOpenYears(next)
   }
 
-  const rate = parseRate(rateText)
+  // «Только казино» — курс из настроек: поля нет (Р-29)
+  const rate = mode === 'casino' ? defaultRate : parseRate(rateText)
 
   const players = regulars.filter((r) => picked.has(r.id))
   const regularIds = regulars.map((r) => r.id)
 
-  // Участники выбраны — сначала вопрос про закуп; нет участников — сразу игра без записей
+  // Участники выбраны — сначала вопрос про закуп; нет участников или «только казино» — сразу игра без записей
   function startCreate() {
     if (rate === null) return
-    if (players.length > 0) setAskBuyin(true)
+    if (players.length > 0 && mode !== 'casino') setAskBuyin(true)
     else void create(null)
   }
 
@@ -65,7 +71,7 @@ export function GamesScreen() {
     if (rate === null) return
     const date = today()
     const game = createGame(
-      { name: name.trim() || formatDate(date), date, rate, players, buyin, now: new Date().toISOString() },
+      { name: name.trim() || formatDate(date), date, rate, players, buyin, mode, now: new Date().toISOString() },
       () => ulid(),
     )
     await saveGame(game)
@@ -113,11 +119,30 @@ export function GamesScreen() {
             Название
             <input value={name} onChange={(e) => setName(e.target.value)} />
           </label>
-          <label className="field">
-            Курс, ₽ за фишку
-            <input inputMode="decimal" value={rateText} onChange={(e) => setRateText(e.target.value)} />
-          </label>
-          {rate === null && <p className="warn">Курс — число больше нуля, например 0,5</p>}
+          {/* Р-29: режим игры; «Только казино» — без курса и без вопроса о закупе */}
+          <fieldset className="players-pick">
+            <legend className="muted">Режим</legend>
+            {GAME_MODES.map((m) => (
+              <button
+                key={m}
+                type="button"
+                className={mode === m ? 'big primary wide' : 'big wide'}
+                aria-pressed={mode === m}
+                onClick={() => setMode(m)}
+              >
+                {MODE_LABEL[m]}
+              </button>
+            ))}
+          </fieldset>
+          {mode !== 'casino' && (
+            <>
+              <label className="field">
+                Курс, ₽ за фишку
+                <input inputMode="decimal" value={rateText} onChange={(e) => setRateText(e.target.value)} />
+              </label>
+              {rate === null && <p className="warn">Курс — число больше нуля, например 0,5</p>}
+            </>
+          )}
           {regulars.length > 0 && (
             <fieldset className="players-pick">
               <legend className="muted">
