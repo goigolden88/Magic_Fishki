@@ -152,6 +152,16 @@ describe('файл-копия: разбор', () => {
     expect(old.ok && old.backup.games[0].casino).toBeUndefined()
   })
 
+  it('режим игры (Р-29): с режимом и без — читаются, чужое значение — ошибка; формат тот же', () => {
+    const casinoOnly = game('g1', { entries: [], mode: 'casino' })
+    const mixed = game('g2', { mode: 'mixed' })
+    const parsed = parse(backupText(backupOf([casinoOnly, mixed, game('g3')])))
+    expect(parsed.ok && parsed.backup.format).toBe(2)
+    expect(parsed.ok && parsed.backup.games.map((g) => g.mode)).toEqual(['casino', 'mixed', undefined])
+    const bad = { ...game('g4'), mode: 'bingo' }
+    expect(parse(JSON.stringify({ ...backupOf([]), games: [bad] })).ok).toBe(false)
+  })
+
   it('нет списка игр или настроек — ошибка', () => {
     const { games: _games, ...noGames } = backupOf([])
     expect(parse(JSON.stringify(noGames)).ok).toBe(false)

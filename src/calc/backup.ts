@@ -1,4 +1,5 @@
 import {
+  GAME_MODES,
   linkRegulars,
   regularsFromNames,
   settingsWithDefaults,
@@ -150,6 +151,7 @@ function isGame(v: unknown): v is Game {
     Array.isArray(v.entries) &&
     v.entries.every(isEntry) &&
     (v.casino === undefined || (Array.isArray(v.casino) && v.casino.every(isCasinoRound))) &&
+    (v.mode === undefined || (isText(v.mode) && (GAME_MODES as string[]).includes(v.mode))) &&
     (v.closed === undefined || typeof v.closed === 'boolean') &&
     (v.demo === undefined || typeof v.demo === 'boolean') &&
     isText(v.updatedAt)
