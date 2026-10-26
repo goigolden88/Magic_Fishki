@@ -315,6 +315,8 @@ function moveText(e: HandLogEntry): string {
 function betText(e: HandLogEntry): string {
   const to = formatNumber(e.bet)
   switch (e.type) {
+    case 'ante':
+      return e.allIn ? `анте ${to}, олл-ин` : `анте ${to}`
     case 'fold':
       return 'пас'
     case 'check':

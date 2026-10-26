@@ -8,7 +8,9 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 // 5 — время (#75): настройки turnSeconds и autoStart, срок хода и раздачи «сама» в столе,
 //     «Перерыв» (pause), настройки стола между раздачами (tableSettings), время сервера в state
 // 6 — вид стола (#77): настройки felt и cardBack, смена ведущим в любой момент (look)
-export const PROTOCOL_VERSION = 6
+// 7 — турнир и анте (#78): настройки format, ante и tournament, часы и места в столе (tournament),
+//     анте в раздаче и в журнале, «Ребай» турнира (tournamentRebuy), анте и призы в tableSettings
+export const PROTOCOL_VERSION = 7
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -56,9 +58,11 @@ export type ClientBody =
   | { type: 'passHost'; to: string } // ведущий: передать ведение
   | { type: 'takeHost' } // взять ведение, если ведущий вне сети дольше минуты
   | { type: 'show'; cards: number[] } // взявший банк без вскрытия: показать всем свои карты — номера по порядку сдачи
-  | { type: 'pause'; paused: boolean } // ведущий: «Перерыв» и «Продолжить»
-  // ведущий, между раздачами: время на ход (null — без таймера) и раздача «сама»; нет поля — не меняется
-  | { type: 'tableSettings'; turnSeconds?: number | null; autoStart?: AutoStart }
+  | { type: 'pause'; paused: boolean } // ведущий: «Перерыв» и «Продолжить»; в турнире — и часы уровней
+  | { type: 'tournamentRebuy' } // выбывший в турнире: ребай за бай-ин, стек — стартовый
+  // ведущий, между раздачами: время на ход (null — без таймера), раздача «сама», анте кэша и призы
+  // турнира до его начала (null — по числу игроков); нет поля — не меняется
+  | { type: 'tableSettings'; turnSeconds?: number | null; autoStart?: AutoStart; ante?: number; prizes?: number[] | null }
   // ведущий, в любой момент: вид стола — сукно и рубашка карт; нет поля — не меняется
   | { type: 'look'; felt?: Felt; cardBack?: CardBack }
 
