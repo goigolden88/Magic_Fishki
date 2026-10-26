@@ -26,7 +26,7 @@ import type { TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 import { openGameYear } from './openYears'
-import { loadRecordedGame, loadTurnSound, saveRecordedGame } from './pokerStorage'
+import { loadOpenCards, loadRecordedGame, loadTurnSound, saveOpenCards, saveRecordedGame } from './pokerStorage'
 import { TimerFields, timerForm, type TimerForm } from './TimerFields'
 import { signalTurn, unlockSound } from './turnSignal'
 import { useRoom, type Lobby, type Room } from './useRoom'
@@ -193,6 +193,11 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   const [, setTick] = useState(0)
   const [amounts, setAmounts] = useState<number[]>(DEFAULT_QUICK_AMOUNTS)
   const signaled = useRef<string | null>(null)
+  const [open, setOpen] = useState(loadOpenCards) // «Карты всегда открыты» на этом устройстве (#86) — сохраняется сразу
+  const onOpen = (on: boolean) => {
+    setOpen(on)
+    saveOpenCards(on)
+  }
 
   // Часы раз в секунду — секунды на ход и «Взять ведение»: ведущий вне сети дольше минуты.
   // Время — сервера (room.serverNow), не телефона
@@ -241,7 +246,15 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
       {v.stage === 'showdown' && !v.isHost && !v.phoneCards && <p className="muted">Торги закрыты — ведущий отмечает победителя</p>}
       <LastHand table={table} view={v} />
 
-      {v.canShow && <ShowCard show={v.canShow} online={room.online} onShow={(cards) => room.send({ type: 'show', cards })} />}
+      {v.canShow && (
+        <ShowCard
+          show={v.canShow}
+          online={room.online}
+          open={open}
+          onOpen={onOpen}
+          onShow={(cards) => room.send({ type: 'show', cards })}
+        />
+      )}
 
       {room.error && (
         <p className="warn" onClick={room.clearError}>
@@ -252,7 +265,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
       {v.myCards && (
         <section className="card">
           <h2>Мои карты</h2>
-          <PeekCards cards={v.myCards} />
+          <PeekCards cards={v.myCards} open={open} onOpen={onOpen} />
         </section>
       )}
 
@@ -355,8 +368,9 @@ function CardRow({ cards, small }: { cards: (Card | null)[]; small?: boolean }) 
   )
 }
 
-// «Подглядеть»: свои карты рубашкой; держишь палец — лицом, отпустил — снова рубашкой
-function PeekCards({ cards }: { cards: Card[] }) {
+// «Подглядеть»: свои карты рубашкой; держишь палец — лицом, отпустил — снова рубашкой.
+// «Всегда открыты» (#86) — лицом без пальца; только на своём экране, сервер не знает
+function PeekCards({ cards, open, onOpen }: { cards: Card[]; open: boolean; onOpen: (on: boolean) => void }) {
   const [peek, setPeek] = useState(false)
   const on = () => setPeek(true)
   const off = () => setPeek(false)
@@ -366,6 +380,25 @@ function PeekCards({ cards }: { cards: Card[] }) {
     document.addEventListener('visibilitychange', off)
     return () => document.removeEventListener('visibilitychange', off)
   }, [])
+
+  const toggle = (
+    <label className="check">
+      <input type="checkbox" checked={open} onChange={(e) => onOpen(e.target.checked)} />
+      Всегда открыты
+    </label>
+  )
+
+  if (open)
+    return (
+      <>
+        <div className="peek-cards">
+          {cards.map((c, i) => (
+            <PlayingCard key={i} card={c} size="big" />
+          ))}
+        </div>
+        {toggle}
+      </>
+    )
 
   return (
     <>
@@ -392,6 +425,7 @@ function PeekCards({ cards }: { cards: Card[] }) {
         ))}
       </div>
       <p className="muted">{peek ? 'Отпустите — карты закроются' : 'Подглядеть — держите палец на картах'}</p>
+      {toggle}
     </>
   )
 }
@@ -399,14 +433,20 @@ function PeekCards({ cards }: { cards: Card[] }) {
 const ORDINALS = ['первую', 'вторую', 'третью', 'четвёртую', 'пятую']
 
 // Взял банк без вскрытия: показать всем обе карты или одну — по желанию
-function ShowCard(props: { show: { cards: Card[]; shown: boolean[] }; online: boolean; onShow: (cards: number[]) => void }) {
-  const { show, online, onShow } = props
+function ShowCard(props: {
+  show: { cards: Card[]; shown: boolean[] }
+  online: boolean
+  open: boolean
+  onOpen: (on: boolean) => void
+  onShow: (cards: number[]) => void
+}) {
+  const { show, online, open, onOpen, onShow } = props
   const left = show.cards.map((_, i) => i).filter((i) => !show.shown[i])
   return (
     <section className="card">
       <h2>Банк ваш без вскрытия</h2>
       <p className="muted">Можно показать карты всем — все или одну. До новой раздачи.</p>
-      <PeekCards cards={show.cards} />
+      <PeekCards cards={show.cards} open={open} onOpen={onOpen} />
       <div className="amounts">
         {left.length > 1 && (
           <button type="button" className="big primary" disabled={!online} onClick={() => onShow(left)}>
