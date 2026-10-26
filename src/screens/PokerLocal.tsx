@@ -9,11 +9,12 @@ import {
   removePlayer,
   seatPlayer,
   toActId,
+  tournamentRebuyFor,
   type LocalTable,
 } from '../calc/localTable'
-import { gameFromTable } from '../calc/pokerGame'
+import { gameFromTable, gameFromTournament } from '../calc/pokerGame'
 import { lookClass, lookOf } from '../calc/pokerLook'
-import type { TableView } from '../calc/pokerView'
+import { tournamentView, type TableView } from '../calc/pokerView'
 import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS, type Regular } from '../model'
 import type { Result, TableState } from '../poker/table'
@@ -22,7 +23,8 @@ import { ulid } from '../ulid'
 import { openGameYear } from './openYears'
 import { LookFields } from './LookFields'
 import { clearLocalTable, loadLocalTable, saveLocalTable, storageWorks } from './pokerStorage'
-import { ActionsCard, AwardPanel, FinalStacks, LastHand, PokerTable, PotList } from './PokerRoom'
+import { ActionsCard, AwardPanel, blindsLine, FinalStacks, LastHand, PokerTable, PotList } from './PokerRoom'
+import { TournamentPanel, TournamentResults } from './Tournament'
 
 // Адрес стола на телефоне: под код комнаты (6 знаков) не подходит
 export const LOCAL_HASH = '#/poker/local'
@@ -74,11 +76,14 @@ export function PokerLocalScreen() {
 
   // «Закончить игру» (Р-20, Р-21): игра в историю → отметка «записан» → стол стирается.
   // Оборвалось после записи — отметка не даст записать вторую
+  // Турнир (#78) — только окончен: по курсу 1 ₽ за фишку
   async function finish() {
     if (!local || finishing) return
-    const question =
-      'Закончить игру? Итог запишется в историю на этом телефоне, стол сотрётся.' +
-      (local.table.hand ? ' Раздача не доиграна — она отменится, в итог пойдут стеки до неё.' : '')
+    const tournament = local.table.settings.format === 'tournament'
+    const question = tournament
+      ? 'Записать турнир в историю на этом телефоне? Стол сотрётся.'
+      : 'Закончить игру? Итог запишется в историю на этом телефоне, стол сотрётся.' +
+        (local.table.hand ? ' Раздача не доиграна — она отменится, в итог пойдут стеки до неё.' : '')
     if (!confirm(question)) return
     setFinishing(true)
     let gameId = local.gameId
@@ -86,11 +91,10 @@ export function PokerLocalScreen() {
       try {
         const settings = await getSettings()
         const date = today()
-        const game = gameFromTable(
-          local.table,
-          { name: formatDate(date), date, rate: settings.defaultRate, now: new Date().toISOString() },
-          () => ulid(),
-        )
+        const now = new Date().toISOString()
+        const game = tournament
+          ? gameFromTournament(local.table, { name: `Турнир ${formatDate(date)}`, date, now }, () => ulid())
+          : gameFromTable(local.table, { name: formatDate(date), date, rate: settings.defaultRate, now }, () => ulid())
         await saveGame(game)
         gameId = game.id
         saveLocalTable({ ...local, gameId })
@@ -173,19 +177,30 @@ function LocalTableCard(props: {
   onRemove: () => void
 }) {
   const { table, amounts, regulars, error, finishing, onError, apply, onFinish, onRemove } = props
+  const [, setTick] = useState(0)
   const v = localTableView(table, Date.now())
-  const { sb, bb } = table.settings
+  const sb = table.hand?.sb ?? table.settings.sb
   const actId = toActId(table)
   const hand = table.hand
+  const t = v.tournament
+  const clockRuns = t !== null && t.started && !t.ended
+
+  // Турнир: отсчёт до уровня — раз в секунду (часы этого телефона: он и ведёт стол)
+  useEffect(() => {
+    if (!clockRuns) return
+    const id = setInterval(() => setTick((n) => n + 1), 1000)
+    return () => clearInterval(id)
+  }, [clockRuns])
 
   return (
     <div className={lookClass(table.settings)}>
       <p className="muted table-info">
-        Блайнды {formatNumber(sb)}/{formatNumber(bb)} · {v.handNumber > 0 ? `раздача ${v.handNumber} · ` : ''}
+        {blindsLine(table, v)} · {v.handNumber > 0 ? `раздача ${v.handNumber} · ` : ''}
         {v.stageLabel}
       </p>
 
       <PokerTable view={v} />
+      {t && <TournamentPanel view={t} />}
       <PotList view={v} />
       <LastHand table={table} view={v} />
 
@@ -209,18 +224,36 @@ function LocalTableCard(props: {
 
       <section className="card host">
         <h2>Ведущий</h2>
-        {!hand && (
+        {t?.ended ? (
           <>
-            <button
-              type="button"
-              className="big primary wide"
-              disabled={!v.canStart}
-              onClick={() => apply((t, now) => hostDo(t, { type: 'start' }, now))}
-            >
-              Начать раздачу
-            </button>
-            {!v.canStart && <p className="muted">Нужно хотя бы двое с фишками, которые не пропускают раздачи</p>}
+            <h2>Места и призы</h2>
+            <TournamentResults table={table} />
           </>
+        ) : (
+          !hand &&
+          !v.paused && (
+            <>
+              <button
+                type="button"
+                className="big primary wide"
+                disabled={!v.canStart}
+                onClick={() => apply((s, now) => hostDo(s, { type: 'start' }, now))}
+              >
+                {t && !t.started ? 'Начать турнир' : 'Начать раздачу'}
+              </button>
+              {!v.canStart && <p className="muted">Нужно хотя бы двое с фишками, которые не пропускают раздачи</p>}
+            </>
+          )
+        )}
+        {/* Турнир (#78): «Перерыв» стоит часы уровней — и здесь, на одном телефоне */}
+        {t?.started && !t.ended && (
+          <button
+            type="button"
+            className={v.paused ? 'big primary wide' : 'big wide'}
+            onClick={() => apply((s, now) => hostDo(s, { type: 'pause', paused: !v.paused }, now))}
+          >
+            {v.paused ? 'Продолжить' : 'Перерыв'}
+          </button>
         )}
         {hand && hand.stage === 'showdown' && (
           <AwardPanel
@@ -228,13 +261,14 @@ function LocalTableCard(props: {
             table={table}
             view={v}
             online
-            onAward={(winners) => apply((t, now) => hostDo(t, { type: 'award', winners }, now))}
+            onAward={(winners) => apply((s, now) => hostDo(s, { type: 'award', winners }, now))}
           />
         )}
 
         <h2>Игроки</h2>
         <PlayerList table={table} view={v} amounts={amounts} apply={apply} />
-        <SeatNew table={table} regulars={regulars} apply={apply} />
+        {/* Турнир идёт — новых не сажаем */}
+        {!t?.started && <SeatNew table={table} regulars={regulars} apply={apply} />}
 
         {/* Вид стола (#77): карты здесь живые (Р-21) — только сукно */}
         <details className="table-settings">
@@ -242,13 +276,16 @@ function LocalTableCard(props: {
           <LookFields
             look={lookOf(table.settings)}
             backs={false}
-            onChange={(look) => apply((t, now) => hostDo(t, { type: 'look', ...look }, now))}
+            onChange={(look) => apply((s, now) => hostDo(s, { type: 'look', ...look }, now))}
           />
         </details>
 
-        <button type="button" className="big wide danger" disabled={finishing} onClick={onFinish}>
-          Закончить игру
-        </button>
+        {/* Турнир пишется, когда окончен; бросить раньше — «Удалить стол» */}
+        {(!t || t.ended) && (
+          <button type="button" className={t ? 'big wide primary' : 'big wide danger'} disabled={finishing} onClick={onFinish}>
+            {t ? 'Записать игру' : 'Закончить игру'}
+          </button>
+        )}
         <button type="button" className="big wide danger-text" disabled={finishing} onClick={onRemove}>
           Удалить стол
         </button>
@@ -269,9 +306,11 @@ function PlayerList({ table, view: v, amounts, apply }: { table: TableState; vie
   const limit = rebuyMaxBB === null ? null : rebuyMaxBB * bb
   const options = [...new Set([startingStack, ...amounts])].filter((x) => limit === null || x <= limit)
   const players = [...table.players].sort((a, b) => a.seat - b.seat)
+  const t = v.tournament
+  const now = Date.now()
 
   function doRebuy(playerId: string, amount: number) {
-    if (apply((t, now) => rebuyNow(t, playerId, amount, now))) setRebuyText('')
+    if (apply((s, at) => rebuyNow(s, playerId, amount, at))) setRebuyText('')
   }
 
   return (
@@ -279,6 +318,51 @@ function PlayerList({ table, view: v, amounts, apply }: { table: TableState; vie
       {players.map((p) => {
         const pending = pendingRebuy(table, p.id)
         const seat = v.seats.find((s) => s.id === p.id)
+        // Турнир (#78): стек не правится, докупов нет; выбыл, а ребай открыт — «Ребай» за игрока
+        if (t) {
+          const canRebuy = tournamentView(table, p.id, now)?.canRebuy ?? false
+          return (
+            <li key={p.id}>
+              <button type="button" className="player-toggle" aria-expanded={open === p.id} onClick={() => setOpen(open === p.id ? null : p.id)}>
+                <span className="grow">{p.name}</span>
+                <span className="num">{seat?.place != null ? `${seat.place} место` : formatNumber(seat?.chips ?? p.chips)}</span>
+              </button>
+              {canRebuy && (
+                <button
+                  type="button"
+                  className="big rebuy wide"
+                  onClick={() => apply((s, at) => tournamentRebuyFor(s, p.id, at))}
+                >
+                  Ребай: {p.name} — стек {formatNumber(startingStack)}
+                </button>
+              )}
+              {open === p.id && (
+                <div className="player-actions">
+                  <button
+                    type="button"
+                    className="big wide"
+                    onClick={() => apply((s, at) => hostDo(s, { type: 'sitOut', sittingOut: !p.sittingOut, playerId: p.id }, at))}
+                  >
+                    {p.sittingOut ? 'Вернуть в раздачи' : 'Пропускает раздачи'}
+                  </button>
+                  {!t.ended && (
+                    <button
+                      type="button"
+                      className="big wide danger-text"
+                      onClick={() => {
+                        if (confirm(`Убрать «${p.name}» со стола? Он выбывает сейчас, его фишки уходят из игры.`)) {
+                          if (apply((s, at) => removePlayer(s, p.id, at))) setOpen(null)
+                        }
+                      }}
+                    >
+                      Убрать со стола
+                    </button>
+                  )}
+                </div>
+              )}
+            </li>
+          )
+        }
         return (
           <li key={p.id}>
             <button

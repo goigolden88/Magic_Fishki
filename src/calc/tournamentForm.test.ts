@@ -3,6 +3,7 @@ import { PROTOCOL_VERSION } from '../poker/protocol'
 import { handle, type TableState } from '../poker/table'
 import { allin, award, fold, newTable, play, start } from '../poker/testing'
 import { DEFAULT_TOURNAMENT } from '../poker/tournament'
+import { formatNumber } from './format'
 import { startLocalTable, tournamentRebuyFor } from './localTable'
 import { clockText, tableView } from './pokerView'
 import { formSettings, levelText, prizeRuleText, prizesSum, tournamentForm } from './tournamentForm'
@@ -26,7 +27,7 @@ describe('форма «Кэш» / «Турнир»', () => {
 
   it('подписи: уровень и правило призов', () => {
     expect(levelText({ sb: 10, bb: 20, ante: 0 })).toBe('10/20')
-    expect(levelText({ sb: 500, bb: 1000, ante: 100 })).toBe('500/1 000, анте 100')
+    expect(levelText({ sb: 500, bb: 1000, ante: 100 })).toBe(`500/${formatNumber(1000)}, анте 100`)
     expect(prizeRuleText()).toBe('до 4 игроков — всё первому, 5–7 — 65/35, от 8 — 50/30/20')
   })
 

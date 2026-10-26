@@ -32,7 +32,8 @@ describe('создание комнаты', () => {
 
   it('верный пароль — код комнаты и токен ведущего', async () => {
     const { d, calls } = deps('пароль компании')
-    const look = { felt: 'blue', cardBack: 'geo' }
+    // Вид стола (#77), турнир и анте (#78) — тоже настройки стола
+    const look = { felt: 'blue', cardBack: 'geo', format: 'tournament', ante: 0, tournament: { buyIn: 500 } }
     const settings = { bb: 20, sb: 10, cards: 'phones', turnSeconds: 30, autoStart: 'fast', ...look, junk: 1 }
     const r = await createRoom(body('пароль компании', { settings }), d)
     expect(r).toEqual({ status: 200, body: { v: PROTOCOL_VERSION, code: 'KQ7MZP', playerId: 'host1', token: 'secret-token' } })
