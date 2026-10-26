@@ -2,6 +2,7 @@
 import type { Game } from '../model'
 import { formatDate } from '../dates'
 import { formatNumber } from './format'
+import { gameMode } from './gameMode'
 import { balance, playerTotals } from './totals'
 
 export type YearGroup = { year: string; games: Game[] }
@@ -31,19 +32,22 @@ export function isYearOpen(year: string, saved: Record<string, boolean>, default
   return saved[year] ?? year === defaultYear
 }
 
-// Строка под названием: дата — только если название не дата; только казино — о казино
+// Строка под названием: дата — только если название не дата; только казино — «только казино»
+// и раунды, покер и казино — покерная строка с пометкой «казино» (Р-29)
 export function gameSummary(game: Game): string {
   const parts: string[] = []
   if (game.name !== formatDate(game.date)) parts.push(formatDate(game.date))
   parts.push(`игроков ${game.players.length}`)
-  const rounds = game.casino?.length ?? 0
-  if (game.entries.length === 0 && rounds > 0) {
-    parts.push(`казино: раундов ${rounds}`)
+  const mode = gameMode(game)
+  if (mode === 'casino') {
+    const rounds = game.casino?.length ?? 0
+    parts.push('только казино', rounds > 0 ? `раундов ${rounds}` : 'раундов нет')
     if (game.closed) parts.push('закрыта')
     return parts.join(' · ')
   }
   const b = balance(playerTotals(game.players, game.entries, game.rate))
   const status = game.closed ? 'закрыта' : b.chipsIn === 0 ? 'записей нет' : b.ok ? 'сходится' : 'не сходится'
   parts.push(`закуплено ${formatNumber(b.chipsIn)}`, status)
+  if (mode === 'mixed') parts.push('казино')
   return parts.join(' · ')
 }

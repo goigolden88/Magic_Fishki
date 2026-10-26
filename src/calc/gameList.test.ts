@@ -94,7 +94,30 @@ describe('gameSummary', () => {
       },
     ]
     const open = game('a', '2026-10-09', { players, casino })
-    expect(gameSummary(open)).toBe('игроков 2 · казино: раундов 1')
-    expect(gameSummary({ ...open, closed: true })).toBe('игроков 2 · казино: раундов 1 · закрыта')
+    expect(gameSummary(open)).toBe('игроков 2 · только казино · раундов 1')
+    expect(gameSummary({ ...open, closed: true })).toBe('игроков 2 · только казино · раундов 1 · закрыта')
+    // Новая игра «только казино» без раундов (Р-29)
+    expect(gameSummary(game('b', '2026-10-09', { players, mode: 'casino' }))).toBe(
+      'игроков 2 · только казино · раундов нет',
+    )
+  })
+
+  it('покер и казино — покерная строка с пометкой «казино» (Р-29)', () => {
+    const casino = [
+      {
+        id: 'r1',
+        amounts: [
+          { playerId: 'p1', kopecks: 15000 },
+          { playerId: 'p2', kopecks: -15000 },
+        ],
+        at: '2026-10-09T20:00:00.000Z',
+      },
+    ]
+    const g = game('a', '2026-10-09', { players, entries, casino })
+    expect(gameSummary(g)).toBe(`игроков 2 · закуплено ${formatNumber(2000)} · сходится · казино`)
+    // Режим «покер и казино» без раундов — пометка тоже есть
+    expect(gameSummary(game('b', '2026-10-09', { players, entries, mode: 'mixed' }))).toBe(
+      `игроков 2 · закуплено ${formatNumber(2000)} · сходится · казино`,
+    )
   })
 })

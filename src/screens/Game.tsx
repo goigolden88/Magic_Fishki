@@ -1,9 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { addRound, gameResult, newNames, parseRound, type PlayerResult } from '../calc/casino'
 import { balanceText, formatChips, formatNumber, formatRate, formatRub, parseChips, parseRate } from '../calc/format'
+import { addCasino, addPoker, gameMode } from '../calc/gameMode'
 import { shareText } from '../calc/share'
 import { formatDate, formatTime } from '../dates'
 import {
+  DEFAULT_RATE,
   playerByName,
   type CasinoRound,
   type Entry,
@@ -26,6 +28,7 @@ export function GameScreen({ id }: { id: string }) {
   const [rateText, setRateText] = useState<string | null>(null) // не null — курс правится
   const [quickAmounts, setQuickAmounts] = useState<number[]>([])
   const [regulars, setRegulars] = useState<Regular[]>([]) // постоянные игроки — для связи с участником (Р-12)
+  const [defaultRate, setDefaultRate] = useState(DEFAULT_RATE) // курс из настроек — для «Добавить покер» (Р-29)
   const [shareNote, setShareNote] = useState<string | null>(null) // «Скопировано» под кнопкой
   const [deleting, setDeleting] = useState(false) // первое нажатие «Удалить игру» — ждём второго
 
@@ -34,6 +37,7 @@ export function GameScreen({ id }: { id: string }) {
     void getSettings().then((s) => {
       setQuickAmounts(s.quickAmounts)
       setRegulars(s.players)
+      setDefaultRate(s.defaultRate)
     })
   }, [id])
 
@@ -48,9 +52,13 @@ export function GameScreen({ id }: { id: string }) {
   }
 
   const current = game
+  const mode = gameMode(current)
+  // Игра до Р-29 при первой правке получает режим по данным — дальше он не меняется сам,
+  // например когда удалён последний раунд
   function update(next: Game) {
-    setGame(next)
-    void saveGame(next)
+    const pinned = next.mode === undefined ? { ...next, mode } : next
+    setGame(pinned)
+    void saveGame(pinned)
   }
 
   const result = gameResult(current)
@@ -129,11 +137,12 @@ export function GameScreen({ id }: { id: string }) {
   }
 
   const duplicate = current.players.some((p) => p.name === newPlayer.trim())
+  const onlyCasino = mode === 'casino'
   // С казино — по «итого», без него — по фишкам, как было
-  const sorted = result.hasCasino
-    ? [...result.players].sort((x, y) => y.kopecks - x.kopecks)
-    : [...result.players].sort((x, y) => y.poker.chips - x.poker.chips)
-  const onlyCasino = result.hasCasino && current.entries.length === 0
+  const sorted =
+    result.hasCasino || onlyCasino
+      ? [...result.players].sort((x, y) => y.kopecks - x.kopecks)
+      : [...result.players].sort((x, y) => y.poker.chips - x.poker.chips)
 
   return (
     <main className="screen">
@@ -141,10 +150,11 @@ export function GameScreen({ id }: { id: string }) {
       <h1>{current.name}</h1>
       <p className="muted">
         {formatDate(current.date)}
+        {onlyCasino && ' · только казино'}
         {current.closed && ' · игра закрыта'}
       </p>
 
-      {rateText === null ? (
+      {onlyCasino ? null : rateText === null ? (
         <p className="rate">
           Курс: {formatRate(current.rate)} ₽ за фишку
           {!current.closed && (
@@ -171,20 +181,37 @@ export function GameScreen({ id }: { id: string }) {
         </form>
       )}
 
+      {/* Р-29: казино — сверху, под курсом; в игре «покер» блока нет */}
+      {mode !== 'poker' && (!current.closed || rounds.length > 0) && (
+        <CasinoBlock
+          rounds={rounds}
+          nameById={nameById}
+          players={current.players}
+          closed={!!current.closed}
+          onAdd={saveRound}
+          onDelete={deleteRound}
+          onDeal={() => (location.hash = `#/game/${encodeURIComponent(current.id)}/deal`)}
+        />
+      )}
+
       <ul className="list">
-        {current.players.map((p) => (
-          <PlayerCard
-            key={p.id}
-            player={p}
-            result={resultById.get(p.id)!}
-            entries={current.entries.filter((e) => e.playerId === p.id)}
-            closed={!!current.closed}
-            suggestIn={lastBuyin}
-            quickAmounts={quickAmounts}
-            onAdd={(kind, chips) => addEntry(p.id, kind, chips)}
-            onDelete={deleteEntry}
-          />
-        ))}
+        {current.players.map((p) =>
+          onlyCasino ? (
+            <CasinoPlayer key={p.id} player={p} result={resultById.get(p.id)!} />
+          ) : (
+            <PlayerCard
+              key={p.id}
+              player={p}
+              result={resultById.get(p.id)!}
+              entries={current.entries.filter((e) => e.playerId === p.id)}
+              closed={!!current.closed}
+              suggestIn={lastBuyin}
+              quickAmounts={quickAmounts}
+              onAdd={(kind, chips) => addEntry(p.id, kind, chips)}
+              onDelete={deleteEntry}
+            />
+          ),
+        )}
       </ul>
 
       {!current.closed && (
@@ -202,16 +229,16 @@ export function GameScreen({ id }: { id: string }) {
       )}
       {duplicate && <p className="warn">Такой участник уже есть</p>}
 
-      {(!current.closed || rounds.length > 0) && (
-        <CasinoBlock
-          rounds={rounds}
-          nameById={nameById}
-          players={current.players}
-          closed={!!current.closed}
-          onAdd={saveRound}
-          onDelete={deleteRound}
-          onDeal={() => (location.hash = `#/game/${encodeURIComponent(current.id)}/deal`)}
-        />
+      {/* Р-29: смена режима — только «покер» → «покер и казино» и «только казино» → «покер и казино» */}
+      {!current.closed && mode === 'poker' && (
+        <button className="big wide" onClick={() => update(addCasino(current))}>
+          Добавить казино
+        </button>
+      )}
+      {!current.closed && mode === 'casino' && (
+        <button className="big wide" onClick={() => update(addPoker(current, defaultRate))}>
+          Добавить покер
+        </button>
       )}
 
       <section className="card summary">
@@ -225,7 +252,20 @@ export function GameScreen({ id }: { id: string }) {
           </p>
         )}
         {current.players.length > 0 &&
-          (result.hasCasino ? (
+          (onlyCasino ? (
+            <table className="totals">
+              <tbody>
+                {sorted.map((r) => (
+                  <tr key={r.playerId}>
+                    <td>{nameById.get(r.playerId)}</td>
+                    <td className={'num ' + sign(r.kopecks)}>
+                      <strong>{formatRub(r.kopecks, true)}</strong>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : result.hasCasino ? (
             <table className="totals three">
               <thead>
                 <tr>
@@ -349,46 +389,19 @@ function CasinoBlock({ rounds, nameById, players, closed, onAdd, onDelete, onDea
     if (onAdd(text)) setText(null)
   }
 
+  // Р-29: кнопки — сверху блока, раунды — под ними
   return (
     <section className="card casino">
       <h2>Казино</h2>
-      {rounds.length > 0 && (
-        <ul className="entries rounds">
-          {rounds.map((r) =>
-            deleting === r.id && !closed ? (
-              <li key={r.id} className="row">
-                <button className="big danger grow" onClick={() => onDelete(r)}>
-                  Точно удалить раунд?
-                </button>
-                <button className="big" onClick={() => setDeleting(null)}>
-                  Отмена
-                </button>
-              </li>
-            ) : (
-              <li key={r.id}>
-                <span className="muted">{formatTime(r.at)}</span>
-                <span>{roundText(r, nameById)}</span>
-                {!closed && (
-                  <button className="del" aria-label="Удалить раунд" onClick={() => setDeleting(r.id)}>
-                    ✕
-                  </button>
-                )}
-              </li>
-            ),
-          )}
-        </ul>
-      )}
-      {rounds.length === 0 && text === null && <p className="muted">Раундов нет</p>}
-
       {!closed &&
         (text === null ? (
           <div className="row">
+            {/* #76: раунд с картами от программы — свой экран, итог — тем же раундом */}
+            <button className="big primary grow" onClick={onDeal}>
+              Раздать раунд
+            </button>
             <button className="big grow" onClick={() => setText('')}>
               Добавить раунд
-            </button>
-            {/* #76: раунд с картами от программы — свой экран, итог — тем же раундом */}
-            <button className="big grow" onClick={onDeal}>
-              Раздать раунд
             </button>
           </div>
         ) : (
@@ -431,7 +444,46 @@ function CasinoBlock({ rounds, nameById, players, closed, onAdd, onDelete, onDea
             </div>
           </form>
         ))}
+      {rounds.length > 0 && (
+        <ul className="entries rounds">
+          {rounds.map((r) =>
+            deleting === r.id && !closed ? (
+              <li key={r.id} className="row">
+                <button className="big danger grow" onClick={() => onDelete(r)}>
+                  Точно удалить раунд?
+                </button>
+                <button className="big" onClick={() => setDeleting(null)}>
+                  Отмена
+                </button>
+              </li>
+            ) : (
+              <li key={r.id}>
+                <span className="muted">{formatTime(r.at)}</span>
+                <span>{roundText(r, nameById)}</span>
+                {!closed && (
+                  <button className="del" aria-label="Удалить раунд" onClick={() => setDeleting(r.id)}>
+                    ✕
+                  </button>
+                )}
+              </li>
+            ),
+          )}
+        </ul>
+      )}
+      {rounds.length === 0 && text === null && <p className="muted">Раундов нет</p>}
     </section>
+  )
+}
+
+// Участник игры «только казино» (Р-29): имя и итог казино, без покерных кнопок
+function CasinoPlayer({ player, result }: { player: Player; result: PlayerResult }) {
+  return (
+    <li className="card player">
+      <div className="player-head">
+        <strong>{player.name}</strong>
+        <span className={sign(result.casino)}>{formatRub(result.casino, true)}</span>
+      </div>
+    </li>
   )
 }
 

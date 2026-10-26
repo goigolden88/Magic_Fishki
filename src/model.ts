@@ -27,6 +27,10 @@ export type CasinoRound = {
   at: string // ISO 8601, ставится само
 }
 
+// Режим игры (Р-29): покер, покер и казино, только казино
+export type GameMode = 'poker' | 'mixed' | 'casino'
+export const GAME_MODES: GameMode[] = ['poker', 'mixed', 'casino']
+
 export type Game = {
   id: string // ULID
   name: string // по умолчанию — дата
@@ -35,6 +39,7 @@ export type Game = {
   players: Player[]
   entries: Entry[]
   casino?: CasinoRound[] // раунды казино (Р-13); нет — казино не было
+  mode?: GameMode // режим (Р-29); нет — по данным (gameMode)
   closed?: boolean // игра закрыта: записи не правятся без «Открыть снова»
   demo?: boolean // демо-данные — удаляются одной кнопкой
   updatedAt: string // ISO 8601
@@ -102,17 +107,20 @@ export function playersFromRegulars(regulars: Regular[], makeId: () => string): 
 export type NewGame = {
   name: string
   date: string // YYYY-MM-DD
-  rate: number
+  rate: number // «только казино» — курс из настроек (Р-29)
   players: Regular[] // отмеченные постоянные игроки
   buyin: number | null // «Да» на «Записать всем закуп?» — сумма; «Нет» — null (Р-09)
   now: string // ISO 8601: время закупов и updatedAt
+  mode?: GameMode // выбор в «Новой игре» (Р-29); нет — «покер»
 }
 
-// Новая игра; с закупом — каждому участнику одна запись buyin на эту сумму
+// Новая игра; с закупом — каждому участнику одна запись buyin на эту сумму.
+// «Только казино» — без закупа (Р-29)
 export function createGame(input: NewGame, makeId: () => string): Game {
   const id = makeId()
   const players = playersFromRegulars(input.players, makeId)
-  const { buyin } = input
+  const mode = input.mode ?? 'poker'
+  const buyin = mode === 'casino' ? null : input.buyin
   const entries: Entry[] =
     buyin === null ? [] : players.map((p) => ({ id: makeId(), playerId: p.id, kind: 'buyin', chips: buyin, at: input.now }))
   return {
@@ -122,6 +130,7 @@ export function createGame(input: NewGame, makeId: () => string): Game {
     rate: input.rate,
     players,
     entries,
+    mode,
     updatedAt: input.now,
   }
 }
