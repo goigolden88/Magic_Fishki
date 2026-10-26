@@ -183,7 +183,7 @@ export function TournamentPanel({ view: t }: { view: TournamentView }) {
           </h2>
           {t.next && t.nextLeft !== null ? (
             <p>
-              {t.started ? 'До следующего' : 'Уровень идёт'} <strong className="num">{clockText(t.nextLeft)}</strong>
+              {t.started ? 'До следующего' : 'Уровень длится'} <strong className="num">{clockText(t.nextLeft)}</strong>
               {' · '}дальше {levelText(t.next)}
             </p>
           ) : (
