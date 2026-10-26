@@ -71,6 +71,35 @@ describe('стол на этом телефоне в памяти устройс
     expect(s.loadLocalTable()).toBeNull()
   })
 
+  it('«Карты всегда открыты»: сначала выключено, включённое помнится, выключенное следов не оставляет', async () => {
+    const storage = fakeStorage()
+    vi.stubGlobal('localStorage', storage)
+    let s = await reload()
+    expect(s.loadOpenCards()).toBe(false)
+    s.saveOpenCards(true)
+    s = await reload()
+    expect(s.loadOpenCards()).toBe(true)
+    s.saveOpenCards(false)
+    s = await reload()
+    expect(s.loadOpenCards()).toBe(false)
+    expect(storage.data.size).toBe(0)
+  })
+
+  it('«Карты всегда открыты»: память браузера недоступна — выключено', async () => {
+    vi.stubGlobal('localStorage', fakeStorage(true))
+    let s = await reload()
+    s.saveOpenCards(true)
+    s = await reload()
+    expect(s.loadOpenCards()).toBe(false)
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new DOMException('запрещено', 'SecurityError')
+      },
+    })
+    s = await reload()
+    expect(s.loadOpenCards()).toBe(false)
+  })
+
   it('память работает — проверка говорит «да» и следов не оставляет', async () => {
     const storage = fakeStorage()
     vi.stubGlobal('localStorage', storage)
