@@ -125,6 +125,8 @@ export type HandRecord = {
   log: HandLogEntry[] // ходы по кругам торгов
   shown: Record<string, (Card | null)[]> // видны всем: дошедшие до вскрытия, открытые и показанные; null — не показана
   hands: Record<string, string> // у дошедших до вскрытия — что у него: «Две пары, короли и семёрки»
+  // У дошедших до вскрытия — лучшая пятёрка: сначала карты комбинации, затем кикеры (#96); у записей до неё поля нет
+  best?: Record<string, Card[]>
   hidden: { playerId: string; cards: Card[] } | null // взял банк без вскрытия: карты видны только ему, пока не покажет
 }
 
@@ -541,14 +543,17 @@ function settle(state: TableState, now: number): string | null {
   const hole = (id: string) => cards.hole[id] as Card[] // на сервере все карты на месте
   const shown: Record<string, (Card | null)[]> = {}
   const hands: Record<string, string> = {}
+  const best: Record<string, Card[]> = {}
   let hidden: HandRecord['hidden'] = null
   let winners: string[][]
   if (live.length > 1) {
     runOut(cards, dealOrder(hand))
     winners = hand.pots.map((pot) => bestHands(variant, cards.board, pot.eligible.map((id) => ({ id, cards: hole(id) }))))
     for (const id of live) {
+      const result = bestHand(variant, hole(id), cards.board)
       shown[id] = hole(id)
-      hands[id] = bestHand(variant, hole(id), cards.board).name
+      hands[id] = result.name
+      best[id] = result.cards
     }
   } else {
     winners = hand.pots.map((pot) => [...pot.eligible])
@@ -574,6 +579,7 @@ function settle(state: TableState, now: number): string | null {
     log: hand.log,
     shown,
     hands,
+    best,
     hidden,
   }
   finishHand(state, hand, winners, payouts, now, record)

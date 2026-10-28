@@ -25,6 +25,7 @@ export type SeatView = {
   // на вскрытии и показанные. Нет карт — null
   cards: (Card | null)[] | null
   handName: string | null // между раздачами — что было у дошедшего до вскрытия
+  best: Card[] | null // между раздачами у победителя банка на вскрытии — лучшая пятёрка (#96); иначе null
   id: string
   name: string
   chips: number // стек сейчас: в раздаче — без поставленного
@@ -101,6 +102,8 @@ export type TableView = {
   myRebuy: number | null // мой запрос на докуп ждёт ведущего
   phoneCards: boolean // карты на телефонах: банки раздаются сами
   board: Card[] // общие карты; между раздачами — прошлой раздачи
+  // Между раздачами после вскрытия — карты стола из пятёрок победителей: их подсветить, остальные приглушить; иначе null
+  boardWin: Card[] | null
   myCards: Card[] | null // мои закрытые и открытые карты в раздаче — для «Подглядеть»
   canShow: { cards: Card[]; shown: boolean[] } | null // взял банк без вскрытия: что можно показать
   paused: boolean // «Перерыв»
@@ -129,6 +132,7 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
   const positions = hand ? positionLabels(hand.seats.length) : []
   const cards = hand?.cards
   const record = hand ? undefined : table.lastHand?.record // прошлая раздача — пока новой нет
+  const fives = hand ? new Map<string, Card[]>() : winningFives(table)
   const tournament = tournamentView(table, meId, now)
   // Место у места за столом: у выбывших, а когда турнир окончен — у всех
   const places = new Map((tournament?.results ?? []).filter((r) => r.out || tournament?.ended).map((r) => [r.id, r.place]))
@@ -141,6 +145,7 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
       return {
         cards: cards ? (s && !s.folded ? publicCards(cards, p.id) : null) : (record?.shown[p.id] ?? null),
         handName: record?.hands[p.id] ?? null,
+        best: fives.get(p.id) ?? null,
         id: p.id,
         name: p.name,
         chips: s ? s.chips : p.chips,
@@ -187,6 +192,7 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
     myRebuy: table.rebuyRequests.find((r) => r.playerId === meId)?.amount ?? null,
     phoneCards: table.settings.cards === 'phones',
     board: cards?.board ?? record?.board ?? [],
+    boardWin: record && fives.size > 0 ? record.board.filter((c) => [...fives.values()].some((five) => five.includes(c))) : null,
     myCards: myHole && myHole.length > 0 && myHole.every((c) => c !== null) ? (myHole as Card[]) : null,
     canShow: hidden && record ? { cards: hidden.cards, shown: hidden.cards.map((_, i) => Boolean(record.shown[meId]?.[i])) } : null,
     paused: table.paused === true,
@@ -373,10 +379,22 @@ export function cardFace(card: Card): { rank: string; suit: string; red: boolean
   return { rank: card[0] === 'T' ? '10' : card[0], suit: suits[card[1]] ?? '?', red: card[1] === 'h' || card[1] === 'd' }
 }
 
+// Победители банков прошлой раздачи, дошедшие до вскрытия, — их лучшие пятёрки (#96).
+// Банк без вскрытия, запись до #96 или раздачи с картами не было — пусто
+export function winningFives(table: TableState): Map<string, Card[]> {
+  const last = table.lastHand
+  const best = last?.record?.best
+  const out = new Map<string, Card[]>()
+  if (!last || !best) return out
+  for (const pot of last.pots) for (const id of pot.winners) if (best[id]) out.set(id, best[id])
+  return out
+}
+
 export type LastHandView = {
   number: number
   board: Card[]
-  players: { name: string; cards: (Card | null)[] | null; hand: string | null; won: number }[] // сданные, по местам
+  // Сданные, по местам; best — у победителя банка на вскрытии лучшая пятёрка, иначе null
+  players: { name: string; cards: (Card | null)[] | null; hand: string | null; best: Card[] | null; won: number }[]
   rounds: { label: string; moves: string[] }[] // ходы по кругам торгов
 }
 
@@ -387,6 +405,7 @@ export function lastHandRecord(table: TableState): LastHandView | null {
   const record = last?.record
   if (!last || !record || table.hand) return null
   const names = new Map(record.seats.map((s) => [s.id, s.name]))
+  const fives = winningFives(table)
   const rounds: LastHandView['rounds'] = []
   for (const e of record.log) {
     const label = STAGE_LABELS[e.street]
@@ -400,6 +419,7 @@ export function lastHandRecord(table: TableState): LastHandView | null {
       name: s.name,
       cards: record.shown[s.id] ?? null,
       hand: record.hands[s.id] ?? null,
+      best: fives.get(s.id) ?? null,
       won: last.payouts[s.id] ?? 0,
     })),
     rounds,

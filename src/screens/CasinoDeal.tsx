@@ -339,20 +339,20 @@ function DealtRound({ dealt, opened, nameById, busy, error, onOpen, onRecord, on
             </div>
             {open && (
               <ul className="deal-winners">
+                {/* У победителя — подпись и под ней пятёрка лучшей руки (#96); карты руки — в «Картах» выше */}
                 {r.winners.map((pid) => (
-                  <li key={pid}>
-                    <strong>{name(pid)}</strong>
+                  <li key={pid} className="deal-winner">
+                    <span>
+                      <strong>{name(pid)}</strong> <span className="muted">· {r.hand}</span>
+                    </span>
                     <span className="card-row">
-                      {deal.hands[pid].map((c) => (
+                      {r.best[pid].map((c) => (
                         <PlayingCard key={c} card={c} size="small" />
                       ))}
                     </span>
                   </li>
                 ))}
-                <li className="muted">
-                  {r.hand}
-                  {r.winners.length > 1 && ' · ничья, поровну'}
-                </li>
+                {r.winners.length > 1 && <li className="muted">Ничья, поровну</li>}
               </ul>
             )}
           </section>

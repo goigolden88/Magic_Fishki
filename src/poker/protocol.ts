@@ -12,7 +12,8 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 //     анте в раздаче и в журнале, «Ребай» турнира (tournamentRebuy), анте и призы в tableSettings
 // 8 — ожидание ребая (#94): остался один с фишками при открытом ребае — турнир ждёт;
 //     «Закончить турнир» ведущего (endTournament)
-export const PROTOCOL_VERSION = 8
+// 9 — выигрышная комбинация картами (#96): лучшая пятёрка дошедших до вскрытия в записи раздачи (best)
+export const PROTOCOL_VERSION = 9
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 

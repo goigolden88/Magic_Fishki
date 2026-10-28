@@ -340,6 +340,11 @@ export function LastHand({ table, view: v }: { table: TableState; view: TableVie
             <span className="grow">
               {p.name}
               {p.hand && <span className="muted"> · {p.hand}</span>}
+              {p.best && (
+                <span className="last-best">
+                  <CardRow cards={p.best} small />
+                </span>
+              )}
             </span>
             {p.cards && <CardRow cards={p.cards} small />}
             {p.won > 0 && <span className="num plus">+{formatNumber(p.won)}</span>}
@@ -360,10 +365,10 @@ export function LastHand({ table, view: v }: { table: TableState; view: TableVie
   )
 }
 
-// Карта лицом или рубашкой (null)
-export function PlayingCard({ card, size }: { card: Card | null; size?: 'small' | 'big' }) {
+// Карта лицом или рубашкой (null); mark — карта стола после вскрытия: из пятёрки победителя или приглушена
+export function PlayingCard({ card, size, mark }: { card: Card | null; size?: 'small' | 'big'; mark?: 'win' | 'dim' }) {
   const f = card === null ? null : cardFace(card)
-  const cls = ['playing-card', size, !f && 'back', f?.red && 'red'].filter(Boolean).join(' ')
+  const cls = ['playing-card', size, !f && 'back', f?.red && 'red', mark].filter(Boolean).join(' ')
   if (!f) return <span className={cls} aria-label="карта рубашкой" />
   return (
     <span className={cls}>
@@ -373,11 +378,19 @@ export function PlayingCard({ card, size }: { card: Card | null; size?: 'small' 
   )
 }
 
-function CardRow({ cards, small }: { cards: (Card | null)[]; small?: boolean }) {
+// best — пятёрка победителя: ряд плотнее, чтобы войти в место у стола;
+// win — карты из пятёрок победителей: они подсвечены, остальные в ряду приглушены
+function CardRow(props: { cards: (Card | null)[]; small?: boolean; best?: boolean; win?: Card[] | null }) {
+  const { cards, small, best, win } = props
   return (
-    <span className="card-row">
+    <span className={best ? 'card-row best-row' : 'card-row'}>
       {cards.map((c, i) => (
-        <PlayingCard key={i} card={c} size={small ? 'small' : undefined} />
+        <PlayingCard
+          key={i}
+          card={c}
+          size={small ? 'small' : undefined}
+          mark={win && c ? (win.includes(c) ? 'win' : 'dim') : undefined}
+        />
       ))}
     </span>
   )
@@ -502,7 +515,7 @@ export function PokerTable({ view: v }: { view: TableView }) {
             ))}
           {v.board.length > 0 && (
             <div className="board">
-              <CardRow cards={v.board} />
+              <CardRow cards={v.board} win={v.boardWin} />
             </div>
           )}
           {v.toActName && (
@@ -548,7 +561,7 @@ function SeatSpot({ seat: s, at }: { seat: SeatView; at: { x: number; y: number 
     s.sittingOut && 'пропуск',
     s.folded && 'пас',
   ].filter(Boolean)
-  const cls = ['seat', s.toAct && 'to-act', s.folded && 'folded', s.isMe && 'me'].filter(Boolean).join(' ')
+  const cls = ['seat', s.toAct && 'to-act', s.folded && 'folded', s.isMe && 'me', s.best && 'winner'].filter(Boolean).join(' ')
   return (
     <div className={cls} style={spotStyle(at)}>
       {s.position && <span className="seat-pos">{s.position}</span>}
@@ -565,6 +578,7 @@ function SeatSpot({ seat: s, at }: { seat: SeatView; at: { x: number; y: number 
       {s.turnLeft !== null && <span className="seat-timer">{s.turnLeft} с</span>}
       {s.cards && <CardRow cards={s.cards} small />}
       {s.handName && <span className="seat-mark">{s.handName}</span>}
+      {s.best && <CardRow cards={s.best} small best />}
       {marks.length > 0 && <span className="seat-mark">{marks.join(' · ')}</span>}
     </div>
   )
