@@ -35,7 +35,7 @@ import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS } from '../model'
 import type { Card } from '../poker/cards'
 import { FINISHED, type ClientBody } from '../poker/protocol'
-import type { TableState } from '../poker/table'
+import { limitFor, type TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 import { openGameYear } from './openYears'
@@ -366,12 +366,14 @@ export function HostDock(props: { view: TableView; pause: boolean; onStart: () =
   )
 }
 
-// Строка над столом: блайнды и анте раздачи (между раздачами — следующей); в турнире — с уровнем
+// Строка над столом: блайнды и анте раздачи (между раздачами — следующей); в турнире — с уровнем;
+// омаха (#80) — с лимитом, холдем — без подписи
 export function blindsLine(table: TableState, v: TableView): string {
   const hand = table.hand
   const t = v.tournament
   const blinds = hand ? { sb: hand.sb, bb: hand.bb, ante: hand.ante ?? 0 } : t ? t.blinds : { ...table.settings, ante: v.ante }
-  return `${t ? 'Турнир · ' : ''}Блайнды ${levelText(blinds)}`
+  const omaha = table.settings.game === 'omaha' ? `Омаха, ${limitFor(table.settings) === 'pot' ? 'пот-лимит' : 'без лимита'} · ` : ''
+  return `${omaha}${t ? 'Турнир · ' : ''}Блайнды ${levelText(blinds)}`
 }
 
 // Под столом — банки с претендентами
@@ -648,7 +650,17 @@ function SeatSpot(props: { seat: SeatView; at: Spot; bottom: boolean; myCards: C
     s.sittingOut && 'пропуск',
     s.folded && 'пас',
   ].filter(Boolean)
-  const cls = ['seat', bottom ? 'bottom' : edgeOf(at),s.toAct && 'to-act', s.folded && 'folded', s.isMe && 'me', s.best && 'winner']
+  // Омаха (#80): четыре карты у места — карты плотнее, моё место шире
+  const many = (myCards ?? s.cards ?? []).length > 2
+  const cls = [
+    'seat',
+    bottom ? 'bottom' : edgeOf(at),
+    s.toAct && 'to-act',
+    s.folded && 'folded',
+    s.isMe && 'me',
+    s.best && 'winner',
+    many && 'many',
+  ]
     .filter(Boolean)
     .join(' ')
   return (
@@ -681,7 +693,8 @@ function SeatSpot(props: { seat: SeatView; at: Spot; bottom: boolean; myCards: C
 
 // Панель хода внизу экрана (#97) — только в свой ход: сверху быстрые суммы и ползунок, под ними своё
 // число и «Ставка» / «Рейз до» в одном ряду (открыта клавиатура — видны оба), внизу «Пас» и «Чек» / «Колл».
-// Повысить можно только олл-ином — вместо ползунка кнопка «Олл-ин N».
+// Повысить можно только олл-ином — вместо ползунка кнопка «Олл-ин N». Пот-лимит (#80) — среди быстрых сумм
+// «Пот», под ползунком «Не больше банка: N»; олл-ина больше «пота» нет.
 // who — за кого ход на одном телефоне («Ход: имя»); null — свои: «Ваш ход».
 // left — секунд на мой ход (таймер стола); online — есть связь: без неё кнопки неактивны
 export function ActionsCard(props: {
@@ -702,12 +715,12 @@ export function ActionsCard(props: {
   function confirmRaise(e: FormEvent) {
     e.preventDefault()
     if (!r || to === null || !okTo) return
-    act({ type: 'act', action: to === r.max ? { type: 'allin' } : { type: 'raise', to } })
+    act({ type: 'act', action: to === r.max && r.allIn ? { type: 'allin' } : { type: 'raise', to } })
   }
 
   const setAmount = (n: number) => setText(String(n))
   const off = !a.myTurn || !online
-  const raiseLabel = r && to === r.max ? 'Олл-ин' : r?.label === 'Ставка' ? 'Ставка' : 'Рейз до'
+  const raiseLabel = r && to === r.max && r.allIn ? 'Олл-ин' : r?.label === 'Ставка' ? 'Ставка' : 'Рейз до'
   return (
     <section className="dock actions">
       <p className="dock-title">{who !== null ? `Ход: ${who}` : `Ваш ход${left !== null ? ` · ${left} с` : ''}`}</p>
@@ -719,11 +732,14 @@ export function ActionsCard(props: {
                 <span>{q.label}</span> <span className="num">{formatNumber(q.to)}</span>
               </button>
             ))}
-            <button type="button" onClick={() => setAmount(r.max)}>
-              <span>Олл-ин</span> <span className="num">{formatNumber(r.max)}</span>
-            </button>
+            {r.allIn && (
+              <button type="button" onClick={() => setAmount(r.max)}>
+                <span>Олл-ин</span> <span className="num">{formatNumber(r.max)}</span>
+              </button>
+            )}
           </div>
           <BetRange slider={slider} amount={to ?? r.min} onChange={setAmount} />
+          {r.potLimit !== null && <p className="muted dock-note">Не больше банка: {formatNumber(r.potLimit)}</p>}
           <div className="dock-row">
             <input
               className="bet-amount"

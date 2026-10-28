@@ -1,10 +1,10 @@
-// Одна раздача кэш-игры в холдем: блайнды, очередь хода, ставки, улицы, банки.
+// Одна раздача кэш-игры: блайнды, очередь хода, ставки (без лимита или пот-лимит, #80), улицы, банки.
 // Карты живые — силу руки движок не знает: после торгов раздача ждёт, пока ведущий
 // отметит победителя каждого банка (awardPots). Карты на телефонах (cards) — сдаются
 // по описанию игры перед каждым кругом торгов; банки после торгов раздаёт table.ts.
 // Функции меняют переданную раздачу; копию состояния делает table.ts (handle)
 import type { Card } from './cards'
-import { dealRound, newCards, type GameDef, type HandCards } from './game'
+import { dealRound, newCards, type GameDef, type HandCards, type Limit } from './game'
 import type { BetAction } from './protocol'
 import { buildPots, splitPot, type Pot } from './pots'
 
@@ -51,12 +51,13 @@ export type Hand = {
   returned: { playerId: string; amount: number } | null // непокрытая ставка, вернувшаяся игроку
   log: HandLogEntry[]
   cards?: HandCards // карты на телефонах; нет — живые карты (и у раздач до этапа 2)
+  limit?: Limit // предел ставки (#80); у раздач до него поля нет — без лимита
 }
 
 export type StartSeat = { id: string; chips: number }
 
 // seats — играющие в порядке мест, button — индекс кнопки в них; deal — карты на телефонах:
-// описание игры и перемешанная колода; ante — анте с каждого до блайндов (0 — нет)
+// описание игры и перемешанная колода; ante — анте с каждого до блайндов (0 — нет); limit — предел ставки
 export function startHand(
   number: number,
   seats: StartSeat[],
@@ -65,6 +66,7 @@ export function startHand(
   bb: number,
   deal?: { game: GameDef; deck: Card[] },
   ante = 0,
+  limit: Limit = 'nolimit',
 ): Hand {
   const hand: Hand = {
     number,
@@ -90,6 +92,7 @@ export function startHand(
     returned: null,
     log: [],
   }
+  if (limit !== 'nolimit') hand.limit = limit
   if (ante > 0) {
     hand.ante = ante
     // Анте — только в банк: вложено за раздачу, но не ставка круга (иначе засчитается в колл
@@ -194,6 +197,8 @@ function raise(hand: Hand, seat: HandSeat, to: number): string | null {
   // Неполный олл-ин-рейз не переоткрывает торги тем, кто уже ходил
   if (seat.acted && seat.actedAt >= hand.fullBet) return 'Неполный олл-ин не открывает торги: можно уравнять или сбросить'
   if (to - hand.currentBet < hand.minRaise && to < max) return `Минимум — до ${hand.currentBet + hand.minRaise}`
+  const cap = potLimit(hand, seat)
+  if (cap !== null && to > cap) return `Не больше банка: ${cap}`
   put(seat, to - seat.bet)
   // Полное повышение — и когда неполные олл-ины вместе набрали полный
   if (to - hand.fullBet >= hand.minRaise) {
@@ -202,6 +207,16 @@ function raise(hand: Hand, seat: HandSeat, to: number): string | null {
   }
   hand.currentBet = to
   return null
+}
+
+// Пот-лимит (#80): до какой ставки улицы игрок может поднять — «пот»: колл, а сверху весь банк
+// (с побочными и ставками на столе) вместе с этим коллом. Минимальный рейз — всегда можно.
+// Без лимита — null
+export function potLimit(hand: Hand, seat: HandSeat): number | null {
+  if (hand.limit !== 'pot') return null
+  const toCall = Math.max(0, hand.currentBet - seat.bet)
+  const pot = hand.seats.reduce((sum, s) => sum + s.committed, 0)
+  return Math.max(hand.currentBet + pot + toCall, hand.currentBet + hand.minRaise)
 }
 
 function canAct(seat: HandSeat): boolean {

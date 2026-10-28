@@ -1,7 +1,7 @@
 // Карты на телефонах (этап 2, Р-23): вариант игры — данными (Ш-169), колода, сдача по описанию.
 // Описание хранится у раздачи — под будущий «микс». Тасует сервер комнаты (shuffle) и подаёт
 // колоду в handle; сами функции чистые. Карты сдаются по описанию, без сжигания
-import { buildDeck, HOLDEM, type Card, type Variant } from './cards'
+import { buildDeck, HOLDEM, OMAHA, type Card, type Variant } from './cards'
 import type { Street } from './hand'
 import type { RandomBytes } from './tokens'
 
@@ -33,6 +33,25 @@ export const HOLDEM_GAME: GameDef = {
     { street: 'river', deal: [{ kind: 'board', count: 1 }] },
   ],
 }
+
+// Омаха (#80): 4 закрытых, стол — как в холдеме; рука — ровно 2 из своих и 3 со стола (OMAHA)
+export const OMAHA_GAME: GameDef = {
+  id: 'omaha',
+  variant: OMAHA,
+  rounds: [
+    { street: 'preflop', deal: [{ kind: 'hole', down: 4, up: 0 }] },
+    { street: 'flop', deal: [{ kind: 'board', count: 3 }] },
+    { street: 'turn', deal: [{ kind: 'board', count: 1 }] },
+    { street: 'river', deal: [{ kind: 'board', count: 1 }] },
+  ],
+}
+
+// Игра стола на выбор ведущего (#80)
+export const GAMES = { holdem: HOLDEM_GAME, omaha: OMAHA_GAME } as const
+export type GameId = keyof typeof GAMES
+
+// Предел ставки: без лимита или пот-лимит — рейз не больше банка (#80)
+export type Limit = 'nolimit' | 'pot'
 
 // Карты раздачи. На сервере — все; в виде для телефона (viewFor) колоды нет, а чужие
 // закрытые — null (рубашка)

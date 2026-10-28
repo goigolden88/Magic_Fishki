@@ -35,6 +35,8 @@ describe('экран стола', () => {
         label: 'Рейз',
         min: 20,
         max: 1000,
+        allIn: true,
+        potLimit: null,
         quick: [
           { label: 'Мин', to: 20 },
           { label: '½ банка', to: 22 },

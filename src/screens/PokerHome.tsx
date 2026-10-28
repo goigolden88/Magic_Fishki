@@ -7,9 +7,9 @@ import { lookOf, type Look } from '../calc/pokerLook'
 import { turnSecondsOf } from '../calc/pokerTimer'
 import { formSettings, tournamentForm, type TournamentForm } from '../calc/tournamentForm'
 import type { Regular } from '../model'
-import type { CardsMode } from '../poker/game'
+import type { CardsMode, GameId, Limit } from '../poker/game'
 import { PROTOCOL_VERSION, type CreateRoomRequest, type CreateRoomResponse } from '../poker/protocol'
-import { DEFAULT_SETTINGS, type Felt } from '../poker/table'
+import { DEFAULT_SETTINGS, type Felt, type Settings } from '../poker/table'
 import { getSettings } from '../store/db'
 import { ulid } from '../ulid'
 import { HudFields } from './Hud'
@@ -139,6 +139,7 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
   const [bbText, setBbText] = useState(String(DEFAULT_SETTINGS.bb))
   const [stackText, setStackText] = useState('')
   const [cards, setCards] = useState<CardsMode>(DEFAULT_SETTINGS.cards)
+  const [variant, setVariant] = useState<GameChoice>(DEFAULT_GAME)
   const [timer, setTimer] = useState<TimerForm>(() =>
     timerForm(DEFAULT_SETTINGS.turnSeconds ?? null, DEFAULT_SETTINGS.autoStart ?? 'off'),
   )
@@ -199,6 +200,7 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
         bb,
         startingStack: stack,
         cards,
+        ...gameSettings(variant),
         turnSeconds: turn.seconds,
         autoStart: timer.autoStart,
         ...look,
@@ -335,6 +337,8 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
         </p>
       </fieldset>
 
+      <GameFields choice={variant} phones={cards === 'phones'} onChange={setVariant} />
+
       {/* #75: стол на одном телефоне — без таймера и раздачи «сама» */}
       <TimerFields form={timer} onChange={setTimer} />
 
@@ -361,6 +365,73 @@ const CARDS_MODES: [CardsMode, string][] = [
   ['live', 'Живые'],
   ['phones', 'На телефонах'],
 ]
+
+// Игра и лимит стола (#80): холдем — без лимита; у омахи — пот-лимит (по умолчанию) или без лимита
+type GameChoice = { game: GameId; limit: Limit }
+
+const GAME_CHOICES: [GameId, string][] = [
+  ['holdem', 'Холдем'],
+  ['omaha', 'Омаха'],
+]
+
+const LIMIT_CHOICES: [Limit, string][] = [
+  ['pot', 'Пот-лимит'],
+  ['nolimit', 'Без лимита'],
+]
+
+const DEFAULT_GAME: GameChoice = { game: 'holdem', limit: 'pot' }
+
+// В настройки стола: лимит — только у омахи
+function gameSettings(c: GameChoice): Pick<Settings, 'game' | 'limit'> {
+  return c.game === 'omaha' ? { game: c.game, limit: c.limit } : { game: c.game }
+}
+
+function GameFields({ choice, phones, onChange }: { choice: GameChoice; phones: boolean; onChange: (c: GameChoice) => void }) {
+  const omaha = choice.game === 'omaha'
+  return (
+    <fieldset className="players-pick">
+      <legend className="muted">Игра</legend>
+      <div className="row">
+        {GAME_CHOICES.map(([game, label]) => (
+          <button
+            key={game}
+            type="button"
+            className={choice.game === game ? 'big primary grow' : 'big grow'}
+            aria-pressed={choice.game === game}
+            onClick={() => onChange({ ...choice, game })}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {omaha && (
+        <>
+          <p className="muted">Лимит</p>
+          <div className="row">
+            {LIMIT_CHOICES.map(([limit, label]) => (
+              <button
+                key={limit}
+                type="button"
+                className={choice.limit === limit ? 'big primary grow' : 'big grow'}
+                aria-pressed={choice.limit === limit}
+                onClick={() => onChange({ ...choice, limit })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+      <p className="muted">
+        {!omaha
+          ? 'Две карты на руках, ставки без лимита.'
+          : `Четыре карты на руках, рука — ровно две свои и три со стола${phones ? '' : ' (карты живые)'}. ${
+              choice.limit === 'pot' ? 'Рейз — не больше банка.' : 'Ставки без лимита.'
+            }`}
+      </p>
+    </fieldset>
+  )
+}
 
 type Field = [string, (text: string) => void]
 
@@ -401,6 +472,7 @@ function NewLocalCard({ onCancel }: { onCancel: () => void }) {
   const [bbText, setBbText] = useState(String(DEFAULT_SETTINGS.bb))
   const [stackText, setStackText] = useState('')
   const [felt, setFelt] = useState<Felt>(() => lookOf(DEFAULT_SETTINGS).felt)
+  const [variant, setVariant] = useState<GameChoice>(DEFAULT_GAME)
   const [format, setFormat] = useState<TournamentForm>(() => tournamentForm(0))
   const [error, setError] = useState<string | null>(null)
 
@@ -444,7 +516,7 @@ function NewLocalCard({ onCancel }: { onCancel: () => void }) {
       setError('Стол на этом телефоне уже идёт — закончите или удалите его')
       return
     }
-    const r = startLocalTable(players, { sb, bb, startingStack: stack, felt, ...game.settings }, Date.now(), () => ulid())
+    const r = startLocalTable(players, { sb, bb, startingStack: stack, felt, ...game.settings, ...gameSettings(variant) }, Date.now(), () => ulid())
     if (!r.ok) {
       setError(r.error)
       return
@@ -516,6 +588,9 @@ function NewLocalCard({ onCancel }: { onCancel: () => void }) {
       {/* #78: те же кэш с анте и турнир, что у комнаты */}
       <FormatFields form={format} players={players.length} onChange={setFormat} />
       {!game.ok && <p className="warn">{game.error}</p>}
+
+      {/* #80: игра и лимит — карты живые, лимит считает программа */}
+      <GameFields choice={variant} phones={false} onChange={setVariant} />
 
       {/* Карты живые (Р-21) — рубашки нет, только сукно */}
       <LookFields look={{ ...lookOf(DEFAULT_SETTINGS), felt }} backs={false} onChange={(l) => l.felt && setFelt(l.felt)} />

@@ -3,7 +3,7 @@
 // скажет сервер. Время — параметром now, как у стола
 import type { Card } from '../poker/cards'
 import { publicCards } from '../poker/game'
-import type { HandLogEntry, Stage } from '../poker/hand'
+import { potLimit, type HandLogEntry, type Stage } from '../poker/hand'
 import { HUD_FEW_HANDS } from '../poker/hud'
 import { buildPots } from '../poker/pots'
 import { blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type TableState } from '../poker/table'
@@ -86,7 +86,9 @@ export type PotView = { label: string; amount: number; eligible: { id: string; n
 export type RaiseView = {
   label: 'Ставка' | 'Рейз'
   min: number // до какой ставки улицы — не меньше
-  max: number // и не больше (это уже олл-ин)
+  max: number // и не больше: олл-ин, а в пот-лимите — не больше банка
+  allIn: boolean // max — это олл-ин
+  potLimit: number | null // пот-лимит (#80): «Не больше банка: N» — до этой ставки; без лимита — null
   quick: { label: string; to: number }[]
 }
 
@@ -349,11 +351,14 @@ export function actionsView(table: TableState, meId: string): ActionsView | null
   const seat = hand.seats[index]
   if (seat.folded || seat.allIn) return null
   const toCall = Math.max(0, hand.currentBet - seat.bet)
-  const max = seat.bet + seat.chips
+  const stack = seat.bet + seat.chips // олл-ин — до этой ставки
   // Неполный олл-ин не открывает торги тому, кто уже ходил (hand.ts, raise)
   const reopened = !(seat.acted && seat.actedAt >= hand.fullBet)
   const min = hand.currentBet + hand.minRaise
-  const canRaise = reopened && max >= min
+  const canRaise = reopened && stack >= min
+  // Пот-лимит (#80): выше «пота» не поставить — и олл-ином тоже
+  const cap = potLimit(hand, seat)
+  const max = cap !== null ? Math.min(stack, cap) : stack
   const pot = hand.seats.reduce((sum, s) => sum + s.committed, 0)
   return {
     myTurn: index === hand.toAct,
@@ -364,26 +369,30 @@ export function actionsView(table: TableState, meId: string): ActionsView | null
           label: hand.currentBet === 0 ? 'Ставка' : 'Рейз',
           min,
           max,
-          quick: quickRaises(hand.currentBet, toCall, pot, min, max),
+          allIn: max === stack,
+          potLimit: cap,
+          quick: quickRaises(hand.currentBet, toCall, pot, min, max, cap !== null && cap < stack),
         }
       : null,
-    allIn: max <= hand.currentBet || reopened ? max : null,
+    allIn: stack <= hand.currentBet || (reopened && (cap === null || stack <= cap)) ? stack : null,
   }
 }
 
-// Быстрые суммы: минимум, полбанка и банк (банк — после уравнивания), в пределах min…max
-function quickRaises(currentBet: number, toCall: number, pot: number, min: number, max: number) {
+// Быстрые суммы: минимум, полбанка и банк (банк — после уравнивания), в пределах min…max; олл-ин на
+// экране — своей кнопкой. Пот-лимит, а «пот» меньше стека (potTop) — вместо «Банк» кнопка «Пот» до max
+function quickRaises(currentBet: number, toCall: number, pot: number, min: number, max: number, potTop: boolean) {
   const afterCall = pot + toCall
   const options = [
     { label: 'Мин', to: min },
     { label: '½ банка', to: currentBet + Math.floor(afterCall / 2) },
-    { label: 'Банк', to: currentBet + afterCall },
+    ...(potTop ? [] : [{ label: 'Банк', to: currentBet + afterCall }]),
   ]
   const out: { label: string; to: number }[] = []
   for (const o of options) {
     const to = Math.min(max, Math.max(min, o.to))
     if (to < max && !out.some((x) => x.to === to)) out.push({ label: o.label, to })
   }
+  if (potTop) out.push({ label: 'Пот', to: max })
   return out
 }
 

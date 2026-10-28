@@ -6,7 +6,17 @@
 // Карты на телефонах (Р-23): колоду тасует сервер и подаёт в handle; после торгов банки
 // раздаются сами по силе руки; каждому телефону — свой вид стола (viewFor)
 import { bestHand, winners as bestHands, type Card } from './cards'
-import { cardsNeeded, HOLDEM_GAME, isDeckOf, publicCards, runOut, type CardsMode, type GameDef } from './game'
+import {
+  cardsNeeded,
+  GAMES,
+  isDeckOf,
+  publicCards,
+  runOut,
+  type CardsMode,
+  type GameDef,
+  type GameId,
+  type Limit,
+} from './game'
 import { act, awardPots, dealOrder, startHand, type Hand, type HandLogEntry } from './hand'
 import { addHand, type Hud } from './hud'
 import { PROTOCOL_VERSION, VERSION_ERROR, type BetAction, type ClientBody } from './protocol'
@@ -46,6 +56,10 @@ export type Settings = {
   tournament?: TournamentSettings // структура турнира; есть, когда format — 'tournament'
   // HUD вечера (#79): true — видят все, иначе каждый только свой. У столов до него поля нет — только свой
   publicHud?: boolean
+  // Игра (#80): холдем или омаха — при любых картах; у столов до него поля нет — холдем.
+  // limit — у омахи: пот-лимит (нет поля — он) или без лимита; холдем — всегда без лимита
+  game?: GameId
+  limit?: Limit
 }
 
 export type TableFormat = 'cash' | 'tournament'
@@ -80,10 +94,16 @@ export const DEFAULT_SETTINGS: Settings = {
   cardBack: 'classic',
 }
 
-// Описание игры для новой раздачи: карты на телефонах — холдем (пока одно); живые — null.
+// Описание игры для новой раздачи: карты на телефонах — игра стола (нет поля — холдем); живые — null.
 // У столов до этапа 2 поля cards нет — живые. По нему сервер знает, какую колоду тасовать
 export function gameFor(settings: Settings): GameDef | null {
-  return settings.cards === 'phones' ? HOLDEM_GAME : null
+  return settings.cards === 'phones' ? GAMES[settings.game ?? 'holdem'] : null
+}
+
+// Предел ставки новой раздачи (#80): омаха — по настройке, по умолчанию пот-лимит; холдем — без лимита.
+// Живые карты — тоже: лимит считает программа
+export function limitFor(settings: Settings): Limit {
+  return settings.game === 'omaha' ? (settings.limit ?? 'pot') : 'nolimit'
 }
 
 // Ведущий вне сети дольше этого — остальные могут взять ведение
@@ -429,7 +449,7 @@ function start(state: TableState, deck: Card[] | undefined, now: number): string
   if (typeof state.tournament?.endedAt === 'number') return 'Турнир окончен'
   const playing = state.players.filter((p) => p.chips > 0 && !p.sittingOut).sort((a, b) => a.seat - b.seat)
   if (playing.length < 2) return 'Нужно хотя бы двое с фишками'
-  // Карты на телефонах: описание игры — у раздачи (сейчас одно — холдем), колода — от сервера
+  // Карты на телефонах: описание игры — у раздачи (холдем или омаха), колода — от сервера
   let deal: { game: GameDef; deck: Card[] } | undefined
   const game = gameFor(state.settings)
   if (game) {
@@ -449,7 +469,7 @@ function start(state: TableState, deck: Card[] | undefined, now: number): string
   state.buttonSeat = playing[button].seat
   state.handCount++
   const { sb, bb, ante } = blindsNow(state, now)
-  state.hand = startHand(state.handCount, playing, button, sb, bb, deal, ante)
+  state.hand = startHand(state.handCount, playing, button, sb, bb, deal, ante, limitFor(state.settings))
   return null
 }
 
@@ -833,6 +853,8 @@ function settingsError(s: Settings): string | null {
   }
   if (s.ante !== undefined && (!Number.isInteger(s.ante) || s.ante < 0)) return 'Анте — целое число фишек, не меньше нуля'
   if (s.publicHud !== undefined && typeof s.publicHud !== 'boolean') return 'HUD видят — все или каждый только свою'
+  if (s.game !== undefined && !Object.hasOwn(GAMES, s.game)) return 'Игра — холдем или омаха'
+  if (s.limit !== undefined && s.limit !== 'nolimit' && s.limit !== 'pot') return 'Лимит — пот-лимит или без лимита'
   const format = s.format ?? 'cash'
   if (format !== 'cash' && format !== 'tournament') return 'Игра — кэш или турнир'
   if (format === 'tournament') return tournamentError(s.tournament)

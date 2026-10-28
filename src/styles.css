@@ -1102,6 +1102,29 @@ button.seat.free {
   width: max(var(--seat-w) * 1.3, 5.7rem);
 }
 
+/* Омаха (#80): четыре карты у места — ряд во всю ширину места, карты сжимаются и мельче;
+   моё место шире, чтобы четыре свои карты читались и на 360 px */
+.seat.many .card-row:not(.best-row) {
+  display: flex;
+  gap: 1px;
+}
+
+.seat.many .card-row:not(.best-row) .playing-card.small {
+  flex: 0 1 1rem;
+  min-width: 0;
+  font-size: 0.55rem;
+}
+
+.seat.me.many {
+  width: max(var(--seat-w) * 1.3, 7.5rem);
+}
+
+.seat.me.many .seat-cards .playing-card,
+.seat.me.many .card-row .playing-card.mid {
+  font-size: 0.85rem;
+  letter-spacing: -0.05em;
+}
+
 .best-row {
   gap: 1px;
 }
@@ -1141,6 +1164,12 @@ button.seat.free {
   -webkit-user-select: none;
   -webkit-touch-callout: none;
   cursor: pointer;
+}
+
+/* Четыре крупные карты омахи (#80) на узком телефоне — сжимаются, а не уходят за край */
+.peek-cards .playing-card {
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 /* Под столом: «Мои карты всегда открыты» (#86) и подсказка про палец */
