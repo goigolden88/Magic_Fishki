@@ -1,5 +1,5 @@
-// Вид стола покера: кто где сидит вокруг овала и ползунок ставки. Только числа для экрана —
-// правил не держит: границы ставки берёт из RaiseView (pokerView.ts)
+// Вид стола покера: кто где сидит вокруг овала, ползунок ставки и что лежит в панели внизу экрана.
+// Только числа и подписи для экрана — правил не держит: границы ставки берёт из RaiseView (pokerView.ts)
 
 // Места по кругу от меня: я — первым (внизу по центру), дальше по порядку мест, по часовой
 export function aroundTable<T extends { isMe: boolean }>(seats: T[]): T[] {
@@ -7,15 +7,90 @@ export function aroundTable<T extends { isMe: boolean }>(seats: T[]): T[] {
   return me <= 0 ? seats : [...seats.slice(me), ...seats.slice(0, me)]
 }
 
-// Точка места i из n на овале, в процентах рамки (x — слева, y — сверху): 0 — внизу по центру,
-// дальше по часовой — влево, вверх, вправо. radius — доля от края до центра: 1 — край, 0 — центр
-export function seatSpot(i: number, n: number, radius = 1): { x: number; y: number } {
-  const angle = Math.PI / 2 + (2 * Math.PI * i) / Math.max(1, n)
-  return { x: round(50 + 50 * radius * Math.cos(angle)), y: round(50 + 50 * radius * Math.sin(angle)) }
+export type Spot = { x: number; y: number } // проценты слоя мест: x — слева, y — сверху
+
+// Сколько места занимает место у стола, в процентах слоя мест, на самом тесном экране — телефоне
+// 360×640 с панелью хода (на 320 px по ширине — так же): соседи не ближе этого по ширине или по высоте
+export const SEAT_W = 31
+export const SEAT_H = 30
+
+// Готовые точки на каждое число мест (#97), как у покерных клиентов: я внизу по центру, остальные
+// по часовой — столбиком вверх по левому краю, по верху, столбиком вниз по правому. Левый столбик —
+// снизу вверх, верх — слева направо; правый столбик — зеркало левого. Соседи по столбику — не ближе
+// SEAT_H по высоте, по верху — не ближе SEAT_W по ширине: на узком телефоне стол ниже, чем был овал
+// с местами по кругу, и девять–десять мест по кругу наезжали бы друг на друга
+const SPOTS: { left: Spot[]; top: Spot[] }[] = [
+  { left: [], top: [] }, // 1 — только я
+  { left: [], top: [{ x: 50, y: 0 }] },
+  { left: [{ x: 0, y: 25 }], top: [] },
+  { left: [{ x: 0, y: 45 }], top: [{ x: 50, y: 0 }] },
+  { left: [{ x: 0, y: 62 }], top: [{ x: 30, y: 0 }, { x: 70, y: 0 }] },
+  { left: [{ x: 0, y: 72 }, { x: 0, y: 24 }], top: [{ x: 50, y: 0 }] },
+  { left: [{ x: 0, y: 76 }, { x: 0, y: 34 }], top: [{ x: 32, y: 0 }, { x: 68, y: 0 }] },
+  { left: [{ x: 2, y: 90 }, { x: 0, y: 52 }, { x: 0, y: 14 }], top: [{ x: 50, y: 0 }] },
+  { left: [{ x: 2, y: 92 }, { x: 0, y: 56 }, { x: 0, y: 20 }], top: [{ x: 33, y: 0 }, { x: 67, y: 0 }] },
+  { left: [{ x: 3, y: 100 }, { x: 0, y: 67 }, { x: 0, y: 33 }, { x: 3, y: 0 }], top: [{ x: 50, y: 0 }] },
+]
+
+// Точки n мест по порядку: 0 — внизу по центру, дальше по часовой — влево, вверх, вправо.
+// Мест больше, чем в готовых, — по кругу овала
+export function seatSpots(n: number): Spot[] {
+  const k = Math.max(1, Math.round(n))
+  const set = SPOTS[k - 1]
+  if (!set) return Array.from({ length: k }, (_, i) => ovalSpot(i, k))
+  const right = [...set.left].reverse().map((p) => ({ x: 100 - p.x, y: p.y }))
+  return [{ x: 50, y: 100 }, ...set.left, ...set.top, ...right]
+}
+
+function ovalSpot(i: number, n: number): Spot {
+  const angle = Math.PI / 2 + (2 * Math.PI * i) / n
+  return { x: round(50 + 50 * Math.cos(angle)), y: round(50 + 50 * Math.sin(angle)) }
 }
 
 function round(x: number): number {
   return Math.round(x * 100) / 100
+}
+
+// Ставка улицы — у края места, обращённого к центру стола: у столбиков — сбоку, сверху — снизу места,
+// внизу — над местом
+export type BetSide = 'left' | 'right' | 'above' | 'below'
+
+export function betSide({ x, y }: Spot): BetSide {
+  if (x <= 10) return 'right'
+  if (x >= 90) return 'left'
+  return y < 50 ? 'below' : 'above'
+}
+
+// Панель внизу экрана стола (#97): в свой ход — кнопки хода; идёт раздача, а ход не мой — узкая полоса
+// «Ждём хода»; между раздачами — кнопки ведущего (кроме оконченного турнира); иначе панели нет
+export type Dock = 'turn' | 'wait' | 'host' | 'none'
+
+export function dockOf(v: {
+  actions: { myTurn: boolean } | null
+  stage: string | null
+  isHost: boolean
+  tournament: { ended: boolean } | null
+}): Dock {
+  if (v.actions?.myTurn) return 'turn'
+  if (v.stage !== null) return 'wait'
+  if (v.isHost && !v.tournament?.ended) return 'host'
+  return 'none'
+}
+
+// Полоса «Ждём хода»: чей ход и сколько секунд; торги закрыты — кто отдаёт банк
+export function waitLine(v: {
+  toActName: string | null
+  turnLeft: number | null
+  stage: string | null
+  stageLabel: string
+  isHost: boolean
+  phoneCards: boolean
+}): string {
+  if (v.toActName) return `Ждём хода · ${v.toActName}${v.turnLeft !== null ? ` · ${v.turnLeft} с` : ''}`
+  if (v.stage === 'showdown' && !v.phoneCards) {
+    return `${v.stageLabel} — ${v.isHost ? 'отметьте победителя ниже' : 'ведущий отмечает победителя'}`
+  }
+  return v.stageLabel
 }
 
 // Ползунок: позиция 0 — минимальная ставка, steps — олл-ин; шаг — малый блайнд,
