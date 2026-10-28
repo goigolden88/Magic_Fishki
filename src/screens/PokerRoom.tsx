@@ -39,6 +39,7 @@ import type { TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 import { openGameYear } from './openYears'
+import { HudCard, HudFields, HudLine } from './Hud'
 import { LookFields } from './LookFields'
 import { loadOpenCards, loadRecordedGame, loadTurnSound, saveOpenCards, saveRecordedGame } from './pokerStorage'
 import { TimerFields, timerForm, type TimerForm } from './TimerFields'
@@ -551,11 +552,14 @@ function ShowCard(props: {
 // на все «Мест за столом», spotsBySeat); между раздачами — и свободные места (#98). Ставка улицы — у места
 // со стороны стола, в центре — улица и банк. Стол заполняет свою рамку (#97): у комнаты и у стола
 // на телефоне — всё место над панелью хода. open — свои карты лицом без пальца (#86).
-// onSeat — касание свободного места пересаживает меня туда; нет — свободные места только видны
+// onSeat — касание свободного места пересаживает меня туда; нет — свободные места только видны.
+// HUD вечера (#79) — строкой у места, касание строки — подробно поверх стола
 export function PokerTable(props: { view: TableView; open?: boolean; onSeat?: (seat: number) => void }) {
   const { view: v, open = false, onSeat } = props
+  const [hudOf, setHudOf] = useState<string | null>(null)
   const bottom = v.me?.seat ?? 0
   const spots = spotsBySeat(v.maxSeats, v.me?.seat ?? null)
+  const hudSeat = v.seats.find((s) => s.id === hudOf && s.hud !== null)
   return (
     <div className="felt-wrap">
       <div className="felt" />
@@ -593,12 +597,14 @@ export function PokerTable(props: { view: TableView; open?: boolean; onSeat?: (s
             bottom={s.seat === bottom}
             myCards={s.isMe ? v.myCards : null}
             open={open}
+            onHud={() => setHudOf(s.id)}
           />
         ))}
         {v.freeSeats.map((k) => (
           <FreeSeat key={`free-${k}`} seat={k} at={spots[k]} bottom={k === bottom} onSeat={onSeat} />
         ))}
       </div>
+      {hudSeat?.hud && <HudCard name={hudSeat.name} hud={hudSeat.hud} onClose={() => setHudOf(null)} />}
     </div>
   )
 }
@@ -631,9 +637,10 @@ function FreeSeat(props: { seat: number; at: Spot; bottom: boolean; onSeat?: (se
 }
 
 // Место у стола. bottom — нижнее по центру (я): растёт вверх от низа рамки, остальные — от своей точки
-// в обе стороны. myCards — мои карты в раздаче: крупнее чужих, лицом — пока держишь палец или «всегда открыты»
-function SeatSpot(props: { seat: SeatView; at: Spot; bottom: boolean; myCards: Card[] | null; open: boolean }) {
-  const { seat: s, at, bottom, myCards, open } = props
+// в обе стороны. myCards — мои карты в раздаче: крупнее чужих, лицом — пока держишь палец или «всегда открыты».
+// onHud — касание строки HUD (#79): подробно
+function SeatSpot(props: { seat: SeatView; at: Spot; bottom: boolean; myCards: Card[] | null; open: boolean; onHud: () => void }) {
+  const { seat: s, at, bottom, myCards, open, onHud } = props
   const marks = [
     s.place !== null && `${s.place} место`,
     s.allIn && 'олл-ин',
@@ -658,6 +665,7 @@ function SeatSpot(props: { seat: SeatView; at: Spot; bottom: boolean; myCards: C
         {s.isMe && <span className="visually-hidden"> (вы)</span>}
       </span>
       <span className="seat-chips">{formatNumber(s.chips)}</span>
+      {s.hud && <HudLine hud={s.hud} onOpen={onHud} />}
       {myCards ? (
         <PeekCards cards={myCards} open={open} size="mid" className="seat-cards" />
       ) : (
@@ -970,7 +978,12 @@ function HostCard(props: {
 
       {!hand && (
         <TableSettingsCard
-          key={JSON.stringify([timerSettings(table.settings), table.settings.ante, table.settings.tournament?.prizes])}
+          key={JSON.stringify([
+            timerSettings(table.settings),
+            table.settings.ante,
+            table.settings.tournament?.prizes,
+            table.settings.publicHud,
+          ])}
           room={room}
           table={table}
           view={v}
@@ -1162,12 +1175,15 @@ export function MoveSeat(props: { view: TableView; seat: number; online: boolean
 
 // «Настройки стола» ведущего между раздачами (#75): время на ход и раздача «сама» — со следующей раздачи.
 // Сохранили — форма заново из стола (key)
-// Кэш (#78) — ещё и анте; турнир до «Начать турнир» — призы по местам: тогда видно, сколько пришло
+// Кэш (#78) — ещё и анте; турнир до «Начать турнир» — призы по местам: тогда видно, сколько пришло.
+// Кому виден HUD (#79) — здесь же
 function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableState; view: TableView }) {
   const saved = timerSettings(table.settings)
   const [form, setForm] = useState<TimerForm>(() => timerForm(saved.turnSeconds, saved.autoStart))
   const savedAnte = table.settings.ante ?? 0
   const [anteText, setAnteText] = useState(String(savedAnte))
+  const savedHud = table.settings.publicHud === true
+  const [publicHud, setPublicHud] = useState(savedHud)
   const savedPrizes = table.settings.tournament?.prizes ?? null
   const [prizesOwn, setPrizesOwn] = useState(savedPrizes !== null)
   const [prizes, setPrizes] = useState<string[]>(() => (savedPrizes ?? []).map(String))
@@ -1181,7 +1197,11 @@ function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableS
   const ok = turn.ok && ante !== null && newPrizes !== undefined
   const changed =
     turn.ok &&
-    (turn.seconds !== saved.turnSeconds || form.autoStart !== saved.autoStart || ante !== savedAnte || prizesChanged)
+    (turn.seconds !== saved.turnSeconds ||
+      form.autoStart !== saved.autoStart ||
+      ante !== savedAnte ||
+      prizesChanged ||
+      publicHud !== savedHud)
 
   function save() {
     if (!turn.ok || ante === null) return
@@ -1189,6 +1209,7 @@ function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableS
       type: 'tableSettings',
       turnSeconds: turn.seconds,
       autoStart: form.autoStart,
+      publicHud,
       ...(t ? {} : { ante }),
       ...(prizesChanged && newPrizes !== undefined ? { prizes: newPrizes } : {}),
     })
@@ -1219,6 +1240,7 @@ function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableS
           }}
         />
       )}
+      <HudFields all={publicHud} onChange={setPublicHud} />
       <button type="button" className="big primary wide" disabled={!changed || !ok || !room.online} onClick={save}>
         Сохранить
       </button>

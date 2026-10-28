@@ -8,6 +8,7 @@
 import { bestHand, winners as bestHands, type Card } from './cards'
 import { cardsNeeded, HOLDEM_GAME, isDeckOf, publicCards, runOut, type CardsMode, type GameDef } from './game'
 import { act, awardPots, dealOrder, startHand, type Hand, type HandLogEntry } from './hand'
+import { addHand, type Hud } from './hud'
 import { PROTOCOL_VERSION, VERSION_ERROR, type BetAction, type ClientBody } from './protocol'
 import {
   addBusts,
@@ -43,6 +44,8 @@ export type Settings = {
   format?: TableFormat
   ante?: number // анте кэша с каждого, фишек; 0 — нет
   tournament?: TournamentSettings // структура турнира; есть, когда format — 'tournament'
+  // HUD вечера (#79): true — видят все, иначе каждый только свой. У столов до него поля нет — только свой
+  publicHud?: boolean
 }
 
 export type TableFormat = 'cash' | 'tournament'
@@ -148,6 +151,9 @@ export type TableState = {
   timeouts?: Record<string, number> // истечений хода подряд у игрока
   // Турнир (#78): часы уровней, места, призы; null — турнир не начат или стол — кэш. У столов до #78 поля нет
   tournament?: TournamentState | null
+  // HUD вечера (#79): счётчики по игрокам за этот стол, прибавляются в конце раздачи (hud.ts).
+  // У столов до #79 поля нет — с нуля
+  hud?: Hud
 }
 
 // Срок хода: ход — номер раздачи и число ходов в ней (log), чтобы будильник не принял старый срок за новый
@@ -181,6 +187,7 @@ export function createTable(
     nextHandAt: null,
     timeouts: {},
     tournament: null,
+    hud: {},
   }
   const sitError = sit(state, hostId, hostName, now, hostRegularId)
   return sitError ? { ok: false, error: sitError } : { ok: true, state }
@@ -278,10 +285,15 @@ function armNext(state: TableState, now: number): void {
 }
 
 // Что видит телефон игрока playerId: без колоды и без чужих закрытых карт — ни в раздаче,
-// ни в записи прошлой (карты взявшего без вскрытия — только ему). null — не вошедший
+// ни в записи прошлой (карты взявшего без вскрытия — только ему). HUD «только свой» (#79) — без
+// чужих счётчиков. null — не вошедший
 export function viewFor(table: TableState, playerId: string | null): TableState {
-  if (!table.hand?.cards && !table.lastHand?.record?.hidden) return table
+  const hud = table.hud ?? {}
+  const hideHud = !table.settings.publicHud && Object.keys(hud).some((id) => id !== playerId)
+  if (!table.hand?.cards && !table.lastHand?.record?.hidden && !hideHud) return table
   const view = structuredClone(table)
+  const mine = playerId !== null ? view.hud?.[playerId] : undefined
+  if (hideHud) view.hud = mine && playerId !== null ? { [playerId]: mine } : {}
   const cards = view.hand?.cards
   if (cards) {
     cards.deck = []
@@ -626,11 +638,15 @@ function finishHand(
     ...(record ? { record } : {}),
   }
   state.hand = null
+  // HUD вечера (#79) — по ходам раздачи; ушедших за время раздачи — не считать
+  const seated = new Set(state.players.map((p) => p.id))
+  const hud = addHand(state.hud ?? {}, hand)
+  for (const id of Object.keys(hud)) if (!seated.has(id)) delete hud[id]
+  state.hud = hud
   // Докупы, одобренные во время раздачи, — в стек сейчас, между раздачами
   for (const r of state.approvedRebuys) addRebuy(state, r.playerId, r.amount, r.by, now)
   state.approvedRebuys = []
   // Турнир: без фишек после раздачи — выбыл; стек до неё — сейчас минус выигрыш плюс вложенное
-  const seated = new Set(state.players.map((p) => p.id))
   const busts = hand.seats
     .filter((s) => s.chips === 0 && seated.has(s.id))
     .map((s) => ({ playerId: s.id, hand: hand.number, chips: s.chips - (payouts[s.id] ?? 0) + s.committed }))
@@ -653,12 +669,13 @@ function pause(state: TableState, paused: boolean, now: number): string | null {
   return null
 }
 
-// Время на ход и раздача «сама» — ведущий, между раздачами; действуют со следующей раздачи
+// Время на ход, раздача «сама» и кому виден HUD (#79) — ведущий, между раздачами; действуют со следующей раздачи
 function changeSettings(state: TableState, msg: Extract<ClientBody, { type: 'tableSettings' }>, now: number): string | null {
   if (state.hand) return 'Настройки стола меняются между раздачами'
   const s: Settings = { ...state.settings }
   if ('turnSeconds' in msg) s.turnSeconds = msg.turnSeconds
   if ('autoStart' in msg) s.autoStart = msg.autoStart
+  if ('publicHud' in msg) s.publicHud = msg.publicHud
   const tournament = s.format === 'tournament'
   // Анте кэша (#78) — со следующей раздачи; в турнире анте — по уровням
   if ('ante' in msg) {
@@ -780,6 +797,7 @@ function remove(state: TableState, by: string, playerId: string, now: number): s
   state.players = state.players.filter((x) => x.id !== playerId)
   state.rebuyRequests = state.rebuyRequests.filter((r) => r.playerId !== playerId)
   state.approvedRebuys = state.approvedRebuys.filter((r) => r.playerId !== playerId)
+  if (state.hud) delete state.hud[playerId]
   // Турнир: ушёл — выбыл сразу, место — по моменту ухода, его фишки из игры уходят
   const clock = state.tournament
   if (clock && !clock.out.some((b) => b.playerId === playerId)) {
@@ -814,6 +832,7 @@ function settingsError(s: Settings): string | null {
     return 'Рубашка карт — классика, синяя, зелёная или гео'
   }
   if (s.ante !== undefined && (!Number.isInteger(s.ante) || s.ante < 0)) return 'Анте — целое число фишек, не меньше нуля'
+  if (s.publicHud !== undefined && typeof s.publicHud !== 'boolean') return 'HUD видят — все или каждый только свою'
   const format = s.format ?? 'cash'
   if (format !== 'cash' && format !== 'tournament') return 'Игра — кэш или турнир'
   if (format === 'tournament') return tournamentError(s.tournament)

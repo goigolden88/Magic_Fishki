@@ -3,7 +3,7 @@
 // комнат, а от чьего имени слать сообщение — решается здесь. Время — параметром now
 import { PROTOCOL_VERSION, type BetAction, type ClientBody } from '../poker/protocol'
 import { createTable, handle, type Result, type Settings, type TableState } from '../poker/table'
-import { actionsView, tableView, type TableView } from './pokerView'
+import { actionsView, hudView, tableView, type TableView } from './pokerView'
 
 // Мест у стола — предел правил (settingsError): за столом все, кого отметили, и место новым
 export const LOCAL_MAX_SEATS = 10
@@ -99,13 +99,13 @@ export function removePlayer(table: TableState, playerId: string, now: number): 
 }
 
 // Вид стола для телефона ведущего: кнопки ведущего всегда, кнопки хода — того, чей ход;
-// «меня» за столом нет — места по порядку, без «вы»
+// «меня» за столом нет — места по порядку, без «вы»; HUD (#79) — у всех: телефон один
 export function localTableView(table: TableState, now: number): TableView {
   const v = tableView(table, table.hostId, now)
   const id = toActId(table)
   return {
     ...v,
-    seats: v.seats.map((s) => ({ ...s, isMe: false })),
+    seats: v.seats.map((s) => ({ ...s, isMe: false, hud: hudView(table, s.id) })),
     me: null,
     actions: id ? actionsView(table, id) : null,
     canTakeHost: false,

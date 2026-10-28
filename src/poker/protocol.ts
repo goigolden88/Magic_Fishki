@@ -14,7 +14,8 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 //     «Закончить турнир» ведущего (endTournament)
 // 9 — выигрышная комбинация картами (#96): лучшая пятёрка дошедших до вскрытия в записи раздачи (best)
 // 10 — пересадка на свободное место между раздачами (#98): сам или ведущим за другого (moveSeat)
-export const PROTOCOL_VERSION = 10
+// 11 — HUD вечера (#79): счётчики игроков в столе (hud), настройка publicHud — при создании и в tableSettings
+export const PROTOCOL_VERSION = 11
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -66,9 +67,16 @@ export type ClientBody =
   | { type: 'pause'; paused: boolean } // ведущий: «Перерыв» и «Продолжить»; в турнире — и часы уровней
   | { type: 'tournamentRebuy' } // выбывший в турнире: ребай за бай-ин, стек — стартовый
   | { type: 'endTournament' } // ведущий: «Закончить турнир», пока с фишками один и ждём ребая
-  // ведущий, между раздачами: время на ход (null — без таймера), раздача «сама», анте кэша и призы
-  // турнира до его начала (null — по числу игроков); нет поля — не меняется
-  | { type: 'tableSettings'; turnSeconds?: number | null; autoStart?: AutoStart; ante?: number; prizes?: number[] | null }
+  // ведущий, между раздачами: время на ход (null — без таймера), раздача «сама», анте кэша, призы
+  // турнира до его начала (null — по числу игроков) и кому виден HUD; нет поля — не меняется
+  | {
+      type: 'tableSettings'
+      turnSeconds?: number | null
+      autoStart?: AutoStart
+      ante?: number
+      prizes?: number[] | null
+      publicHud?: boolean
+    }
   // ведущий, в любой момент: вид стола — сукно и рубашка карт; нет поля — не меняется
   | { type: 'look'; felt?: Felt; cardBack?: CardBack }
 

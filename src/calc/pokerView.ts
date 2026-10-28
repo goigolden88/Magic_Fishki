@@ -4,6 +4,7 @@
 import type { Card } from '../poker/cards'
 import { publicCards } from '../poker/game'
 import type { HandLogEntry, Stage } from '../poker/hand'
+import { HUD_FEW_HANDS } from '../poker/hud'
 import { buildPots } from '../poker/pots'
 import { blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type TableState } from '../poker/table'
 import {
@@ -17,7 +18,7 @@ import {
   standings,
   type Level,
 } from '../poker/tournament'
-import { formatNumber } from './format'
+import { formatNumber, formatTenths } from './format'
 
 export type SeatView = {
   // Карты у места (карты на телефонах): в раздаче — рубашки (null), открытые всем — лицом,
@@ -43,6 +44,19 @@ export type SeatView = {
   sittingOut: boolean
   turnLeft: number | null // чей ход и таймер идёт — сколько секунд осталось
   place: number | null // турнир: место выбывшего, а когда окончен — у всех; иначе null
+  hud: HudView | null // HUD вечера (#79): раздач ещё не было или HUD чужой при «только свою» — null
+}
+
+// HUD вечера (#79): проценты — целые; null — не было случая (ATS, CB). AF — «1,5», «∞» (коллов нет,
+// а рейзы были) или «—» (ни того, ни другого)
+export type HudView = {
+  hands: number
+  few: boolean // меньше HUD_FEW_HANDS раздач — «мало раздач»
+  vpip: number
+  pfr: number
+  af: string
+  ats: number | null
+  cb: number | null
 }
 
 // Турнир (#78): уровень, отсчёт до следующего, фонд и призы, ребай
@@ -166,6 +180,7 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
         sittingOut: p.sittingOut,
         turnLeft: hand !== null && index !== -1 && index === hand.toAct ? turnLeft : null,
         place: places.get(p.id) ?? null,
+        hud: table.settings.publicHud || p.id === meId ? hudView(table, p.id) : null,
       }
     })
   const me = seats.find((s) => s.isMe) ?? null
@@ -255,6 +270,23 @@ export function tournamentView(table: TableState, meId: string, now: number): To
           prize: ended ? (amounts[i] ?? 0) : 0,
         }))
       : [],
+  }
+}
+
+// HUD игрока за вечер — числа для экрана; раздач не было — null. Кому его видно, решает вызывающий:
+// tableView — по настройке стола, стол на одном телефоне — всем
+export function hudView(table: TableState, playerId: string): HudView | null {
+  const c = table.hud?.[playerId]
+  if (!c || c.hands === 0) return null
+  const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : null)
+  return {
+    hands: c.hands,
+    few: c.hands < HUD_FEW_HANDS,
+    vpip: pct(c.vpip, c.hands) ?? 0,
+    pfr: pct(c.pfr, c.hands) ?? 0,
+    af: c.calls > 0 ? formatTenths(c.raises / c.calls) : c.raises > 0 ? '∞' : '—',
+    ats: pct(c.steals, c.stealChances),
+    cb: pct(c.cbs, c.cbChances),
   }
 }
 
