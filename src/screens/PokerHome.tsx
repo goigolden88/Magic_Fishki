@@ -366,7 +366,8 @@ const CARDS_MODES: [CardsMode, string][] = [
   ['phones', 'На телефонах'],
 ]
 
-// Игра и лимит стола (#80): холдем — без лимита; у омахи — пот-лимит (по умолчанию) или без лимита
+// «Покер» — игра и лимит стола (#80): холдем — без лимита; у омахи — пот-лимит (по умолчанию) или без лимита.
+// «Игра» в форме уже есть — кэш или турнир (#78)
 type GameChoice = { game: GameId; limit: Limit }
 
 const GAME_CHOICES: [GameId, string][] = [
@@ -390,7 +391,7 @@ function GameFields({ choice, phones, onChange }: { choice: GameChoice; phones: 
   const omaha = choice.game === 'omaha'
   return (
     <fieldset className="players-pick">
-      <legend className="muted">Игра</legend>
+      <legend className="muted">Покер</legend>
       <div className="row">
         {GAME_CHOICES.map(([game, label]) => (
           <button

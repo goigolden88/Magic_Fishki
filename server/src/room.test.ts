@@ -273,6 +273,19 @@ describe('карты на телефонах', () => {
     }
   })
 
+  it('омаха (#80): каждому четыре карты, чужих нет; раздача — с пот-лимитом', async () => {
+    const { r, host, hostId, guests } = await cardsRoom({ game: 'omaha' })
+    await send(r, host, { type: 'start' })
+    const room = await stored(r)
+    expect(room?.table.hand?.cards?.game.id).toBe('omaha')
+    expect(room?.table.hand?.limit).toBe('pot')
+    expect(room?.table.hand?.cards?.deck).toHaveLength(52 - 12)
+    for (const { peer, id } of [{ peer: host, id: hostId }, ...guests]) {
+      expect(leaked(peer, secretsFor(room, id))).toEqual([])
+      expect(tableOf(peer).hand?.cards?.hole[id]).toHaveLength(4)
+    }
+  })
+
   it('колода — новая каждую раздачу, тасует комната', async () => {
     const { r, host } = await cardsRoom()
     await send(r, host, { type: 'start' })
