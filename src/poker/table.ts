@@ -339,6 +339,11 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
       // Вернулся в раздачи — истечения считаются заново
       return p.sittingOut ? null : resetTimeouts(state, id)
     }
+    case 'moveSeat': {
+      const id = msg.playerId ?? from
+      if (id !== from && !isHost) return hostOnly
+      return moveSeat(state, id, msg.seat)
+    }
     case 'pause':
       return isHost ? pause(state, msg.paused === true, now) : hostOnly
     case 'tableSettings':
@@ -388,6 +393,21 @@ function sit(state: TableState, id: string, name: unknown, now: number, regularI
     offlineSince: null,
   })
   state.chipLog.push({ kind: 'buyin', playerId: id, amount: chips, at: now })
+  return null
+}
+
+// Пересадка (#98): между раздачами (и в «Перерыв»), только на свободное место стола; фишек не стоит.
+// Кнопка следующей раздачи — от прошлой по номерам мест (start): без «мёртвой кнопки», пересевший
+// может пропустить или повторить блайнд. Двое на одно место — сел первый, второму — «занято»
+function moveSeat(state: TableState, playerId: string, seat: unknown): string | null {
+  if (state.hand) return 'Пересесть можно между раздачами'
+  const p = state.players.find((x) => x.id === playerId)
+  if (!p) return 'Такого игрока нет за столом'
+  const max = state.settings.maxSeats
+  if (typeof seat !== 'number' || !Number.isInteger(seat) || seat < 0 || seat >= max) return `Места за столом — с 1 по ${max}`
+  if (p.seat === seat) return 'Уже на этом месте'
+  if (state.players.some((x) => x.seat === seat)) return 'Место уже занято — выберите другое'
+  p.seat = seat
   return null
 }
 

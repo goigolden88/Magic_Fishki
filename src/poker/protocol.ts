@@ -13,7 +13,8 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 // 8 — ожидание ребая (#94): остался один с фишками при открытом ребае — турнир ждёт;
 //     «Закончить турнир» ведущего (endTournament)
 // 9 — выигрышная комбинация картами (#96): лучшая пятёрка дошедших до вскрытия в записи раздачи (best)
-export const PROTOCOL_VERSION = 9
+// 10 — пересадка на свободное место между раздачами (#98): сам или ведущим за другого (moveSeat)
+export const PROTOCOL_VERSION = 10
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -57,6 +58,7 @@ export type ClientBody =
   | { type: 'rebuyAnswer'; playerId: string; approve: boolean } // ведущий: «да» или «нет»
   | { type: 'setStack'; playerId: string; chips: number } // ведущий: правка стека между раздачами
   | { type: 'sitOut'; sittingOut: boolean; playerId?: string } // пропуск раздач; за другого — ведущий
+  | { type: 'moveSeat'; seat: number; playerId?: string } // пересесть на свободное место между раздачами; за другого — ведущий
   | { type: 'remove'; playerId: string } // ведущий: убрать игрока со стола
   | { type: 'passHost'; to: string } // ведущий: передать ведение
   | { type: 'takeHost' } // взять ведение, если ведущий вне сети дольше минуты

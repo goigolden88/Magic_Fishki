@@ -780,6 +780,22 @@ button.bar-button {
   opacity: 0.45;
 }
 
+/* Свободное место между раздачами (#98): пунктир, без фона; кнопкой — касание пересаживает */
+.seat.free {
+  border-style: dashed;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--muted);
+}
+
+button.seat.free {
+  color: var(--text);
+  border-color: var(--gold);
+}
+
+.seat.free .seat-name {
+  font-weight: 500;
+}
+
 .seat-name,
 .seat-mark {
   display: block;
