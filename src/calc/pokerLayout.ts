@@ -51,14 +51,15 @@ function round(x: number): number {
   return Math.round(x * 100) / 100
 }
 
-// Ставка улицы — у края места, обращённого к центру стола: у столбиков — сбоку, сверху — снизу места,
-// внизу — над местом
-export type BetSide = 'left' | 'right' | 'above' | 'below'
+// Ставка улицы — у края места со стороны стола: у левого столбика — справа от места, у правого — слева,
+// у верхних — под местом. У нижних — сбоку к середине: над моим местом центр стола — банк и общие карты
+export type BetSide = 'left' | 'right' | 'below'
 
 export function betSide({ x, y }: Spot): BetSide {
   if (x <= 10) return 'right'
   if (x >= 90) return 'left'
-  return y < 50 ? 'below' : 'above'
+  if (y < 50) return 'below'
+  return x <= 50 ? 'right' : 'left'
 }
 
 // Панель внизу экрана стола (#97): в свой ход — кнопки хода; идёт раздача, а ход не мой — узкая полоса

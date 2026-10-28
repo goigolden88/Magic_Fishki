@@ -81,8 +81,9 @@ describe('рассадка вокруг стола', () => {
     expect(new Set(spots.map((p) => `${p.x}:${p.y}`)).size).toBe(12)
   })
 
-  it('ставка — у края места, обращённого к центру', () => {
-    expect(betSide({ x: 50, y: 100 })).toBe('above')
+  it('ставка — у края места со стороны стола; у моего места — сбоку: над ним центр стола', () => {
+    expect(betSide({ x: 50, y: 100 })).toBe('right')
+    expect(betSide({ x: 70, y: 80 })).toBe('left')
     expect(betSide({ x: 0, y: 45 })).toBe('right')
     expect(betSide({ x: 3, y: 0 })).toBe('right')
     expect(betSide({ x: 100, y: 20 })).toBe('left')

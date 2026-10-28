@@ -588,30 +588,95 @@ a.button-link.primary {
 }
 
 .table-info {
-  margin: 0 0 8px;
+  margin: 0 0 0.25rem;
+  font-size: 0.8rem;
+  line-height: 1.3;
 }
 
-/* Стол: овал, места по кругу (точки — seatSpot, проценты слоя .spots), ставки ближе к центру.
-   Слой мест отступает от краёв на половину места: на 360 px девять мест входят без прокрутки */
+/* Экран стола (#97, Р-31): колонка по высоте окна — шапка в строку, стол на весь первый экран
+   (под ним листается остальное), панель хода — внизу, с отступом безопасной зоны */
+.table-screen {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  padding-inline: clamp(0.5rem, 3vw, 1rem);
+  padding-bottom: 0;
+}
+
+.table-screen .bar {
+  min-height: 2.75rem;
+  gap: 0.5rem;
+}
+
+.table-screen .bar-link {
+  padding: 0.5rem 0.25rem;
+}
+
+.bar-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 1.1rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.bar-button {
+  min-height: 2.5rem;
+  padding: 0 0.9rem;
+  font-weight: 600;
+}
+
+.table-layout {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* Стол — ровно на видимую высоту над панелью; на низком экране (телефон боком) — не ниже 18rem, тогда листается */
+.table-stage {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 18rem;
+}
+
+.table-error {
+  flex: none;
+  margin: 0.25rem 0;
+}
+
+/* Стол: овал, места — готовые точки seatSpots в процентах слоя .spots, ставка — у места со стороны стола.
+   Стол заполняет рамку над панелью хода (#97); слой мест отступает от боков на половину места,
+   сверху — на половину места с подписью позиции; моё место внизу растёт вверх от низа рамки */
 .felt-wrap {
-  --seat-w: clamp(72px, 21vw, 116px);
+  --seat-w: clamp(4rem, 21vw, 6.5rem);
   position: relative;
+  flex: 1;
+  min-height: 0;
   width: 100%;
-  max-width: 560px;
-  aspect-ratio: 3 / 4;
-  margin: 12px auto 16px;
+  max-width: 40rem;
+  margin-inline: auto;
 }
 
-@media (min-width: 560px) {
-  .felt-wrap {
-    aspect-ratio: 4 / 3;
-  }
+.felt {
+  position: absolute;
+  inset: 2.6rem calc(var(--seat-w) / 2) 2.4rem;
 }
 
-.felt,
 .spots {
   position: absolute;
-  inset: 32px calc(var(--seat-w) / 2);
+  inset: 2.6rem calc(var(--seat-w) / 2) 0.3rem;
 }
 
 /* Сукно (#77) — класс на обёртке стола; цвета не светлее зелёного: текст на сукне читается как прежде */
@@ -651,12 +716,13 @@ a.button-link.primary {
   box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.5);
 }
 
+/* Центр — между столбиками мест, чуть выше середины: внизу моё место с крупными картами */
 .felt-center {
   position: absolute;
   left: 50%;
-  top: 50%;
+  top: 48%;
   transform: translate(-50%, -50%);
-  width: 52%;
+  width: calc(100% - 2 * var(--seat-w) - 1rem);
   text-align: center;
   font-size: 0.8rem;
   line-height: 1.3;
@@ -677,13 +743,31 @@ a.button-link.primary {
   position: absolute;
   transform: translate(-50%, -50%);
   width: var(--seat-w);
-  padding: 6px 4px 4px;
+  padding: 0.2rem 0.2rem 0.15rem;
   border: 2px solid var(--line);
-  border-radius: 12px;
+  border-radius: 0.65rem;
   background: var(--card);
   text-align: center;
   font-size: 0.8rem;
-  line-height: 1.25;
+  line-height: 1.15;
+}
+
+/* Места у боков прижаты краем к краю стола: место победителя шире (#96) и растёт внутрь, а не за экран */
+.seat.edge-l {
+  transform: translate(calc(var(--seat-w) / -2), -50%);
+}
+
+.seat.edge-r {
+  transform: translate(calc(var(--seat-w) / 2 - 100%), -50%);
+}
+
+/* Нижнее место (я) — шире прочих, крупные карты; растёт вверх от низа рамки */
+.seat.bottom {
+  transform: translate(-50%, -100%);
+}
+
+.seat.me {
+  width: calc(var(--seat-w) * 1.3);
 }
 
 .seat.to-act {
@@ -723,21 +807,30 @@ a.button-link.primary {
   font-size: 0.7rem;
 }
 
-/* Секунды на ход — у места того, чей ход (#75) */
+/* Секунды на ход — у места того, чей ход (#75): значком на левом верхнем углу, место не растёт */
 .seat-timer {
-  display: block;
+  position: absolute;
+  top: -0.6rem;
+  left: -0.4rem;
+  padding: 0 0.3rem;
+  border-radius: 0.5rem;
+  background: var(--green);
+  color: var(--bg);
+  font-size: 0.7rem;
   font-weight: 700;
+  line-height: 1.4;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .seat-pos {
   position: absolute;
-  top: -10px;
+  top: -0.55rem;
   left: 50%;
   transform: translateX(-50%);
-  padding: 0 5px;
+  padding: 0 0.3rem;
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 0.35rem;
   background: var(--bg);
   color: var(--muted);
   font-size: 0.65rem;
@@ -747,30 +840,49 @@ a.button-link.primary {
 
 .seat-dealer {
   position: absolute;
-  top: -9px;
-  right: -7px;
-  width: 20px;
-  height: 20px;
+  top: -0.5rem;
+  right: -0.4rem;
+  width: 1.1rem;
+  height: 1.1rem;
   border-radius: 50%;
   background: #f1f5f2;
   color: #111;
   font-size: 0.7rem;
   font-weight: 700;
-  line-height: 20px;
+  line-height: 1.1rem;
 }
 
+/* Ставка улицы — у края места со стороны стола (betSide), наполовину на месте */
 .bet-chip {
   position: absolute;
   z-index: 1;
-  transform: translate(-50%, -50%);
-  padding: 1px 6px;
-  border-radius: 10px;
-  background: rgba(0, 0, 0, 0.5);
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.6rem;
+  background: rgba(0, 0, 0, 0.6);
   color: var(--gold);
   font-size: 0.8rem;
   font-weight: 600;
+  line-height: 1.3;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.bet-chip.right {
+  left: 100%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.bet-chip.left {
+  right: 100%;
+  top: 50%;
+  transform: translate(50%, -50%);
+}
+
+.bet-chip.below {
+  top: 100%;
+  left: 50%;
+  transform: translate(-50%, -40%);
 }
 
 /* Карты на телефонах: лицом — ранг и масть, рубашкой — узор; у мест — маленькие */
@@ -785,9 +897,9 @@ a.button-link.primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 34px;
-  border-radius: 4px;
+  width: 1.35rem;
+  height: 1.9rem;
+  border-radius: 0.25rem;
   background: #f7f7f2;
   color: #111;
   font-size: 0.8rem;
@@ -838,30 +950,66 @@ a.button-link.primary {
 }
 
 .playing-card.small {
-  width: 18px;
-  height: 25px;
-  border-radius: 3px;
+  width: 1rem;
+  height: 1.4rem;
+  border-radius: 0.17rem;
   font-size: 0.6rem;
   letter-spacing: -0.04em;
 }
 
+/* Свои карты на моём месте (#97) — крупнее чужих; омаха — четыре, сжимаются под ширину места */
+.playing-card.mid {
+  width: 2rem;
+  height: 2.75rem;
+  border-radius: 0.3rem;
+  font-size: 1.05rem;
+}
+
 .playing-card.big {
-  width: 72px;
-  height: 100px;
-  border-radius: 8px;
+  width: 4rem;
+  height: 5.5rem;
+  border-radius: 0.45rem;
   font-size: 1.6rem;
 }
 
 .seat .card-row {
-  margin: 2px 0;
+  margin: 0.1rem 0;
+}
+
+.seat .card-row .playing-card.mid,
+.seat-cards .playing-card {
+  flex: 0 1 2rem;
+  min-width: 0;
+}
+
+.seat.me .card-row {
+  display: flex;
+  gap: 0.2rem;
+}
+
+/* «Подглядеть» на моём месте: палец на картах — без выделения, меню и прокрутки */
+.seat-cards {
+  display: flex;
+  gap: 0.2rem;
+  justify-content: center;
+  margin: 0.15rem 0 0.05rem;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  cursor: pointer;
 }
 
 /* Выигрышная комбинация картами (#96): у победителя — пятёрка под подписью; место шире,
-   чтобы пять карт вошли и на узком телефоне (на 320 px — в отступ экрана) */
+   чтобы пять карт вошли и на узком телефоне; у бокового края растёт внутрь стола */
 .seat.winner {
   z-index: 2;
-  width: max(var(--seat-w), 102px);
+  width: max(var(--seat-w), 5.7rem);
   border-color: var(--gold);
+}
+
+.seat.me.winner {
+  width: max(var(--seat-w) * 1.3, 5.7rem);
 }
 
 .best-row {
@@ -869,7 +1017,7 @@ a.button-link.primary {
 }
 
 .best-row .playing-card.small {
-  width: 17px;
+  width: 0.95rem;
   font-size: 0.55rem;
 }
 
@@ -895,14 +1043,24 @@ a.button-link.primary {
 /* «Подглядеть»: палец на картах — без выделения, меню и прокрутки */
 .peek-cards {
   display: flex;
-  gap: 10px;
+  gap: 0.55rem;
   justify-content: center;
-  padding: 8px 0;
+  padding: 0.45rem 0;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
   cursor: pointer;
+}
+
+/* Под столом: «Мои карты всегда открыты» (#86) и подсказка про палец */
+.open-cards {
+  margin: 0.5rem 0;
+}
+
+.open-cards p {
+  margin: 0 0 0.25rem;
+  font-size: 0.9rem;
 }
 
 .last-hand h2 {
@@ -997,8 +1155,8 @@ a.button-link.primary {
 input.bet-range {
   -webkit-appearance: none;
   appearance: none;
-  min-height: 48px;
-  margin: 10px 0 0;
+  min-height: 2.2rem;
+  margin: 0.2rem 0 0;
   padding: 0;
   border: 0;
   background: transparent;
@@ -1035,23 +1193,99 @@ input.bet-range::-moz-range-thumb {
   background: var(--gold);
 }
 
-.actions h2 {
-  margin-top: 0;
+/* Панель внизу экрана стола (#97): кнопки хода, полоса «Ждём хода» или кнопки ведущего между раздачами.
+   Нижняя часть колонки — не листается и не уезжает; снизу — отступ безопасной зоны */
+.dock {
+  flex: none;
+  margin: 0;
+  padding: 0.4rem 0.5rem calc(env(safe-area-inset-bottom) + 0.4rem);
+  border: 2px solid var(--line);
+  border-bottom: 0;
+  border-radius: 0.8rem 0.8rem 0 0;
+  background: var(--card);
 }
 
-.actions.my-turn {
+.dock.actions {
   border-color: var(--green);
+}
+
+.dock-title {
+  margin: 0 0 0.3rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.dock-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: stretch;
+}
+
+.bet-form .dock-row {
+  margin-top: 0.3rem;
+}
+
+.dock-note {
+  margin: 0.3rem 0 0;
+  font-size: 0.85rem;
+}
+
+/* «Ждём хода · Имя · N с» — узкая полоса в строку */
+.dock.wait-strip {
+  padding-block: 0.55rem calc(env(safe-area-inset-bottom) + 0.55rem);
+  color: var(--muted);
+  font-size: 0.95rem;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Быстрые суммы — один ряд, подпись над числом */
+.quick-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 0.3rem;
+}
+
+.quick-row button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.4rem;
+  padding: 0.1rem 0.2rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.1;
+  overflow: hidden;
+}
+
+.quick-row .num {
+  text-align: center;
+  font-weight: normal;
+}
+
+input.bet-amount {
+  flex: 0 1 6.5rem;
+  min-width: 0;
+  min-height: 2.75rem;
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  font-size: 1.1rem;
 }
 
 .action-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-top: 8px;
+  gap: 0.4rem;
+  margin-top: 0.4rem;
 }
 
 .action-grid button.big {
-  min-height: 64px;
+  min-height: 3.25rem;
 }
 
 /* Олл-ин — третьей кнопкой во всю ширину */

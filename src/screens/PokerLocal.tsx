@@ -13,6 +13,7 @@ import {
   type LocalTable,
 } from '../calc/localTable'
 import { gameFromTable, gameFromTournament } from '../calc/pokerGame'
+import { dockOf, waitLine } from '../calc/pokerLayout'
 import { lookClass, lookOf } from '../calc/pokerLook'
 import { tournamentView, type TableView } from '../calc/pokerView'
 import { formatDate, today } from '../dates'
@@ -23,7 +24,7 @@ import { ulid } from '../ulid'
 import { openGameYear } from './openYears'
 import { LookFields } from './LookFields'
 import { clearLocalTable, loadLocalTable, saveLocalTable, storageWorks } from './pokerStorage'
-import { ActionsCard, AwardPanel, blindsLine, FinalStacks, LastHand, PokerTable, PotList } from './PokerRoom'
+import { ActionsCard, AwardPanel, blindsLine, FinalStacks, HostDock, LastHand, PokerTable, PotList } from './PokerRoom'
 import { TournamentPanel, TournamentResults } from './Tournament'
 
 // Адрес стола на телефоне: под код комнаты (6 знаков) не подходит
@@ -117,14 +118,17 @@ export function PokerLocalScreen() {
     location.hash = '#/poker'
   }
 
+  // Идёт стол (#97) — экран колонкой по высоте окна: шапка в строку, стол, панель хода внизу
+  const playing = !done && local !== null
   return (
-    <main className="screen poker">
+    <main className={playing ? 'screen poker table-screen' : 'screen poker'}>
       <header className="bar">
         <a className="bar-link" href="#/poker">
           ← Покер
         </a>
+        {playing && <h1 className="bar-title">Стол на этом телефоне</h1>}
       </header>
-      <h1>Стол на этом телефоне</h1>
+      {!playing && <h1>Стол на этом телефоне</h1>}
       {volatile && local && <p className="card warn">{NO_STORAGE}</p>}
 
       {done ? (
@@ -199,25 +203,84 @@ function LocalTableCard(props: {
     if (closed) apply(() => ({ ok: true, state: closed }))
   })
 
-  return (
-    <div className={lookClass(table.settings)}>
-      <p className="muted table-info">
-        {blindsLine(table, v)} · {v.handNumber > 0 ? `раздача ${v.handNumber} · ` : ''}
-        {v.stageLabel}
-      </p>
+  const dock = dockOf(v)
+  const pause = () => apply((s, now) => hostDo(s, { type: 'pause', paused: !v.paused }, now))
 
-      <PokerTable view={v} />
-      {t && <TournamentPanel view={t} onEnd={() => apply((s, now) => hostDo(s, { type: 'endTournament' }, now))} />}
-      <PotList view={v} />
-      <LastHand table={table} view={v} />
+  // Колонка (#97): стол — на весь первый экран, под ним листается ведущий, панель хода — внизу
+  return (
+    <div className={`table-layout ${lookClass(table.settings)}`}>
+      <div className="table-scroll">
+        <div className="table-stage">
+          <p className="muted table-info">
+            {blindsLine(table, v)} · {v.handNumber > 0 ? `раздача ${v.handNumber} · ` : ''}
+            {v.stageLabel}
+          </p>
+          <PokerTable view={v} />
+        </div>
+
+        {t && <TournamentPanel view={t} onEnd={() => apply((s, now) => hostDo(s, { type: 'endTournament' }, now))} />}
+        <PotList view={v} />
+        <LastHand table={table} view={v} />
+
+        <section className="card host">
+          <h2>Ведущий</h2>
+          {t?.ended && (
+            <>
+              <h2>Места и призы</h2>
+              <TournamentResults table={table} />
+            </>
+          )}
+          {/* Турнир (#78): «Перерыв» стоит часы уровней — и здесь, на одном телефоне.
+              Между раздачами он и «Начать раздачу» — внизу экрана (HostDock, #97) */}
+          {hand && t?.started && !t.ended && (
+            <button type="button" className={v.paused ? 'big primary wide' : 'big wide'} onClick={pause}>
+              {v.paused ? 'Продолжить' : 'Перерыв'}
+            </button>
+          )}
+          {hand && hand.stage === 'showdown' && (
+            <AwardPanel
+              key={hand.number}
+              table={table}
+              view={v}
+              online
+              onAward={(winners) => apply((s, now) => hostDo(s, { type: 'award', winners }, now))}
+            />
+          )}
+
+          <h2>Игроки</h2>
+          <PlayerList table={table} view={v} amounts={amounts} apply={apply} />
+          {/* Турнир идёт — новых не сажаем */}
+          {!t?.started && <SeatNew table={table} regulars={regulars} apply={apply} />}
+
+          {/* Вид стола (#77): карты здесь живые (Р-21) — только сукно */}
+          <details className="table-settings">
+            <summary>Вид стола</summary>
+            <LookFields
+              look={lookOf(table.settings)}
+              backs={false}
+              onChange={(look) => apply((s, now) => hostDo(s, { type: 'look', ...look }, now))}
+            />
+          </details>
+
+          {/* Турнир пишется, когда окончен; бросить раньше — «Удалить стол» */}
+          {(!t || t.ended) && (
+            <button type="button" className={t ? 'big wide primary' : 'big wide danger'} disabled={finishing} onClick={onFinish}>
+              {t ? 'Записать игру' : 'Закончить игру'}
+            </button>
+          )}
+          <button type="button" className="big wide danger-text" disabled={finishing} onClick={onRemove}>
+            Удалить стол
+          </button>
+        </section>
+      </div>
 
       {error && (
-        <p className="warn" onClick={() => onError(null)}>
+        <p className="warn table-error" onClick={() => onError(null)}>
           {error}
         </p>
       )}
 
-      {v.actions && v.toActName && (
+      {dock === 'turn' && v.actions && v.toActName && (
         // Ход перешёл или новый минимум — сумма снова с минимума
         <ActionsCard
           key={`${v.handNumber}-${v.stage}-${actId}-${v.actions.raise?.min ?? ''}`}
@@ -228,75 +291,15 @@ function LocalTableCard(props: {
           onAct={(body) => apply((t, now) => actFor(t, body.action, now))}
         />
       )}
-
-      <section className="card host">
-        <h2>Ведущий</h2>
-        {t?.ended ? (
-          <>
-            <h2>Места и призы</h2>
-            <TournamentResults table={table} />
-          </>
-        ) : (
-          !hand &&
-          !v.paused && (
-            <>
-              <button
-                type="button"
-                className="big primary wide"
-                disabled={!v.canStart}
-                onClick={() => apply((s, now) => hostDo(s, { type: 'start' }, now))}
-              >
-                {t && !t.started ? 'Начать турнир' : 'Начать раздачу'}
-              </button>
-              {!v.canStart && <p className="muted">Нужно хотя бы двое с фишками, которые не пропускают раздачи</p>}
-            </>
-          )
-        )}
-        {/* Турнир (#78): «Перерыв» стоит часы уровней — и здесь, на одном телефоне */}
-        {t?.started && !t.ended && (
-          <button
-            type="button"
-            className={v.paused ? 'big primary wide' : 'big wide'}
-            onClick={() => apply((s, now) => hostDo(s, { type: 'pause', paused: !v.paused }, now))}
-          >
-            {v.paused ? 'Продолжить' : 'Перерыв'}
-          </button>
-        )}
-        {hand && hand.stage === 'showdown' && (
-          <AwardPanel
-            key={hand.number}
-            table={table}
-            view={v}
-            online
-            onAward={(winners) => apply((s, now) => hostDo(s, { type: 'award', winners }, now))}
-          />
-        )}
-
-        <h2>Игроки</h2>
-        <PlayerList table={table} view={v} amounts={amounts} apply={apply} />
-        {/* Турнир идёт — новых не сажаем */}
-        {!t?.started && <SeatNew table={table} regulars={regulars} apply={apply} />}
-
-        {/* Вид стола (#77): карты здесь живые (Р-21) — только сукно */}
-        <details className="table-settings">
-          <summary>Вид стола</summary>
-          <LookFields
-            look={lookOf(table.settings)}
-            backs={false}
-            onChange={(look) => apply((s, now) => hostDo(s, { type: 'look', ...look }, now))}
-          />
-        </details>
-
-        {/* Турнир пишется, когда окончен; бросить раньше — «Удалить стол» */}
-        {(!t || t.ended) && (
-          <button type="button" className={t ? 'big wide primary' : 'big wide danger'} disabled={finishing} onClick={onFinish}>
-            {t ? 'Записать игру' : 'Закончить игру'}
-          </button>
-        )}
-        <button type="button" className="big wide danger-text" disabled={finishing} onClick={onRemove}>
-          Удалить стол
-        </button>
-      </section>
+      {dock === 'wait' && <p className="dock wait-strip">{waitLine(v)}</p>}
+      {dock === 'host' && (
+        <HostDock
+          view={v}
+          pause={t !== null && t.started && !t.ended}
+          onStart={() => apply((s, now) => hostDo(s, { type: 'start' }, now))}
+          onPause={pause}
+        />
+      )}
     </div>
   )
 }

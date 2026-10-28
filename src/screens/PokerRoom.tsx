@@ -1,6 +1,18 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { formatChips, formatNumber, formatRub, parseChips } from '../calc/format'
-import { aroundTable, betSlider, seatSpot, sliderAmount, sliderIndex, stepAmount, type BetSlider } from '../calc/pokerLayout'
+import {
+  aroundTable,
+  betSide,
+  betSlider,
+  dockOf,
+  seatSpots,
+  sliderAmount,
+  sliderIndex,
+  stepAmount,
+  waitLine,
+  type BetSlider,
+  type Spot,
+} from '../calc/pokerLayout'
 import { NO_CONNECTION, roomLink, ROOM_CLOSED, UPDATE_APP, type Seat } from '../calc/pokerLink'
 import {
   cardFace,
@@ -81,19 +93,22 @@ export function PokerRoomScreen({ code }: { code: string }) {
     return null
   }
 
+  // За столом (#97) — экран колонкой по высоте окна: шапка в строку, стол, панель хода внизу
+  const seated = room.phase === 'seated' && room.table !== null && room.me !== null
   return (
-    <main className="screen poker">
+    <main className={seated ? 'screen poker table-screen' : 'screen poker'}>
       <header className="bar">
         <a className="bar-link" href="#/poker">
           ← Покер
         </a>
+        {seated && <h1 className="bar-title">Стол {code}</h1>}
         {(room.phase === 'lobby' || room.phase === 'seated') && (
-          <button type="button" className="big primary" onClick={() => void shareRoom()}>
+          <button type="button" className={seated ? 'primary bar-button' : 'big primary'} onClick={() => void shareRoom()}>
             Поделиться
           </button>
         )}
       </header>
-      <h1>Стол {code}</h1>
+      {!seated && <h1>Стол {code}</h1>}
       {note && <p className="ok">{note}</p>}
 
       {!room.online && room.failed && (room.phase === 'loading' || room.phase === 'lobby' || room.phase === 'seated') && (
@@ -230,75 +245,120 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
 
   const v = tableView(table, me, room.serverNow())
   const sb = table.hand?.sb ?? table.settings.sb
+  const dock = dockOf(v)
 
-  // Вид стола (#77) — классом на обёртке: сукно и рубашки своих и чужих карт
+  // Вид стола (#77) — классом на обёртке: сукно и рубашки своих и чужих карт.
+  // Колонка (#97): стол — на весь первый экран, под ним листается остальное, панель хода — внизу
   return (
-    <div className={lookClass(table.settings)}>
-      <p className="muted table-info">
-        {blindsLine(table, v)} · {v.handNumber > 0 ? `раздача ${v.handNumber} · ` : ''}
-        {v.stageLabel} · ведущий — {v.hostName}
-      </p>
+    <div className={`table-layout ${lookClass(table.settings)}`}>
+      <div className="table-scroll">
+        <div className="table-stage">
+          <p className="muted table-info">
+            {blindsLine(table, v)} · {v.handNumber > 0 ? `раздача ${v.handNumber} · ` : ''}
+            {v.stageLabel} · ведущий — {v.hostName}
+          </p>
+          <PokerTable view={v} open={open} />
+        </div>
 
-      <PokerTable view={v} />
-      {v.tournament && <TournamentPanel view={v.tournament} onEnd={() => room.send({ type: 'endTournament' })} />}
+        {v.myCards && <OpenCards open={open} onOpen={onOpen} />}
+        {v.tournament && <TournamentPanel view={v.tournament} onEnd={() => room.send({ type: 'endTournament' })} />}
 
-      {v.paused && (
-        <p className="card warn">
-          Перерыв: {v.stage !== null ? 'раздача доигрывается без таймера, ' : ''}новая не начнётся, пока ведущий не нажмёт
-          «Продолжить»
-        </p>
-      )}
+        {v.paused && (
+          <p className="card warn">
+            Перерыв: {v.stage !== null ? 'раздача доигрывается без таймера, ' : ''}новая не начнётся, пока ведущий не нажмёт
+            «Продолжить»
+          </p>
+        )}
 
-      <PotList view={v} />
-      {v.stage === 'showdown' && !v.isHost && !v.phoneCards && <p className="muted">Торги закрыты — ведущий отмечает победителя</p>}
-      <LastHand table={table} view={v} />
+        <PotList view={v} />
+        <LastHand table={table} view={v} />
 
-      {v.canShow && (
-        <ShowCard
-          show={v.canShow}
-          online={room.online}
-          open={open}
-          onOpen={onOpen}
-          onShow={(cards) => room.send({ type: 'show', cards })}
-        />
-      )}
+        {v.canShow && (
+          <ShowCard
+            show={v.canShow}
+            online={room.online}
+            open={open}
+            onOpen={onOpen}
+            onShow={(cards) => room.send({ type: 'show', cards })}
+          />
+        )}
+
+        {v.canTakeHost && (
+          <button type="button" className="big primary wide" onClick={() => room.send({ type: 'takeHost' })}>
+            Взять ведение
+          </button>
+        )}
+
+        {v.isHost && <HostCard room={room} table={table} view={v} code={code} gameId={gameId} onFinish={onFinish} />}
+
+        <MyCard room={room} table={table} view={v} amounts={amounts} />
+      </div>
 
       {room.error && (
-        <p className="warn" onClick={room.clearError}>
+        <p className="warn table-error" onClick={room.clearError}>
           {room.error}
         </p>
       )}
 
-      {v.myCards && (
-        <section className="card">
-          <h2>Мои карты</h2>
-          <PeekCards cards={v.myCards} open={open} onOpen={onOpen} />
-        </section>
-      )}
-
-      {v.actions && (
+      {dock === 'turn' && v.actions && (
         // Свой ход и новый минимум — сумма снова с минимума
         <ActionsCard
-          key={`${v.handNumber}-${v.stage}-${v.actions.myTurn}-${v.actions.raise?.min ?? ''}`}
+          key={`${v.handNumber}-${v.stage}-${v.actions.raise?.min ?? ''}`}
           actions={v.actions}
           sb={sb}
           who={null}
-          left={v.actions.myTurn ? v.turnLeft : null}
+          left={v.turnLeft}
           online={room.online}
           onAct={(body) => room.send(body)}
         />
       )}
-
-      {v.canTakeHost && (
-        <button type="button" className="big primary wide" onClick={() => room.send({ type: 'takeHost' })}>
-          Взять ведение
-        </button>
+      {dock === 'wait' && <p className="dock wait-strip">{waitLine(v)}</p>}
+      {dock === 'host' && (
+        <HostDock
+          view={v}
+          pause
+          onStart={() => room.send({ type: 'start' })}
+          onPause={() => room.send({ type: 'pause', paused: !v.paused })}
+        />
       )}
-
-      {v.isHost && <HostCard room={room} table={table} view={v} code={code} gameId={gameId} onFinish={onFinish} />}
-
-      <MyCard room={room} table={table} view={v} amounts={amounts} />
     </div>
+  )
+}
+
+// Свои карты лежат на моём месте внизу стола (#97); переключатель «Всегда открыты» (#86) — под столом
+function OpenCards({ open, onOpen }: { open: boolean; onOpen: (on: boolean) => void }) {
+  return (
+    <div className="open-cards">
+      {!open && <p className="muted">Свои карты — на вашем месте внизу стола: держите на них палец, чтобы посмотреть</p>}
+      <label className="check">
+        <input type="checkbox" checked={open} onChange={(e) => onOpen(e.target.checked)} />
+        Мои карты всегда открыты
+      </label>
+    </div>
+  )
+}
+
+// Между раздачами у ведущего — внизу экрана: «Начать раздачу» и «Перерыв» / «Продолжить».
+// pause — «Перерыв» есть на этом столе (на одном телефоне — только в идущем турнире)
+export function HostDock(props: { view: TableView; pause: boolean; onStart: () => void; onPause: () => void }) {
+  const { view: v, pause, onStart, onPause } = props
+  const t = v.tournament
+  return (
+    <section className="dock">
+      <div className="dock-row">
+        {!v.paused && (
+          <button type="button" className="big primary grow" disabled={!v.canStart} onClick={onStart}>
+            {t && !t.started ? 'Начать турнир' : 'Начать раздачу'}
+          </button>
+        )}
+        {pause && (
+          <button type="button" className={v.paused ? 'big primary grow' : 'big'} onClick={onPause}>
+            {v.paused ? 'Продолжить' : 'Перерыв'}
+          </button>
+        )}
+      </div>
+      {!v.paused && !v.canStart && <p className="muted dock-note">Нужно хотя бы двое с фишками, которые не пропускают раздачи</p>}
+    </section>
   )
 }
 
@@ -342,11 +402,11 @@ export function LastHand({ table, view: v }: { table: TableState; view: TableVie
               {p.hand && <span className="muted"> · {p.hand}</span>}
               {p.best && (
                 <span className="last-best">
-                  <CardRow cards={p.best} small />
+                  <CardRow cards={p.best} size="small" />
                 </span>
               )}
             </span>
-            {p.cards && <CardRow cards={p.cards} small />}
+            {p.cards && <CardRow cards={p.cards} size="small" />}
             {p.won > 0 && <span className="num plus">+{formatNumber(p.won)}</span>}
           </li>
         ))}
@@ -365,8 +425,11 @@ export function LastHand({ table, view: v }: { table: TableState; view: TableVie
   )
 }
 
-// Карта лицом или рубашкой (null); mark — карта стола после вскрытия: из пятёрки победителя или приглушена
-export function PlayingCard({ card, size, mark }: { card: Card | null; size?: 'small' | 'big'; mark?: 'win' | 'dim' }) {
+// Карта лицом или рубашкой (null); mark — карта стола после вскрытия: из пятёрки победителя или приглушена.
+// size: small — у чужих мест, mid — свои на моём месте (#97), big — «Банк ваш без вскрытия»
+type CardSize = 'small' | 'mid' | 'big'
+
+export function PlayingCard({ card, size, mark }: { card: Card | null; size?: CardSize; mark?: 'win' | 'dim' }) {
   const f = card === null ? null : cardFace(card)
   const cls = ['playing-card', size, !f && 'back', f?.red && 'red', mark].filter(Boolean).join(' ')
   if (!f) return <span className={cls} aria-label="карта рубашкой" />
@@ -380,25 +443,22 @@ export function PlayingCard({ card, size, mark }: { card: Card | null; size?: 's
 
 // best — пятёрка победителя: ряд плотнее, чтобы войти в место у стола;
 // win — карты из пятёрок победителей: они подсвечены, остальные в ряду приглушены
-function CardRow(props: { cards: (Card | null)[]; small?: boolean; best?: boolean; win?: Card[] | null }) {
-  const { cards, small, best, win } = props
+function CardRow(props: { cards: (Card | null)[]; size?: CardSize; best?: boolean; win?: Card[] | null }) {
+  const { cards, size, best, win } = props
   return (
     <span className={best ? 'card-row best-row' : 'card-row'}>
       {cards.map((c, i) => (
-        <PlayingCard
-          key={i}
-          card={c}
-          size={small ? 'small' : undefined}
-          mark={win && c ? (win.includes(c) ? 'win' : 'dim') : undefined}
-        />
+        <PlayingCard key={i} card={c} size={size} mark={win && c ? (win.includes(c) ? 'win' : 'dim') : undefined} />
       ))}
     </span>
   )
 }
 
 // «Подглядеть»: свои карты рубашкой; держишь палец — лицом, отпустил — снова рубашкой.
-// «Всегда открыты» (#86) — лицом без пальца; только на своём экране, сервер не знает
-function PeekCards({ cards, open, onOpen }: { cards: Card[]; open: boolean; onOpen: (on: boolean) => void }) {
+// «Всегда открыты» (#86) — лицом без пальца; только на своём экране, сервер не знает.
+// На моём месте у стола (#97) — без подписи (hint) и без переключателя: он под столом
+function PeekCards(props: { cards: Card[]; open: boolean; size: CardSize; hint?: boolean; className?: string }) {
+  const { cards, open, size, hint, className = 'peek-cards' } = props
   const [peek, setPeek] = useState(false)
   const on = () => setPeek(true)
   const off = () => setPeek(false)
@@ -409,29 +469,19 @@ function PeekCards({ cards, open, onOpen }: { cards: Card[]; open: boolean; onOp
     return () => document.removeEventListener('visibilitychange', off)
   }, [])
 
-  const toggle = (
-    <label className="check">
-      <input type="checkbox" checked={open} onChange={(e) => onOpen(e.target.checked)} />
-      Всегда открыты
-    </label>
-  )
-
   if (open)
     return (
-      <>
-        <div className="peek-cards">
-          {cards.map((c, i) => (
-            <PlayingCard key={i} card={c} size="big" />
-          ))}
-        </div>
-        {toggle}
-      </>
+      <div className={className}>
+        {cards.map((c, i) => (
+          <PlayingCard key={i} card={c} size={size} />
+        ))}
+      </div>
     )
 
   return (
     <>
       <div
-        className="peek-cards"
+        className={className}
         role="button"
         tabIndex={0}
         aria-pressed={peek}
@@ -449,11 +499,10 @@ function PeekCards({ cards, open, onOpen }: { cards: Card[]; open: boolean; onOp
         onBlur={off}
       >
         {cards.map((c, i) => (
-          <PlayingCard key={i} card={peek ? c : null} size="big" />
+          <PlayingCard key={i} card={peek ? c : null} size={size} />
         ))}
       </div>
-      <p className="muted">{peek ? 'Отпустите — карты закроются' : 'Подглядеть — держите палец на картах'}</p>
-      {toggle}
+      {hint && <p className="muted">{peek ? 'Отпустите — карты закроются' : 'Подглядеть — держите палец на картах'}</p>}
     </>
   )
 }
@@ -474,7 +523,11 @@ function ShowCard(props: {
     <section className="card">
       <h2>Банк ваш без вскрытия</h2>
       <p className="muted">Можно показать карты всем — все или одну. До новой раздачи.</p>
-      <PeekCards cards={show.cards} open={open} onOpen={onOpen} />
+      <PeekCards cards={show.cards} open={open} size="big" hint />
+      <label className="check">
+        <input type="checkbox" checked={open} onChange={(e) => onOpen(e.target.checked)} />
+        Всегда открыты
+      </label>
       <div className="amounts">
         {left.length > 1 && (
           <button type="button" className="big primary" disabled={!online} onClick={() => onShow(left)}>
@@ -491,69 +544,53 @@ function ShowCard(props: {
   )
 }
 
-// Овальный стол: я внизу по центру, остальные по порядку мест по часовой; ставка улицы —
-// перед игроком ближе к центру, в центре — улица и банк
-export function PokerTable({ view: v }: { view: TableView }) {
+// Овальный стол: я внизу по центру, остальные по порядку мест по часовой (готовые точки — seatSpots);
+// ставка улицы — у места со стороны стола, в центре — улица и банк. Стол заполняет свою рамку (#97):
+// у комнаты и у стола на телефоне — всё место над панелью хода. open — свои карты лицом без пальца (#86)
+export function PokerTable({ view: v, open = false }: { view: TableView; open?: boolean }) {
   const seats = aroundTable(v.seats)
-  const n = seats.length
+  const spots = seatSpots(seats.length)
   return (
     <div className="felt-wrap">
       <div className="felt" />
-      <div className="spots">
-        <div className="felt-center">
-          <div className="muted">{v.stageLabel}</div>
-          {v.stage !== null && (
-            <div className="pot-total">
-              Банк <strong>{formatNumber(v.pot)}</strong>
-            </div>
-          )}
-          {v.pots.length > 1 &&
-            v.pots.map((p) => (
-              <div key={p.label}>
-                {p.label} {formatNumber(p.amount)}
-              </div>
-            ))}
-          {v.board.length > 0 && (
-            <div className="board">
-              <CardRow cards={v.board} win={v.boardWin} />
-            </div>
-          )}
-          {v.toActName && (
-            <div>
-              Ход: {v.toActName}
-              {v.turnLeft !== null && <strong> · {v.turnLeft} с</strong>}
-            </div>
-          )}
-          {v.paused && v.stage !== null && (
-            <div>
-              <strong>Перерыв</strong>
-            </div>
-          )}
-          {v.nextHandLeft !== null && <div>Новая раздача через {v.nextHandLeft} с</div>}
-        </div>
-        {seats.map((s, i) => (
-          <SeatSpot key={s.id} seat={s} at={seatSpot(i, n)} />
-        ))}
-        {seats.map(
-          (s, i) =>
-            s.bet > 0 && (
-              <span key={s.id} className="bet-chip" style={spotStyle(seatSpot(i, n, BET_RADIUS))}>
-                {formatNumber(s.bet)}
-              </span>
-            ),
+      <div className="felt-center">
+        <div className="muted">{v.stageLabel}</div>
+        {v.stage !== null && (
+          <div className="pot-total">
+            Банк <strong>{formatNumber(v.pot)}</strong>
+          </div>
         )}
+        {v.pots.length > 1 &&
+          v.pots.map((p) => (
+            <div key={p.label}>
+              {p.label} {formatNumber(p.amount)}
+            </div>
+          ))}
+        {v.board.length > 0 && (
+          <div className="board">
+            <CardRow cards={v.board} win={v.boardWin} />
+          </div>
+        )}
+        {v.paused && v.stage !== null && (
+          <div>
+            <strong>Перерыв</strong>
+          </div>
+        )}
+        {v.nextHandLeft !== null && <div>Новая раздача через {v.nextHandLeft} с</div>}
+      </div>
+      <div className="spots">
+        {seats.map((s, i) => (
+          <SeatSpot key={s.id} seat={s} at={spots[i]} bottom={i === 0} myCards={s.isMe ? v.myCards : null} open={open} />
+        ))}
       </div>
     </div>
   )
 }
 
-const BET_RADIUS = 0.58 // ставка — чуть дальше середины от центра к месту
-
-function spotStyle(at: { x: number; y: number }) {
-  return { left: `${at.x}%`, top: `${at.y}%` }
-}
-
-function SeatSpot({ seat: s, at }: { seat: SeatView; at: { x: number; y: number } }) {
+// Место у стола. bottom — нижнее по центру (я): растёт вверх от низа рамки, остальные — от своей точки
+// в обе стороны. myCards — мои карты в раздаче: крупнее чужих, лицом — пока держишь палец или «всегда открыты»
+function SeatSpot(props: { seat: SeatView; at: Spot; bottom: boolean; myCards: Card[] | null; open: boolean }) {
+  const { seat: s, at, bottom, myCards, open } = props
   const marks = [
     s.place !== null && `${s.place} место`,
     s.allIn && 'олл-ин',
@@ -561,30 +598,41 @@ function SeatSpot({ seat: s, at }: { seat: SeatView; at: { x: number; y: number 
     s.sittingOut && 'пропуск',
     s.folded && 'пас',
   ].filter(Boolean)
-  const cls = ['seat', s.toAct && 'to-act', s.folded && 'folded', s.isMe && 'me', s.best && 'winner'].filter(Boolean).join(' ')
+  const edge = at.x <= 10 ? 'edge-l' : at.x >= 90 ? 'edge-r' : null // у бокового края — прижато к нему
+  const cls = ['seat', bottom ? 'bottom' : edge, s.toAct && 'to-act', s.folded && 'folded', s.isMe && 'me', s.best && 'winner']
+    .filter(Boolean)
+    .join(' ')
   return (
-    <div className={cls} style={spotStyle(at)}>
+    <div className={cls} style={{ left: `${at.x}%`, top: `${at.y}%` }}>
       {s.position && <span className="seat-pos">{s.position}</span>}
       {s.button && (
         <span className="seat-dealer" aria-label="кнопка">
           D
         </span>
       )}
+      {s.turnLeft !== null && <span className="seat-timer">{s.turnLeft} с</span>}
       <span className="seat-name">
         {s.name}
         {s.isMe && <span className="visually-hidden"> (вы)</span>}
       </span>
       <span className="seat-chips">{formatNumber(s.chips)}</span>
-      {s.turnLeft !== null && <span className="seat-timer">{s.turnLeft} с</span>}
-      {s.cards && <CardRow cards={s.cards} small />}
+      {myCards ? (
+        <PeekCards cards={myCards} open={open} size="mid" className="seat-cards" />
+      ) : (
+        s.cards && <CardRow cards={s.cards} size={s.isMe ? 'mid' : 'small'} />
+      )}
       {s.handName && <span className="seat-mark">{s.handName}</span>}
-      {s.best && <CardRow cards={s.best} small best />}
+      {s.best && <CardRow cards={s.best} size="small" best />}
       {marks.length > 0 && <span className="seat-mark">{marks.join(' · ')}</span>}
+      {s.bet > 0 && <span className={`bet-chip ${betSide(at)}`}>{formatNumber(s.bet)}</span>}
     </div>
   )
 }
 
-// Кнопки хода. who — за кого ход на одном телефоне («Ход: имя»); null — свои: «Ваш ход».
+// Панель хода внизу экрана (#97) — только в свой ход: сверху быстрые суммы и ползунок, под ними своё
+// число и «Ставка» / «Рейз до» в одном ряду (открыта клавиатура — видны оба), внизу «Пас» и «Чек» / «Колл».
+// Повысить можно только олл-ином — вместо ползунка кнопка «Олл-ин N».
+// who — за кого ход на одном телефоне («Ход: имя»); null — свои: «Ваш ход».
 // left — секунд на мой ход (таймер стола); online — есть связь: без неё кнопки неактивны
 export function ActionsCard(props: {
   actions: ActionsView
@@ -609,14 +657,37 @@ export function ActionsCard(props: {
 
   const setAmount = (n: number) => setText(String(n))
   const off = !a.myTurn || !online
+  const raiseLabel = r && to === r.max ? 'Олл-ин' : r?.label === 'Ставка' ? 'Ставка' : 'Рейз до'
   return (
-    <section className={a.myTurn ? 'card actions my-turn' : 'card actions'}>
-      {who !== null ? (
-        <h2>Ход: {who}</h2>
-      ) : a.myTurn ? (
-        <h2>Ваш ход{left !== null && ` · ${left} с`}</h2>
-      ) : (
-        <p className="muted">Ждём своего хода</p>
+    <section className="dock actions">
+      <p className="dock-title">{who !== null ? `Ход: ${who}` : `Ваш ход${left !== null ? ` · ${left} с` : ''}`}</p>
+      {slider && r && (
+        <form className="bet-form" onSubmit={confirmRaise}>
+          <div className="quick-row">
+            {r.quick.map((q) => (
+              <button key={q.label} type="button" onClick={() => setAmount(q.to)}>
+                <span>{q.label}</span> <span className="num">{formatNumber(q.to)}</span>
+              </button>
+            ))}
+            <button type="button" onClick={() => setAmount(r.max)}>
+              <span>Олл-ин</span> <span className="num">{formatNumber(r.max)}</span>
+            </button>
+          </div>
+          <BetRange slider={slider} amount={to ?? r.min} onChange={setAmount} />
+          <div className="dock-row">
+            <input
+              className="bet-amount"
+              inputMode="numeric"
+              pattern="[0-9 ]*"
+              aria-label={`Сумма — от ${formatNumber(r.min)} до ${formatNumber(r.max)}`}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
+            <button className="big primary grow" disabled={off || !okTo}>
+              {raiseLabel} {to !== null ? formatNumber(to) : '…'}
+            </button>
+          </div>
+        </form>
       )}
       <div className="action-grid">
         <button type="button" className="big danger" disabled={off} onClick={() => act({ type: 'act', action: { type: 'fold' } })}>
@@ -631,44 +702,12 @@ export function ActionsCard(props: {
             Колл {formatNumber(a.call)}
           </button>
         )}
-        {a.allIn !== null && (
+        {!slider && a.allIn !== null && (
           <button type="button" className="big cashout" disabled={off} onClick={() => act({ type: 'act', action: { type: 'allin' } })}>
             Олл-ин {formatNumber(a.allIn)}
           </button>
         )}
       </div>
-      {slider && r && (
-        <form onSubmit={confirmRaise}>
-          <div className="amounts">
-            {r.quick.map((q) => (
-              <button key={q.label} type="button" className="big" onClick={() => setAmount(q.to)}>
-                {q.label} {formatNumber(q.to)}
-              </button>
-            ))}
-            <button type="button" className="big" onClick={() => setAmount(r.max)}>
-              Олл-ин
-            </button>
-          </div>
-          <BetRange slider={slider} amount={to ?? r.min} onChange={setAmount} />
-          <div className="row">
-            <input
-              className="grow"
-              inputMode="numeric"
-              pattern="[0-9 ]*"
-              aria-label="Сумма"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-            />
-            <button className="big primary" disabled={off || !okTo}>
-              {r.label === 'Ставка' ? 'Ставка' : 'Рейз до'} {to !== null ? formatNumber(to) : '…'}
-            </button>
-          </div>
-          <p className="muted">
-            От {formatNumber(r.min)} до {formatNumber(r.max)}
-            {to === r.max ? ' — это олл-ин' : ''}
-          </p>
-        </form>
-      )}
     </section>
   )
 }
@@ -868,25 +907,16 @@ function HostCard(props: {
         </div>
       ))}
 
-      {t?.ended ? (
+      {t?.ended && (
         <>
           <h2>Места и призы</h2>
           <TournamentResults table={table} />
         </>
-      ) : (
-        !hand &&
-        !v.paused && (
-          <>
-            <button type="button" className="big primary wide" disabled={!v.canStart} onClick={() => room.send({ type: 'start' })}>
-              {t && !t.started ? 'Начать турнир' : 'Начать раздачу'}
-            </button>
-            {!v.canStart && <p className="muted">Нужно хотя бы двое с фишками, которые не пропускают раздачи</p>}
-          </>
-        )
       )}
 
-      {/* «Перерыв»: новая раздача не начинается, таймер стоит, в турнире — и часы уровней; «Продолжить» — снимает */}
-      {!t?.ended && (
+      {/* «Перерыв»: новая раздача не начинается, таймер стоит, в турнире — и часы уровней; «Продолжить» — снимает.
+          Между раздачами он и «Начать раздачу» — внизу экрана (HostDock, #97) */}
+      {hand && (
         <button
           type="button"
           className={v.paused ? 'big primary wide' : 'big wide'}
