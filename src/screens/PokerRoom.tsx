@@ -367,13 +367,18 @@ export function HostDock(props: { view: TableView; pause: boolean; onStart: () =
 }
 
 // Строка над столом: блайнды и анте раздачи (между раздачами — следующей); в турнире — с уровнем;
-// омаха (#80) — с лимитом, холдем — без подписи
+// омаха (#80) — с лимитом, шорт-дек (#81) — названием, холдем — без подписи
 export function blindsLine(table: TableState, v: TableView): string {
   const hand = table.hand
   const t = v.tournament
   const blinds = hand ? { sb: hand.sb, bb: hand.bb, ante: hand.ante ?? 0 } : t ? t.blinds : { ...table.settings, ante: v.ante }
-  const omaha = table.settings.game === 'omaha' ? `Омаха, ${limitFor(table.settings) === 'pot' ? 'пот-лимит' : 'без лимита'} · ` : ''
-  return `${omaha}${t ? 'Турнир · ' : ''}Блайнды ${levelText(blinds)}`
+  const game =
+    table.settings.game === 'omaha'
+      ? `Омаха, ${limitFor(table.settings) === 'pot' ? 'пот-лимит' : 'без лимита'} · `
+      : table.settings.game === 'shortdeck'
+        ? 'Шорт-дек · '
+        : ''
+  return `${game}${t ? 'Турнир · ' : ''}Блайнды ${levelText(blinds)}`
 }
 
 // Под столом — банки с претендентами

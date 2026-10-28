@@ -56,8 +56,8 @@ export type Settings = {
   tournament?: TournamentSettings // структура турнира; есть, когда format — 'tournament'
   // HUD вечера (#79): true — видят все, иначе каждый только свой. У столов до него поля нет — только свой
   publicHud?: boolean
-  // Игра (#80): холдем или омаха — при любых картах; у столов до него поля нет — холдем.
-  // limit — у омахи: пот-лимит (нет поля — он) или без лимита; холдем — всегда без лимита
+  // Игра (#80): холдем, омаха или шорт-дек (#81) — при любых картах; у столов до него поля нет — холдем.
+  // limit — у омахи: пот-лимит (нет поля — он) или без лимита; холдем и шорт-дек — всегда без лимита
   game?: GameId
   limit?: Limit
 }
@@ -853,7 +853,7 @@ function settingsError(s: Settings): string | null {
   }
   if (s.ante !== undefined && (!Number.isInteger(s.ante) || s.ante < 0)) return 'Анте — целое число фишек, не меньше нуля'
   if (s.publicHud !== undefined && typeof s.publicHud !== 'boolean') return 'HUD видят — все или каждый только свою'
-  if (s.game !== undefined && !Object.hasOwn(GAMES, s.game)) return 'Игра — холдем или омаха'
+  if (s.game !== undefined && !Object.hasOwn(GAMES, s.game)) return 'Игра — холдем, омаха или шорт-дек'
   if (s.limit !== undefined && s.limit !== 'nolimit' && s.limit !== 'pot') return 'Лимит — пот-лимит или без лимита'
   const format = s.format ?? 'cash'
   if (format !== 'cash' && format !== 'tournament') return 'Игра — кэш или турнир'

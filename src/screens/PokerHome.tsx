@@ -366,13 +366,14 @@ const CARDS_MODES: [CardsMode, string][] = [
   ['phones', 'На телефонах'],
 ]
 
-// «Покер» — игра и лимит стола (#80): холдем — без лимита; у омахи — пот-лимит (по умолчанию) или без лимита.
+// «Покер» — игра и лимит стола (#80): холдем и шорт-дек (#81) — без лимита; у омахи — пот-лимит (по умолчанию) или без лимита.
 // «Игра» в форме уже есть — кэш или турнир (#78)
 type GameChoice = { game: GameId; limit: Limit }
 
 const GAME_CHOICES: [GameId, string][] = [
   ['holdem', 'Холдем'],
   ['omaha', 'Омаха'],
+  ['shortdeck', 'Шорт-дек'],
 ]
 
 const LIMIT_CHOICES: [Limit, string][] = [
@@ -392,12 +393,12 @@ function GameFields({ choice, phones, onChange }: { choice: GameChoice; phones: 
   return (
     <fieldset className="players-pick">
       <legend className="muted">Покер</legend>
-      <div className="row">
+      <div className="amounts">
         {GAME_CHOICES.map(([game, label]) => (
           <button
             key={game}
             type="button"
-            className={choice.game === game ? 'big primary grow' : 'big grow'}
+            className={choice.game === game ? 'big primary' : 'big'}
             aria-pressed={choice.game === game}
             onClick={() => onChange({ ...choice, game })}
           >
@@ -424,7 +425,9 @@ function GameFields({ choice, phones, onChange }: { choice: GameChoice; phones: 
         </>
       )}
       <p className="muted">
-        {!omaha
+        {choice.game === 'shortdeck'
+          ? `Колода 36 карт, без двоек–пятёрок; флеш старше фулл-хауса, A-6-7-8-9 — стрит${phones ? '' : ' (карты живые)'}. Две карты на руках, ставки без лимита.`
+          : !omaha
           ? 'Две карты на руках, ставки без лимита.'
           : `Четыре карты на руках, рука — ровно две свои и три со стола${phones ? '' : ' (карты живые)'}. ${
               choice.limit === 'pot' ? 'Рейз — не больше банка.' : 'Ставки без лимита.'

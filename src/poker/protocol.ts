@@ -16,7 +16,8 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 // 10 — пересадка на свободное место между раздачами (#98): сам или ведущим за другого (moveSeat)
 // 11 — HUD вечера (#79): счётчики игроков в столе (hud), настройка publicHud — при создании и в tableSettings
 // 12 — омаха и пот-лимит (#80): настройки game и limit при создании, предел ставки в раздаче (limit)
-export const PROTOCOL_VERSION = 12
+// 13 — шорт-дек (#81): новое значение игры game — 'shortdeck'
+export const PROTOCOL_VERSION = 13
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
