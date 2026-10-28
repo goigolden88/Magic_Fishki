@@ -77,7 +77,11 @@ describe('победители столов', () => {
       hands: { a: ['Ah', 'Kh'], b: ['2c', '7d'] },
       boards: [['Qh', 'Jh', '3h', '8s', '9c']],
     }
-    expect(boardResult(deal, 0)).toEqual({ winners: ['a'], hand: 'Флеш, старший туз' })
+    expect(boardResult(deal, 0)).toEqual({
+      winners: ['a'],
+      hand: 'Флеш, старший туз',
+      best: { a: ['Ah', 'Kh', 'Qh', 'Jh', '3h'] }, // пятёрка победителя, не карты руки
+    })
   })
 
   it('ничья — все с лучшей рукой, в порядке участников', () => {
@@ -87,7 +91,9 @@ describe('победители столов', () => {
       hands: { a: ['2c', '3d'], b: ['4c', '5d'], c: ['7c', '8d'] },
       boards: [['As', 'Ks', 'Qs', 'Js', 'Ts']],
     }
-    expect(boardResult(deal, 0)).toEqual({ winners: ['a', 'b', 'c'], hand: 'Роял-флеш' })
+    // Пятёрка — у каждого из разделивших
+    const royal = ['As', 'Ks', 'Qs', 'Js', 'Ts']
+    expect(boardResult(deal, 0)).toEqual({ winners: ['a', 'b', 'c'], hand: 'Роял-флеш', best: { a: royal, b: royal, c: royal } })
   })
 
   it('омаха — ровно 2 из руки: одна черва в руке и четыре на столе — не флеш', () => {
@@ -96,7 +102,8 @@ describe('победители столов', () => {
     // В холдеме у a был бы флеш — любые из руки и стола
     expect(bestHand(HOLDEM, hands.a, board).category).toBe('flush')
     const deal: Deal = { kind: 'omaha', ids: ['a', 'b'], hands, boards: [board] }
-    expect(boardResult(deal, 0)).toEqual({ winners: ['b'], hand: 'Пара, короли' })
+    // Пятёрка по правилу омахи: две из руки и три со стола
+    expect(boardResult(deal, 0)).toEqual({ winners: ['b'], hand: 'Пара, короли', best: { b: ['Kd', 'Kc', 'Qh', 'Jh', '9h'] } })
   })
 })
 

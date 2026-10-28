@@ -232,13 +232,17 @@ describe('экран стола: карты на телефонах', () => {
       [['2c', '7d'], 'Две пары, семёрки и двойки'],
     ])
     expect(v.myCards).toBeNull()
+    // Пятёрка — только у победителя; на столе подсвечены её карты
+    const five = ['7d', '7h', '2c', '2s', 'Jc']
+    expect(v.seats.map((x) => x.best)).toEqual([null, null, five])
+    expect(v.boardWin).toEqual(['2s', '7h', 'Jc'])
     expect(lastHandRecord(viewFor(s, 'p1'))).toEqual({
       number: 1,
       board: ['2s', '7h', '9d', 'Jc', '3s'],
       players: [
-        { name: 'P0', cards: ['Ah', 'Ad'], hand: 'Пара, тузы', won: 0 },
-        { name: 'P1', cards: null, hand: null, won: 0 },
-        { name: 'P2', cards: ['2c', '7d'], hand: 'Две пары, семёрки и двойки', won: 65 },
+        { name: 'P0', cards: ['Ah', 'Ad'], hand: 'Пара, тузы', best: null, won: 0 },
+        { name: 'P1', cards: null, hand: null, best: null, won: 0 },
+        { name: 'P2', cards: ['2c', '7d'], hand: 'Две пары, семёрки и двойки', best: five, won: 65 },
       ],
       rounds: [
         { label: 'Префлоп', moves: ['P0: колл до 10', 'P1: пас', 'P2: чек'] },
@@ -249,8 +253,39 @@ describe('экран стола: карты на телефонах', () => {
     })
   })
 
+  it('побочный банк: пятёрка — у победителя каждого банка, на столе — карты обеих пятёрок', () => {
+    // p0 — короткий: тройка тузов берёт основной; побочный p1 и p2 — у p1 две пары, у p2 пара королей
+    const side = stackedDeck([['Tc', 'Js'], ['Kd', 'Kh'], ['Ah', 'Ad']], ['As', 'Th', 'Jd', '4c', '3s'])
+    const s = play(newTable(['p0', 'p1', 'p2'], PHONES, { p0: 100, p1: 300, p2: 300 }), [start('p0', side), allin('p0'), allin('p1'), call('p2')], false)
+    expect(s.lastHand?.pots.map((p) => p.winners)).toEqual([['p0'], ['p1']])
+    const v = tableView(viewFor(s, 'p2'), 'p2', 0)
+    expect(v.seats.map((x) => x.best)).toEqual([['Ah', 'Ad', 'As', 'Jd', 'Th'], ['Js', 'Jd', 'Tc', 'Th', 'As'], null])
+    expect(v.boardWin).toEqual(['As', 'Th', 'Jd'])
+  })
+
+  it('запись раздачи до пятёрок (#96) — только подписи, без ошибки', () => {
+    const steps = [start('p0', deck), call('p0'), fold('p1'), check('p2'), raise('p2', 20), call('p0')]
+    for (let k = 0; k < 2; k++) steps.push(check('p2'), check('p0'))
+    const s = viewFor(play(newTable(['p0', 'p1', 'p2'], PHONES), steps, false), 'p1')
+    delete s.lastHand?.record?.best
+    const v = tableView(s, 'p1', 0)
+    expect(v.seats.map((x) => [x.handName, x.best])).toEqual([
+      ['Пара, тузы', null],
+      [null, null],
+      ['Две пары, семёрки и двойки', null],
+    ])
+    expect(v.boardWin).toBeNull()
+    expect(lastHandRecord(s)?.players.map((p) => [p.hand, p.best])).toEqual([
+      ['Пара, тузы', null],
+      [null, null],
+      ['Две пары, семёрки и двойки', null],
+    ])
+  })
+
   it('банк без вскрытия: «Показать» — только у взявшего', () => {
     const s = play(newTable(['p0', 'p1', 'p2'], PHONES), [start('p0', deck), raise('p0', 30), fold('p1'), fold('p2')], false)
+    const folded = tableView(viewFor(s, 'p1'), 'p1', 0)
+    expect([folded.boardWin, folded.seats.map((x) => x.best)]).toEqual([null, [null, null, null]]) // пятёрки нет
     expect(tableView(viewFor(s, 'p0'), 'p0', 0).canShow).toEqual({ cards: ['Ah', 'Ad'], shown: [false, false] })
     expect(tableView(viewFor(s, 'p1'), 'p1', 0).canShow).toBeNull()
     const shown = play(s, [{ from: 'p0', msg: { type: 'show', cards: [1] } }], false)

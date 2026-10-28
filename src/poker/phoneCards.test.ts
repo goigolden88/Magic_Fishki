@@ -83,6 +83,8 @@ describe.each(MODES)('карты на телефонах (%s)', (_, roundtrip) =
     expect(last.record?.board).toEqual(['2s', '7h', '9d', 'Jc', '3s'])
     expect(last.record?.shown).toEqual({ p0: ['As', 'Ah'], p1: ['Kc', 'Kd'] })
     expect(last.record?.hands).toEqual({ p0: 'Пара, тузы', p1: 'Пара, короли' })
+    // Лучшая пятёрка у каждого дошедшего: сначала пара, затем кикеры по старшинству
+    expect(last.record?.best).toEqual({ p0: ['As', 'Ah', 'Jc', '9d', '7h'], p1: ['Kc', 'Kd', 'Jc', '9d', '7h'] })
     expect(last.pots).toEqual([{ amount: 2000, winners: ['p0'] }])
     expect(s.players.map((p) => p.chips)).toEqual([2000, 0])
   })
@@ -114,6 +116,11 @@ describe.each(MODES)('карты на телефонах (%s)', (_, roundtrip) =
       p1: 'Старшая карта, король',
       p2: 'Старшая карта, король',
     })
+    expect(s.lastHand?.record?.best).toEqual({
+      p0: ['Ah', 'Ad', 'Jc', '9d', '7h'],
+      p1: ['Kh', 'Qh', 'Jc', '9d', '7h'],
+      p2: ['Kd', 'Qc', 'Jc', '9d', '7h'],
+    })
   })
 
   it('ничья с нечётной фишкой — лишняя первому по кругу от кнопки', () => {
@@ -139,6 +146,7 @@ describe.each(MODES)('карты на телефонах (%s)', (_, roundtrip) =
     const record = s.lastHand!.record!
     expect(record.shown).toEqual({})
     expect(record.hands).toEqual({})
+    expect(record.best).toEqual({}) // без вскрытия пятёрки нет
     expect(record.board).toEqual([])
     expect(record.hidden).toEqual({ playerId: 'p0', cards: ['As', '7h'] })
     expect(s.players.map((p) => p.chips)).toEqual([1010, 990])

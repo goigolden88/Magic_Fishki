@@ -65,6 +65,7 @@ export function newDeal(kind: DealKind, ids: string[], tables: number, random?: 
 export type BoardResult = {
   winners: string[] // лучшая рука на столе; ничья — несколько, в порядке участников
   hand: string // «Флеш, старший туз»
+  best: Record<string, Card[]> // у каждого победителя — лучшая пятёрка: сначала карты комбинации, затем кикеры (#96)
 }
 
 export function boardResult(deal: Deal, index: number): BoardResult {
@@ -75,7 +76,12 @@ export function boardResult(deal: Deal, index: number): BoardResult {
     board,
     deal.ids.map((id) => ({ id, cards: deal.hands[id] })),
   )
-  return { winners: ids, hand: bestHand(variant, deal.hands[ids[0]], board).name }
+  const results = ids.map((id) => bestHand(variant, deal.hands[id], board))
+  return {
+    winners: ids,
+    hand: results[0].name,
+    best: Object.fromEntries(ids.map((id, i) => [id, results[i].cards])),
+  }
 }
 
 // Часть банка на каждый стол: поровну, копейки остатка — по одной первым столам
