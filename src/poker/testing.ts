@@ -1,6 +1,6 @@
 // Помощник тестов: прогоняет сообщения через стол. roundtrip — состояние сохраняется
 // в JSON и поднимается между каждыми двумя сообщениями, как на сервере со сном
-import { buildDeck, HOLDEM, type Card } from './cards'
+import { buildDeck, HOLDEM, type Card, type Variant } from './cards'
 import { PROTOCOL_VERSION, type ClientBody } from './protocol'
 import { createTable, handle, setOnline, type Settings, type TableState } from './table'
 
@@ -46,13 +46,13 @@ export const allin = (from: string) => bet(from, { type: 'allin' })
 export const sit = (from: string, name: string, now = 0): Step => ({ from, msg: { type: 'sit', name }, now })
 export const start = (host: string, deck?: Card[]): Step => ({ from: host, msg: { type: 'start' }, deck })
 
-// Колода холдема, где карты лягут как задано: hole — руки по порядку сдачи (с первого после
-// кнопки), затем стол по улицам; дальше — остальные карты по порядку
-export function stackedDeck(hole: Card[][], board: Card[] = []): Card[] {
+// Колода варианта (по умолчанию холдема), где карты лягут как задано: hole — руки по порядку сдачи
+// (с первого после кнопки), затем стол по улицам; дальше — остальные карты по порядку
+export function stackedDeck(hole: Card[][], board: Card[] = [], variant: Variant = HOLDEM): Card[] {
   const top: Card[] = []
   for (let k = 0; k < (hole[0]?.length ?? 0); k++) for (const h of hole) top.push(h[k])
   top.push(...board)
-  return [...top, ...buildDeck(HOLDEM).filter((c) => !top.includes(c))]
+  return [...top, ...buildDeck(variant).filter((c) => !top.includes(c))]
 }
 export const award = (host: string, winners: string[][], now = 0): Step => ({ from: host, msg: { type: 'award', winners }, now })
 

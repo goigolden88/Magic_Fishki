@@ -128,7 +128,7 @@ describe('пот-лимит', () => {
   })
 
   it('незнакомая игра или лимит — отказ при создании стола', () => {
-    expect(createTable('h', 'H', { game: 'stud' as never }, 0)).toEqual({ ok: false, error: 'Игра — холдем или омаха' })
+    expect(createTable('h', 'H', { game: 'stud' as never }, 0)).toEqual({ ok: false, error: 'Игра — холдем, омаха или шорт-дек' })
     expect(createTable('h', 'H', { game: 'omaha', limit: 'fixed' as never }, 0)).toEqual({
       ok: false,
       error: 'Лимит — пот-лимит или без лимита',

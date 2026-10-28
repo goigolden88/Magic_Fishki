@@ -1,7 +1,7 @@
 // Карты на телефонах (этап 2, Р-23): вариант игры — данными (Ш-169), колода, сдача по описанию.
 // Описание хранится у раздачи — под будущий «микс». Тасует сервер комнаты (shuffle) и подаёт
 // колоду в handle; сами функции чистые. Карты сдаются по описанию, без сжигания
-import { buildDeck, HOLDEM, OMAHA, type Card, type Variant } from './cards'
+import { buildDeck, HOLDEM, OMAHA, SHORT_DECK, type Card, type Variant } from './cards'
 import type { Street } from './hand'
 import type { RandomBytes } from './tokens'
 
@@ -46,8 +46,15 @@ export const OMAHA_GAME: GameDef = {
   ],
 }
 
+// Шорт-дек (#81): сдача — как в холдеме, колода 36 и старшинство шорт-дека (SHORT_DECK)
+export const SHORT_DECK_GAME: GameDef = {
+  id: 'shortdeck',
+  variant: SHORT_DECK,
+  rounds: HOLDEM_GAME.rounds,
+}
+
 // Игра стола на выбор ведущего (#80)
-export const GAMES = { holdem: HOLDEM_GAME, omaha: OMAHA_GAME } as const
+export const GAMES = { holdem: HOLDEM_GAME, omaha: OMAHA_GAME, shortdeck: SHORT_DECK_GAME } as const
 export type GameId = keyof typeof GAMES
 
 // Предел ставки: без лимита или пот-лимит — рейз не больше банка (#80)
