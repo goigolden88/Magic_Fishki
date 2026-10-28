@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { formatChips, formatNumber, formatRub, parseChips } from '../calc/format'
 import {
-  aroundTable,
   betSide,
   betSlider,
   dockOf,
-  seatSpots,
   sliderAmount,
   sliderIndex,
+  spotsBySeat,
   stepAmount,
   waitLine,
   type BetSlider,
@@ -257,7 +256,11 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
             {blindsLine(table, v)} · {v.handNumber > 0 ? `раздача ${v.handNumber} · ` : ''}
             {v.stageLabel} · ведущий — {v.hostName}
           </p>
-          <PokerTable view={v} open={open} />
+          <PokerTable
+            view={v}
+            open={open}
+            onSeat={room.online ? (seat) => room.send({ type: 'moveSeat', seat }) : undefined}
+          />
         </div>
 
         {v.myCards && <OpenCards open={open} onOpen={onOpen} />}
@@ -544,12 +547,15 @@ function ShowCard(props: {
   )
 }
 
-// Овальный стол: я внизу по центру, остальные по порядку мест по часовой (готовые точки — seatSpots);
-// ставка улицы — у места со стороны стола, в центре — улица и банк. Стол заполняет свою рамку (#97):
-// у комнаты и у стола на телефоне — всё место над панелью хода. open — свои карты лицом без пальца (#86)
-export function PokerTable({ view: v, open = false }: { view: TableView; open?: boolean }) {
-  const seats = aroundTable(v.seats)
-  const spots = seatSpots(seats.length)
+// Овальный стол: я внизу по центру, остальные по номерам мест по часовой (готовые точки — seatSpots
+// на все «Мест за столом», spotsBySeat); между раздачами — и свободные места (#98). Ставка улицы — у места
+// со стороны стола, в центре — улица и банк. Стол заполняет свою рамку (#97): у комнаты и у стола
+// на телефоне — всё место над панелью хода. open — свои карты лицом без пальца (#86).
+// onSeat — касание свободного места пересаживает меня туда; нет — свободные места только видны
+export function PokerTable(props: { view: TableView; open?: boolean; onSeat?: (seat: number) => void }) {
+  const { view: v, open = false, onSeat } = props
+  const bottom = v.me?.seat ?? 0
+  const spots = spotsBySeat(v.maxSeats, v.me?.seat ?? null)
   return (
     <div className="felt-wrap">
       <div className="felt" />
@@ -579,11 +585,48 @@ export function PokerTable({ view: v, open = false }: { view: TableView; open?: 
         {v.nextHandLeft !== null && <div>Новая раздача через {v.nextHandLeft} с</div>}
       </div>
       <div className="spots">
-        {seats.map((s, i) => (
-          <SeatSpot key={s.id} seat={s} at={spots[i]} bottom={i === 0} myCards={s.isMe ? v.myCards : null} open={open} />
+        {v.seats.map((s) => (
+          <SeatSpot
+            key={s.id}
+            seat={s}
+            at={spots[s.seat]}
+            bottom={s.seat === bottom}
+            myCards={s.isMe ? v.myCards : null}
+            open={open}
+          />
+        ))}
+        {v.freeSeats.map((k) => (
+          <FreeSeat key={`free-${k}`} seat={k} at={spots[k]} bottom={k === bottom} onSeat={onSeat} />
         ))}
       </div>
     </div>
+  )
+}
+
+// У бокового края — прижато к нему
+function edgeOf(at: Spot): string | null {
+  return at.x <= 10 ? 'edge-l' : at.x >= 90 ? 'edge-r' : null
+}
+
+// Свободное место между раздачами (#98): «Место N»; с onSeat — кнопка «пересесть», без — только видно
+function FreeSeat(props: { seat: number; at: Spot; bottom: boolean; onSeat?: (seat: number) => void }) {
+  const { seat, at, bottom, onSeat } = props
+  const cls = ['seat', 'free', bottom ? 'bottom' : edgeOf(at)].filter(Boolean).join(' ')
+  const style = { left: `${at.x}%`, top: `${at.y}%` }
+  const name = <span className="seat-name">Место {seat + 1}</span>
+  if (!onSeat) {
+    return (
+      <div className={cls} style={style}>
+        {name}
+        <span className="seat-mark">свободно</span>
+      </div>
+    )
+  }
+  return (
+    <button type="button" className={cls} style={style} aria-label={`Пересесть на место ${seat + 1}`} onClick={() => onSeat(seat)}>
+      {name}
+      <span className="seat-mark">пересесть</span>
+    </button>
   )
 }
 
@@ -598,8 +641,7 @@ function SeatSpot(props: { seat: SeatView; at: Spot; bottom: boolean; myCards: C
     s.sittingOut && 'пропуск',
     s.folded && 'пас',
   ].filter(Boolean)
-  const edge = at.x <= 10 ? 'edge-l' : at.x >= 90 ? 'edge-r' : null // у бокового края — прижато к нему
-  const cls = ['seat', bottom ? 'bottom' : edge, s.toAct && 'to-act', s.folded && 'folded', s.isMe && 'me', s.best && 'winner']
+  const cls = ['seat', bottom ? 'bottom' : edgeOf(at),s.toAct && 'to-act', s.folded && 'folded', s.isMe && 'me', s.best && 'winner']
     .filter(Boolean)
     .join(' ')
   return (
@@ -1036,6 +1078,12 @@ function HostCard(props: {
                 >
                   {p.sittingOut ? 'Вернуть в раздачи' : 'Пропускает раздачи'}
                 </button>
+                <MoveSeat
+                  view={v}
+                  seat={p.seat}
+                  online={room.online}
+                  onMove={(seat) => room.send({ type: 'moveSeat', seat, playerId: p.id })}
+                />
                 {p.id !== table.hostId && (
                   <>
                     <button type="button" className="big wide" onClick={() => room.send({ type: 'reseat', playerId: p.id })}>
@@ -1090,6 +1138,25 @@ function HostCard(props: {
         {t?.ended && !gameId ? 'Записать игру' : 'Закончить игру'}
       </button>
     </section>
+  )
+}
+
+// Ведущий пересаживает игрока (#98) — из меню игрока: свободные места стола кнопками, между раздачами
+export function MoveSeat(props: { view: TableView; seat: number; online: boolean; onMove: (seat: number) => void }) {
+  const { view: v, seat, online, onMove } = props
+  if (v.stage !== null) return <p className="muted">Место {seat + 1} · пересадить можно между раздачами</p>
+  if (v.freeSeats.length === 0) return <p className="muted">Место {seat + 1} · свободных мест нет</p>
+  return (
+    <>
+      <p className="muted">Место {seat + 1} · пересадить на место</p>
+      <div className="amounts">
+        {v.freeSeats.map((k) => (
+          <button key={k} type="button" className="big" disabled={!online} onClick={() => onMove(k)}>
+            {k + 1}
+          </button>
+        ))}
+      </div>
+    </>
   )
 }
 

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
 import {
-  aroundTable,
   betSide,
   betSlider,
   dockOf,
@@ -9,19 +8,42 @@ import {
   seatSpots,
   sliderAmount,
   sliderIndex,
+  spotsBySeat,
   stepAmount,
   waitLine,
 } from './pokerLayout'
 
-const seats = (me: number, n = 5) => Array.from({ length: n }, (_, i) => ({ id: `p${i}`, isMe: i === me }))
-
 describe('рассадка вокруг стола', () => {
-  it('я — первым, дальше по порядку мест по кругу', () => {
-    expect(aroundTable(seats(2)).map((s) => s.id)).toEqual(['p2', 'p3', 'p4', 'p0', 'p1'])
-    expect(aroundTable(seats(0)).map((s) => s.id)).toEqual(['p0', 'p1', 'p2', 'p3', 'p4'])
-    expect(aroundTable(seats(4)).map((s) => s.id)).toEqual(['p4', 'p0', 'p1', 'p2', 'p3'])
-    // Меня нет за столом — по порядку мест
-    expect(aroundTable(seats(-1)).map((s) => s.id)).toEqual(['p0', 'p1', 'p2', 'p3', 'p4'])
+  it('точки по номерам мест: моё — внизу, дальше по номерам по часовой', () => {
+    const spots = seatSpots(5)
+    // Я на месте 2: место 2 — точка 0, место 3 — точка 1 … место 1 — точка 4
+    expect(spotsBySeat(5, 2)).toEqual([spots[3], spots[4], spots[0], spots[1], spots[2]])
+    expect(spotsBySeat(5, 0)).toEqual(spots)
+    // Меня нет за столом (стол на одном телефоне) — внизу место 0
+    expect(spotsBySeat(5, null)).toEqual(spots)
+  })
+
+  it('на все места стола — и свободные: точки разные, соседи не наезжают, моё — внизу', () => {
+    for (let n = 2; n <= 10; n++) {
+      for (let me = 0; me < n; me++) {
+        const spots = spotsBySeat(n, me)
+        expect(spots).toHaveLength(n)
+        expect(spots[me]).toEqual({ x: 50, y: 100 })
+        expect(new Set(spots.map((p) => `${p.x}:${p.y}`)).size).toBe(n)
+        for (let i = 0; i < n; i++) {
+          for (let j = i + 1; j < n; j++) {
+            const dx = Math.abs(spots[i].x - spots[j].x)
+            const dy = Math.abs(spots[i].y - spots[j].y)
+            expect(dx >= SEAT_W || dy >= SEAT_H, `${n} мест, я на ${me}: ${i} и ${j}`).toBe(true)
+          }
+        }
+        // Следующий за мной по номеру — слева от меня, предыдущий — справа
+        if (n > 2) {
+          expect(spots[(me + 1) % n].x).toBeLessThan(50)
+          expect(spots[(me + n - 1) % n].x).toBeGreaterThan(50)
+        }
+      }
+    }
   })
 
   it('первое место — внизу по центру, следующие — по часовой: влево, вверх, вправо', () => {

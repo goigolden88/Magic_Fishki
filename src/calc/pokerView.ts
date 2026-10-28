@@ -27,6 +27,7 @@ export type SeatView = {
   handName: string | null // между раздачами — что было у дошедшего до вскрытия
   best: Card[] | null // между раздачами у победителя банка на вскрытии — лучшая пятёрка (#96); иначе null
   id: string
+  seat: number // номер места за столом, 0…maxSeats−1
   name: string
   chips: number // стек сейчас: в раздаче — без поставленного
   bet: number // ставка на этой улице
@@ -87,6 +88,8 @@ export type ActionsView = {
 export type TableView = {
   seats: SeatView[]
   me: SeatView | null
+  maxSeats: number // «Мест за столом»: точки у стола — на все места
+  freeSeats: number[] // между раздачами — свободные места по номерам, на них можно пересесть (#98); в раздаче — пусто
   isHost: boolean
   hostName: string
   stage: Stage | null // null — между раздачами
@@ -147,6 +150,7 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
         handName: record?.hands[p.id] ?? null,
         best: fives.get(p.id) ?? null,
         id: p.id,
+        seat: p.seat,
         name: p.name,
         chips: s ? s.chips : p.chips,
         bet: s ? s.bet : 0,
@@ -168,10 +172,14 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
   const isHost = meId === table.hostId
   const myHole = cards?.hole[meId]
   const hidden = record?.hidden?.playerId === meId ? record.hidden : null
+  const maxSeats = table.settings.maxSeats
+  const taken = new Set(table.players.map((p) => p.seat))
 
   return {
     seats,
     me,
+    maxSeats,
+    freeSeats: hand ? [] : Array.from({ length: maxSeats }, (_, k) => k).filter((k) => !taken.has(k)),
     isHost,
     hostName: host?.name ?? '',
     stage: hand?.stage ?? null,

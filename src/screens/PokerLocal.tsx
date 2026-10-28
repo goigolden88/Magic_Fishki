@@ -24,7 +24,7 @@ import { ulid } from '../ulid'
 import { openGameYear } from './openYears'
 import { LookFields } from './LookFields'
 import { clearLocalTable, loadLocalTable, saveLocalTable, storageWorks } from './pokerStorage'
-import { ActionsCard, AwardPanel, blindsLine, FinalStacks, HostDock, LastHand, PokerTable, PotList } from './PokerRoom'
+import { ActionsCard, AwardPanel, blindsLine, FinalStacks, HostDock, LastHand, MoveSeat, PokerTable, PotList } from './PokerRoom'
 import { TournamentPanel, TournamentResults } from './Tournament'
 
 // Адрес стола на телефоне: под код комнаты (6 знаков) не подходит
@@ -304,7 +304,7 @@ function LocalTableCard(props: {
   )
 }
 
-// Нажатие на игрока: стек, докуп сразу, пропуск раздач, «Убрать со стола»
+// Нажатие на игрока: стек, докуп сразу, пропуск раздач, пересадка, «Убрать со стола»
 function PlayerList({ table, view: v, amounts, apply }: { table: TableState; view: TableView; amounts: number[]; apply: Apply }) {
   const [open, setOpen] = useState<string | null>(null)
   const [stackText, setStackText] = useState('')
@@ -321,6 +321,11 @@ function PlayerList({ table, view: v, amounts, apply }: { table: TableState; vie
 
   function doRebuy(playerId: string, amount: number) {
     if (apply((s, at) => rebuyNow(s, playerId, amount, at))) setRebuyText('')
+  }
+
+  // Пересадка (#98): ведущий за игрока, между раздачами
+  function moveSeat(playerId: string, seat: number) {
+    apply((s, at) => hostDo(s, { type: 'moveSeat', seat, playerId }, at))
   }
 
   return (
@@ -355,6 +360,7 @@ function PlayerList({ table, view: v, amounts, apply }: { table: TableState; vie
                   >
                     {p.sittingOut ? 'Вернуть в раздачи' : 'Пропускает раздачи'}
                   </button>
+                  <MoveSeat view={v} seat={p.seat} online onMove={(seat) => moveSeat(p.id, seat)} />
                   {!t.ended && (
                     <button
                       type="button"
@@ -456,6 +462,7 @@ function PlayerList({ table, view: v, amounts, apply }: { table: TableState; vie
                 >
                   {p.sittingOut ? 'Вернуть в раздачи' : 'Пропускает раздачи'}
                 </button>
+                <MoveSeat view={v} seat={p.seat} online onMove={(seat) => moveSeat(p.id, seat)} />
                 <button
                   type="button"
                   className="big wide danger-text"
