@@ -15,7 +15,8 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 // 9 — выигрышная комбинация картами (#96): лучшая пятёрка дошедших до вскрытия в записи раздачи (best)
 // 10 — пересадка на свободное место между раздачами (#98): сам или ведущим за другого (moveSeat)
 // 11 — HUD вечера (#79): счётчики игроков в столе (hud), настройка publicHud — при создании и в tableSettings
-export const PROTOCOL_VERSION = 11
+// 12 — омаха и пот-лимит (#80): настройки game и limit при создании, предел ставки в раздаче (limit)
+export const PROTOCOL_VERSION = 12
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 

@@ -28,8 +28,9 @@ export function localStartError(count: number): string | null {
 // Новый стол: игроки садятся по порядку, ведущим по правилам — первый (его ведение — сам телефон)
 export function startLocalTable(
   players: LocalPlayer[],
-  // Турнир и анте (#78) — те же поля, что у комнаты; нет — кэш без анте
-  settings: Pick<Settings, 'sb' | 'bb' | 'startingStack' | 'felt'> & Partial<Pick<Settings, 'ante' | 'format' | 'tournament'>>,
+  // Турнир и анте (#78), игра и лимит (#80) — те же поля, что у комнаты; нет — кэш холдема без анте
+  settings: Pick<Settings, 'sb' | 'bb' | 'startingStack' | 'felt'> &
+    Partial<Pick<Settings, 'ante' | 'format' | 'tournament' | 'game' | 'limit'>>,
   now: number,
   makeId: () => string,
 ): LocalStart {
