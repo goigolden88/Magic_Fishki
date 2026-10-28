@@ -23,6 +23,7 @@ const PLACEHOLDERS: HelpValues = {
   levelMinutes: '‹минут на уровень›',
   prizeRule: '‹призы›',
   tournamentRate: '‹курс турнира›',
+  hudFewHands: '‹мало раздач›',
 }
 
 describe('справка', () => {
@@ -76,6 +77,7 @@ describe('справка', () => {
       levelMinutes: '15',
       prizeRule: 'до 4 игроков — всё первому, 5–7 — 65/35, от 8 — 50/30/20',
       tournamentRate: '1',
+      hudFewHands: '30',
     })
   })
 })

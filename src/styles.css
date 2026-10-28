@@ -823,6 +823,80 @@ button.seat.free {
   font-size: 0.7rem;
 }
 
+/* HUD вечера (#79): одна короткая строка у места — кнопкой во всю ширину места; мало раздач — приглушена */
+.seat-hud {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  margin: 0.1rem 0 0;
+  padding: 0.05rem 0;
+  border: 1px solid var(--line);
+  border-radius: 0.35rem;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.68rem;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seat-hud.few {
+  color: var(--muted);
+}
+
+/* Подробно — карточкой поверх стола по центру рамки; касание закрывает */
+.hud-pop {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 5;
+  transform: translate(-50%, -50%);
+  width: min(92%, 20rem);
+  max-height: 96%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.8rem;
+  border: 2px solid var(--gold);
+  border-radius: 0.8rem;
+  background: var(--card);
+  box-shadow: 0 0.4rem 1.5rem rgba(0, 0, 0, 0.6);
+}
+
+.hud-name {
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+
+.hud-few {
+  color: var(--gold);
+}
+
+.hud-rows {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+}
+
+.hud-rows div {
+  display: grid;
+  grid-template-columns: 3.2rem 1fr;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.hud-rows dt {
+  font-weight: 700;
+}
+
+.hud-rows dd {
+  margin: 0;
+}
+
 /* Секунды на ход — у места того, чей ход (#75): значком на левом верхнем углу, место не растёт */
 .seat-timer {
   position: absolute;

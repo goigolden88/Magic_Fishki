@@ -12,6 +12,7 @@ import { PROTOCOL_VERSION, type CreateRoomRequest, type CreateRoomResponse } fro
 import { DEFAULT_SETTINGS, type Felt } from '../poker/table'
 import { getSettings } from '../store/db'
 import { ulid } from '../ulid'
+import { HudFields } from './Hud'
 import { LookFields } from './LookFields'
 import { LOCAL_HASH, NO_STORAGE } from './PokerLocal'
 import {
@@ -143,6 +144,7 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
   )
   const [look, setLook] = useState<Look>(() => lookOf(DEFAULT_SETTINGS))
   const [format, setFormat] = useState<TournamentForm>(() => tournamentForm(0))
+  const [publicHud, setPublicHud] = useState(false) // HUD (#79): по умолчанию — каждый только свою
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -192,7 +194,17 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
       name,
       ...(me ? { regularId: me.id } : {}),
       roster,
-      settings: { sb, bb, startingStack: stack, cards, turnSeconds: turn.seconds, autoStart: timer.autoStart, ...look, ...game.settings },
+      settings: {
+        sb,
+        bb,
+        startingStack: stack,
+        cards,
+        turnSeconds: turn.seconds,
+        autoStart: timer.autoStart,
+        ...look,
+        ...game.settings,
+        publicHud,
+      },
     }
     setBusy(true)
     setError(null)
@@ -328,6 +340,9 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
 
       <LookFields look={look} backs onChange={(l) => setLook({ ...look, ...l })} />
       {cards === 'live' && <p className="muted">Карты живые — рубашка на экране не видна.</p>}
+
+      {/* #79: стол на одном телефоне — HUD видят все, выбора там нет */}
+      <HudFields all={publicHud} onChange={setPublicHud} />
 
       {error && <p className="warn">{error}</p>}
       <div className="row">
