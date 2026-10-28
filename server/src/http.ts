@@ -60,10 +60,10 @@ export function json(status: number, body: unknown): Response {
 function pickSettings(x: unknown): Partial<Settings> {
   if (!isRecord(x)) return {}
   const out: Record<string, unknown> = {}
-  // format, ante, tournament — турнир и анте (#78); структуру турнира стол проверяет целиком
+  // format, ante, tournament — турнир и анте (#78); структуру турнира стол проверяет целиком; publicHud — HUD (#79)
   const keys = [
     ...['sb', 'bb', 'startingStack', 'maxSeats', 'rebuyMaxBB', 'cards', 'turnSeconds', 'autoStart', 'felt', 'cardBack'],
-    ...['format', 'ante', 'tournament'],
+    ...['format', 'ante', 'tournament', 'publicHud'],
   ]
   for (const key of keys) {
     if (key in x) out[key] = x[key]
