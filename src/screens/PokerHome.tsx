@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { eveningDay, eveningLine, type EveningSummary } from '../calc/evenings'
 import { parseChips } from '../calc/format'
 import { localStartError, startLocalTable } from '../calc/localTable'
 import { allPicked, toggleAll } from '../calc/pick'
@@ -10,11 +11,14 @@ import type { Regular } from '../model'
 import type { CardsMode, GameId, Limit } from '../poker/game'
 import { PROTOCOL_VERSION, type CreateRoomRequest, type CreateRoomResponse } from '../poker/protocol'
 import { DEFAULT_SETTINGS, type Felt, type Settings } from '../poker/table'
-import { getSettings } from '../store/db'
+import { formatDate } from '../dates'
+import type { HistoryHand } from '../poker/history'
+import { deleteEvening, eveningHands, getSettings, listEvenings } from '../store/db'
 import { ulid } from '../ulid'
 import { HudFields } from './Hud'
 import { LookFields } from './LookFields'
 import { LOCAL_HASH, NO_STORAGE } from './PokerLocal'
+import { HandHistory } from './PokerRoom'
 import {
   clearLocalTable,
   loadLocalTable,
@@ -124,7 +128,82 @@ export function PokerHomeScreen() {
           Войти
         </button>
       </form>
+
+      <PastEvenings />
     </main>
+  )
+}
+
+// «Прошлые вечера» (#114): копия раздач на этом телефоне — строка на вечер (дата, стол, раздач);
+// касание — его раздачи той же карточкой, что «История раздач» за столом; «Удалить» — с вопросом.
+// Вечеров нет или память браузера не читается — раздела нет
+function PastEvenings() {
+  const [evenings, setEvenings] = useState<EveningSummary[]>([])
+  const [open, setOpen] = useState<{ evening: EveningSummary; hands: HistoryHand[] } | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  function reload() {
+    listEvenings().then(setEvenings, () => setEvenings([]))
+  }
+
+  useEffect(reload, [])
+
+  async function show(evening: EveningSummary) {
+    try {
+      setOpen({ evening, hands: await eveningHands(evening.id) })
+      setError(null)
+    } catch {
+      setError('Не удалось прочитать раздачи с этого телефона')
+    }
+  }
+
+  async function remove(evening: EveningSummary) {
+    if (!confirm(`Удалить вечер ${formatDate(eveningDay(evening))}? Его раздачи сотрутся с этого телефона.`)) return
+    try {
+      await deleteEvening(evening.id)
+      setOpen(null)
+      setError(null)
+      reload()
+    } catch {
+      setError('Не удалось удалить вечер')
+    }
+  }
+
+  if (open) {
+    return (
+      <>
+        <HandHistory
+          hands={open.hands}
+          title={`${formatDate(eveningDay(open.evening))} · ${eveningLine(open.evening)}`}
+          back="← Вечера"
+          onClose={() => setOpen(null)}
+        />
+        {error && <p className="warn">{error}</p>}
+        <button type="button" className="big wide danger-text" onClick={() => void remove(open.evening)}>
+          Удалить вечер
+        </button>
+      </>
+    )
+  }
+  if (evenings.length === 0) return null
+  return (
+    <section className="card">
+      <h2>Прошлые вечера</h2>
+      <ul className="list">
+        {evenings.map((e) => (
+          <li key={e.id} className="row">
+            <button type="button" className="history-item grow" onClick={() => void show(e)}>
+              <span className="history-number">{formatDate(eveningDay(e))}</span>
+              <span className="history-wins">{eveningLine(e)}</span>
+            </button>
+            <button type="button" className="big danger-text" onClick={() => void remove(e)}>
+              Удалить
+            </button>
+          </li>
+        ))}
+      </ul>
+      {error && <p className="warn">{error}</p>}
+    </section>
   )
 }
 
