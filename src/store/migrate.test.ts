@@ -119,7 +119,7 @@ describe('миграция базы 1 → 2: постоянный игрок —
     expect(await getGame('01A')).toEqual(G1)
   })
 
-  it('базы ещё нет — создаётся сразу версии 2', async () => {
+  it('базы ещё нет — создаётся сразу последней версии', async () => {
     expect(await listGames()).toEqual([])
     expect((await getSettings()).players).toEqual([])
   })
