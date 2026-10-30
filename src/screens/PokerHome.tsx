@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { BOT_LEVELS, type BotLevel } from '../calc/bot'
 import { BOT_LEVEL_DEFAULT, BOTS_DEFAULT, BOTS_MAX, BOTS_MIN, startBotTable } from '../calc/botTable'
 import { eveningDay, eveningLine, type EveningSummary } from '../calc/evenings'
@@ -8,11 +8,22 @@ import { allPicked, toggleAll } from '../calc/pick'
 import { createFailure, DEFAULT_SERVER, NO_CONNECTION, parseRoomLink, roomHash, roomsUrl, serverBase } from '../calc/pokerLink'
 import { lookOf, type Look } from '../calc/pokerLook'
 import { turnSecondsOf } from '../calc/pokerTimer'
+import {
+  DEFAULT_GAME,
+  GAME_CHOICES,
+  gameSettings,
+  quickRoomHost,
+  quickRoomLine,
+  quickRoomSettings,
+  ROOM_DEFAULTS,
+  roomSettings,
+  type GameChoice,
+} from '../calc/quickRoom'
 import { formSettings, tournamentForm, type TournamentForm } from '../calc/tournamentForm'
 import type { Regular } from '../model'
-import type { CardsMode, GameId, Limit } from '../poker/game'
+import type { CardsMode, Limit } from '../poker/game'
 import { PROTOCOL_VERSION, type CreateRoomRequest, type CreateRoomResponse } from '../poker/protocol'
-import { DEFAULT_SETTINGS, type Felt, type Settings } from '../poker/table'
+import { DEFAULT_SETTINGS, type Felt } from '../poker/table'
 import { formatDate } from '../dates'
 import type { HistoryHand } from '../poker/history'
 import { deleteEvening, eveningHands, getSettings, listEvenings } from '../store/db'
@@ -47,12 +58,56 @@ const GUEST = '' // «Вы за столом» — не из постоянны�
 // Учёт вечера от этого экрана не зависит: нет сети — он работает как раньше
 export function PokerHomeScreen() {
   const [creating, setCreating] = useState<'room' | 'local' | 'bots' | null>(null)
+  const [firstTime, setFirstTime] = useState(false) // форму открыла «Быстрая комната» без пароля
+  const [quick, setQuick] = useState<{ players: Regular[]; buyin: number } | null>(null)
+  const [quickBusy, setQuickBusy] = useState(false)
+  const [quickError, setQuickError] = useState<string | null>(null)
+  const quickSending = useRef(false) // двойное касание — одна комната
   const [local, setLocal] = useState(() => loadLocalTable() !== null)
   const [bots, setBots] = useState(() => loadBotTable() !== null)
   const [linkText, setLinkText] = useState('')
   const rooms = Object.entries(loadSeats())
   const parsed = parseRoomLink(linkText)
   const link = parsed && !('error' in parsed) ? parsed : null
+
+  useEffect(() => {
+    void getSettings().then((s) => setQuick({ players: s.players, buyin: s.defaultBuyin }))
+  }, [])
+
+  function openForm(first: boolean) {
+    setFirstTime(first)
+    setQuickError(null)
+    setCreating('room')
+  }
+
+  // «Быстрая комната» (#127): начальные значения формы, играют все постоянные, ведущий — кем был в прошлый раз.
+  // Пароль не запомнен или телефон не знает, кто ведущий, — форма
+  async function quickRoom() {
+    if (!quick || quickSending.current) return
+    const password = loadPassword()
+    const me = quickRoomHost(quick.players, loadMe())
+    if (password === '' || !me) {
+      openForm(password === '')
+      return
+    }
+    quickSending.current = true
+    setQuickBusy(true)
+    setQuickError(null)
+    const failure = await sendCreate(
+      {
+        v: PROTOCOL_VERSION,
+        password,
+        name: me.name,
+        regularId: me.id,
+        roster: quick.players,
+        settings: quickRoomSettings(quick.buyin),
+      },
+      me.id,
+    )
+    quickSending.current = false
+    setQuickBusy(false)
+    if (failure) setQuickError(failure.error)
+  }
 
   // Стол на телефоне один: идёт — второй не начать, пока не закончен или не удалён
   function removeLocal() {
@@ -114,7 +169,7 @@ export function PokerHomeScreen() {
       )}
 
       {creating === 'room' ? (
-        <NewRoomCard onCancel={() => setCreating(null)} />
+        <NewRoomCard first={firstTime} onCancel={() => setCreating(null)} />
       ) : creating === 'local' ? (
         <NewLocalCard onCancel={() => setCreating(null)} />
       ) : creating === 'bots' ? (
@@ -122,15 +177,25 @@ export function PokerHomeScreen() {
       ) : (
         <>
           <div className="row">
-            <button type="button" className="big primary grow" onClick={() => setCreating('room')}>
-              Новая комната
+            <button
+              type="button"
+              className="big primary grow"
+              disabled={!quick || quickBusy}
+              onClick={() => void quickRoom()}
+            >
+              {quickBusy ? 'Создаём…' : 'Быстрая комната'}
             </button>
-            {!local && (
-              <button type="button" className="big primary grow" onClick={() => setCreating('local')}>
-                Стол на этом телефоне
-              </button>
-            )}
+            <button type="button" className="big" onClick={() => openForm(false)}>
+              Настроить…
+            </button>
           </div>
+          {quick && <p className="muted">{quickRoomLine(quickRoomSettings(quick.buyin))}</p>}
+          {quickError && <p className="warn">{quickError}</p>}
+          {!local && (
+            <button type="button" className="big primary wide" onClick={() => setCreating('local')}>
+              Стол на этом телефоне
+            </button>
+          )}
           {/* Стол с ботами — свой: «Стол на этом телефоне» ему не мешает */}
           {!bots && (
             <button type="button" className="big wide" onClick={() => setCreating('bots')}>
@@ -242,25 +307,52 @@ function PastEvenings() {
   )
 }
 
-function NewRoomCard({ onCancel }: { onCancel: () => void }) {
+// Запрос create — у формы и у «Быстрой комнаты» (#127). Комната — на сервере из «Настроек» (Р-39).
+// Удалось — пароль, ведущий и место запомнены, переход за стол; нет — текст отказа, неверный пароль забыт
+async function sendCreate(body: CreateRoomRequest, meId: string): Promise<{ error: string; password: boolean } | null> {
+  let res: CreateRoomResponse
+  const server = serverBase(loadServer()) ?? DEFAULT_SERVER
+  try {
+    const r = await fetch(roomsUrl(server), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    res = (await r.json()) as CreateRoomResponse
+  } catch {
+    return { error: NO_CONNECTION, password: false }
+  }
+  if ('error' in res) {
+    const f = createFailure(res.error, res.v, server)
+    if (f.kind === 'password') savePassword('')
+    return { error: f.text, password: f.kind === 'password' }
+  }
+  // Пароль верный — телефон его запомнил; место ведущего — как у всех, по коду комнаты, с её сервером (#83)
+  savePassword(body.password)
+  saveMe(meId)
+  saveSeat(res.code, { playerId: res.playerId, token: res.token, server })
+  location.hash = roomHash(res.code, undefined, server)
+  return null
+}
+
+// first — открыла «Быстрая комната», пароля ещё нет
+function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void }) {
   const [regulars, setRegulars] = useState<Regular[] | null>(null)
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [meId, setMeId] = useState(GUEST)
   const [myName, setMyName] = useState('')
   const [hasPassword, setHasPassword] = useState(() => loadPassword() !== '')
   const [password, setPassword] = useState('')
-  const [sbText, setSbText] = useState(String(DEFAULT_SETTINGS.sb))
-  const [bbText, setBbText] = useState(String(DEFAULT_SETTINGS.bb))
+  // Начальные значения — те же, что у «Быстрой комнаты» (ROOM_DEFAULTS); стек — закуп по умолчанию
+  const [sbText, setSbText] = useState(String(ROOM_DEFAULTS.sb))
+  const [bbText, setBbText] = useState(String(ROOM_DEFAULTS.bb))
   const [stackText, setStackText] = useState('')
-  // Р-35: в форме сначала — карты на телефонах; DEFAULT_SETTINGS.cards остаётся живыми для столов без поля
-  const [cards, setCards] = useState<CardsMode>('phones')
-  const [variant, setVariant] = useState<GameChoice>(DEFAULT_GAME)
-  const [timer, setTimer] = useState<TimerForm>(() =>
-    timerForm(DEFAULT_SETTINGS.turnSeconds ?? null, DEFAULT_SETTINGS.autoStart ?? 'off'),
-  )
-  const [look, setLook] = useState<Look>(() => lookOf(DEFAULT_SETTINGS))
+  const [cards, setCards] = useState<CardsMode>(ROOM_DEFAULTS.cards)
+  const [variant, setVariant] = useState<GameChoice>(ROOM_DEFAULTS.variant)
+  const [timer, setTimer] = useState<TimerForm>(() => timerForm(ROOM_DEFAULTS.turnSeconds, ROOM_DEFAULTS.autoStart))
+  const [look, setLook] = useState<Look>(ROOM_DEFAULTS.look)
   const [format, setFormat] = useState<TournamentForm>(() => tournamentForm(0))
-  const [publicHud, setPublicHud] = useState(false) // HUD (#79): по умолчанию — каждый только свою
+  const [publicHud, setPublicHud] = useState(ROOM_DEFAULTS.publicHud)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -310,51 +402,29 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
       name,
       ...(me ? { regularId: me.id } : {}),
       roster,
-      settings: {
+      settings: roomSettings({
         sb,
         bb,
         startingStack: stack,
         cards,
-        ...gameSettings(variant),
+        variant,
         turnSeconds: turn.seconds,
         autoStart: timer.autoStart,
-        ...look,
-        ...game.settings,
+        look,
+        format: game.settings,
         publicHud,
-      },
+      }),
     }
     setBusy(true)
     setError(null)
-    let res: CreateRoomResponse
-    const server = serverBase(loadServer()) ?? DEFAULT_SERVER // комната — на сервере из «Настроек»
-    try {
-      const r = await fetch(roomsUrl(server), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      res = (await r.json()) as CreateRoomResponse
-    } catch {
-      setBusy(false)
-      setError(NO_CONNECTION)
-      return
-    }
+    const failure = await sendCreate(body, me ? me.id : '')
     setBusy(false)
-    if ('error' in res) {
-      const f = createFailure(res.error, res.v, server)
-      if (f.kind === 'password') {
-        savePassword('')
-        setHasPassword(false)
-        setPassword('')
-      }
-      setError(f.text)
-      return
+    if (!failure) return
+    if (failure.password) {
+      setHasPassword(false)
+      setPassword('')
     }
-    // Пароль верный — телефон его запомнил; место ведущего — как у всех, по коду комнаты, с её сервером (#83)
-    savePassword(secret)
-    saveMe(me ? me.id : '')
-    saveSeat(res.code, { playerId: res.playerId, token: res.token, server })
-    location.hash = roomHash(res.code, undefined, server)
+    setError(failure.error)
   }
 
   if (regulars === null) return null
@@ -381,6 +451,7 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
           Пароль компании
           <input type="password" autoComplete="off" value={password} onChange={(e) => setPassword(e.target.value)} />
           <span className="muted">Его знает только ведущий; телефон запомнит его после первой комнаты.</span>
+          {first && <span className="muted">Первый раз — введите пароль; дальше быстрая комната одним касанием</span>}
         </label>
       )}
 
@@ -482,27 +553,11 @@ const CARDS_MODES: [CardsMode, string][] = [
   ['phones', 'На телефонах'],
 ]
 
-// «Покер» — игра и лимит стола (#80): холдем и шорт-дек (#81) — без лимита; у омахи — пот-лимит (по умолчанию) или без лимита.
-// «Игра» в форме уже есть — кэш или турнир (#78)
-type GameChoice = { game: GameId; limit: Limit }
-
-const GAME_CHOICES: [GameId, string][] = [
-  ['holdem', 'Холдем'],
-  ['omaha', 'Омаха'],
-  ['shortdeck', 'Шорт-дек'],
-]
-
+// «Покер» — игра (GAME_CHOICES) и лимит омахи (#80); «Игра» в форме уже есть — кэш или турнир (#78)
 const LIMIT_CHOICES: [Limit, string][] = [
   ['pot', 'Пот-лимит'],
   ['nolimit', 'Без лимита'],
 ]
-
-const DEFAULT_GAME: GameChoice = { game: 'holdem', limit: 'pot' }
-
-// В настройки стола: лимит — только у омахи
-function gameSettings(c: GameChoice): Pick<Settings, 'game' | 'limit'> {
-  return c.game === 'omaha' ? { game: c.game, limit: c.limit } : { game: c.game }
-}
 
 function GameFields({ choice, phones, onChange }: { choice: GameChoice; phones: boolean; onChange: (c: GameChoice) => void }) {
   const omaha = choice.game === 'omaha'
