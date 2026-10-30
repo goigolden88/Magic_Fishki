@@ -24,6 +24,10 @@ const PLACEHOLDERS: HelpValues = {
   prizeRule: '‹призы›',
   tournamentRate: '‹курс турнира›',
   hudFewHands: '‹мало раздач›',
+  botsMin: '‹ботов от›',
+  botsMax: '‹ботов до›',
+  botsDefault: '‹ботов сначала›',
+  botPause: '‹пауза бота›',
 }
 
 describe('справка', () => {
@@ -78,6 +82,10 @@ describe('справка', () => {
       prizeRule: 'до 4 игроков — всё первому, 5–7 — 65/35, от 8 — 50/30/20',
       tournamentRate: '1',
       hudFewHands: '30',
+      botsMin: '1',
+      botsMax: '5',
+      botsDefault: '3',
+      botPause: '1',
     })
   })
 })

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { startBotTable } from '../calc/botTable'
 import { startLocalTable, type LocalTable } from '../calc/localTable'
 
 // Память браузера: обычная или та, что не принимает записей (приватный режим)
@@ -69,6 +70,35 @@ describe('стол на этом телефоне в памяти устройс
     expect(s.loadLocalTable()).toEqual(local)
     s.clearLocalTable()
     expect(s.loadLocalTable()).toBeNull()
+  })
+
+  it('стол против ботов — свой ключ: со столом на этом телефоне не мешают друг другу; без памяти — живёт в странице', async () => {
+    const storage = fakeStorage()
+    vi.stubGlobal('localStorage', storage)
+    let s = await reload()
+    expect(s.loadBotTable()).toBeNull()
+    const local = table()
+    const r = startBotTable({ bots: 2, level: 'strong', open: true, sb: 5, bb: 10, startingStack: 1000 }, 0, (() => {
+      let n = 0
+      return () => `b${++n}`
+    })())
+    if (!r.ok) throw new Error(r.error)
+    expect(s.saveLocalTable(local)).toBe(true)
+    expect(s.saveBotTable(r.bots)).toBe(true)
+    expect([...storage.data.keys()].sort()).toEqual(['fishki.poker.bots', 'fishki.poker.local'])
+
+    s = await reload()
+    expect(s.loadBotTable()).toEqual(r.bots)
+    expect(s.loadLocalTable()).toEqual(local)
+    s.clearBotTable()
+    s = await reload()
+    expect(s.loadBotTable()).toBeNull()
+    expect(s.loadLocalTable()).toEqual(local)
+
+    vi.stubGlobal('localStorage', fakeStorage(true))
+    s = await reload()
+    expect(s.saveBotTable(r.bots)).toBe(false)
+    expect(s.loadBotTable()).toEqual(r.bots)
   })
 
   it('«Карты всегда открыты»: сначала выключено, включённое помнится, выключенное следов не оставляет', async () => {

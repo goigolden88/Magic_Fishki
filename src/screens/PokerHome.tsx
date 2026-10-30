@@ -1,4 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { BOT_LEVELS, type BotLevel } from '../calc/bot'
+import { BOT_LEVEL_DEFAULT, BOTS_DEFAULT, BOTS_MAX, BOTS_MIN, startBotTable } from '../calc/botTable'
 import { eveningDay, eveningLine, type EveningSummary } from '../calc/evenings'
 import { parseChips } from '../calc/format'
 import { localStartError, startLocalTable } from '../calc/localTable'
@@ -17,15 +19,19 @@ import { deleteEvening, eveningHands, getSettings, listEvenings } from '../store
 import { ulid } from '../ulid'
 import { HudFields } from './Hud'
 import { LookFields } from './LookFields'
+import { BOTS_HASH } from './PokerBots'
 import { LOCAL_HASH, NO_STORAGE } from './PokerLocal'
 import { HandHistory } from './PokerRoom'
 import {
+  clearBotTable,
   clearLocalTable,
+  loadBotTable,
   loadLocalTable,
   loadMe,
   loadPassword,
   loadSeats,
   loadServer,
+  saveBotTable,
   saveLocalTable,
   saveMe,
   savePassword,
@@ -40,8 +46,9 @@ const GUEST = '' // «Вы за столом» — не из постоянны�
 // «Покер онлайн» (Р-14, Р-19): новая комната, вход по ссылке или коду, свои комнаты.
 // Учёт вечера от этого экрана не зависит: нет сети — он работает как раньше
 export function PokerHomeScreen() {
-  const [creating, setCreating] = useState<'room' | 'local' | null>(null)
+  const [creating, setCreating] = useState<'room' | 'local' | 'bots' | null>(null)
   const [local, setLocal] = useState(() => loadLocalTable() !== null)
+  const [bots, setBots] = useState(() => loadBotTable() !== null)
   const [linkText, setLinkText] = useState('')
   const rooms = Object.keys(loadSeats())
   const link = parseRoomLink(linkText)
@@ -51,6 +58,13 @@ export function PokerHomeScreen() {
     if (!confirm('Удалить стол на этом телефоне? Игра в историю не запишется.')) return
     clearLocalTable()
     setLocal(false)
+  }
+
+  // Стол с ботами (#117) — тоже один, свой: «Закончить» стирает его без записи
+  function removeBots() {
+    if (!confirm('Закончить игру с ботами? Стол удалится, в историю ничего не запишется.')) return
+    clearBotTable()
+    setBots(false)
   }
 
   function enter(e: FormEvent) {
@@ -74,8 +88,20 @@ export function PokerHomeScreen() {
       <p className="muted">
         Ставки — с телефонов; карты — настоящие на столе или на телефонах, это выбирается в новой комнате. Ведущий заводит
         комнату и кидает ссылку в чат. Все за одним столом — «Стол на этом телефоне»: ведущий ходит за каждого, сеть не
-        нужна, карты живые.
+        нужна, карты живые. Потренироваться одному — «Против ботов».
       </p>
+
+      {bots && (
+        <section className="card">
+          <h2>Игра против ботов идёт</h2>
+          <a className="big primary wide button-link" href={BOTS_HASH}>
+            Продолжить
+          </a>
+          <button type="button" className="big wide danger-text" onClick={removeBots}>
+            Закончить
+          </button>
+        </section>
+      )}
 
       {local && (
         <section className="card">
@@ -93,17 +119,27 @@ export function PokerHomeScreen() {
         <NewRoomCard onCancel={() => setCreating(null)} />
       ) : creating === 'local' ? (
         <NewLocalCard onCancel={() => setCreating(null)} />
+      ) : creating === 'bots' ? (
+        <NewBotsCard onCancel={() => setCreating(null)} />
       ) : (
-        <div className="row">
-          <button type="button" className="big primary grow" onClick={() => setCreating('room')}>
-            Новая комната
-          </button>
-          {!local && (
-            <button type="button" className="big primary grow" onClick={() => setCreating('local')}>
-              Стол на этом телефоне
+        <>
+          <div className="row">
+            <button type="button" className="big primary grow" onClick={() => setCreating('room')}>
+              Новая комната
+            </button>
+            {!local && (
+              <button type="button" className="big primary grow" onClick={() => setCreating('local')}>
+                Стол на этом телефоне
+              </button>
+            )}
+          </div>
+          {/* Стол с ботами — свой: «Стол на этом телефоне» ему не мешает */}
+          {!bots && (
+            <button type="button" className="big wide" onClick={() => setCreating('bots')}>
+              Против ботов
             </button>
           )}
-        </div>
+        </>
       )}
 
       {rooms.length > 0 && (
@@ -544,6 +580,110 @@ function TableFields({ sb, bb, stack, tournament }: { sb: Field; bb: Field; stac
       {parseChips(stack[0]) === null && <p className="warn">Стек — целое число фишек больше нуля</p>}
     </>
   )
+}
+
+// Против ботов (#117, Р-38): сколько ботов, их уровень, блайнды и стек; холдем, кэш, карты раздаёт программа
+function NewBotsCard({ onCancel }: { onCancel: () => void }) {
+  const [count, setCount] = useState(BOTS_DEFAULT)
+  const [level, setLevel] = useState<BotLevel>(BOT_LEVEL_DEFAULT)
+  const [sbText, setSbText] = useState(String(DEFAULT_SETTINGS.sb))
+  const [bbText, setBbText] = useState(String(DEFAULT_SETTINGS.bb))
+  const [stackText, setStackText] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    void getSettings().then((s) => setStackText(String(s.defaultBuyin)))
+  }, [])
+
+  const sb = parseChips(sbText)
+  const bb = parseChips(bbText)
+  const stack = stackText === null ? null : parseChips(stackText)
+  const ready = sb !== null && bb !== null && sb <= bb && stack !== null
+
+  function begin() {
+    if (!ready || sb === null || bb === null || stack === null) return
+    if (loadBotTable()) {
+      setError('Игра против ботов уже идёт — продолжите или закончите её')
+      return
+    }
+    const r = startBotTable({ bots: count, level, open, sb, bb, startingStack: stack }, Date.now(), () => ulid())
+    if (!r.ok) {
+      setError(r.error)
+      return
+    }
+    saveBotTable(r.bots)
+    location.hash = BOTS_HASH
+  }
+
+  if (stackText === null) return null
+  return (
+    <section className="card">
+      <h2>Против ботов</h2>
+      <p className="muted">Вы и боты за одним столом на этом телефоне. Карты раздаёт программа, боты ходят сами. Без сервера и сети.</p>
+      {!storageWorks() && <p className="warn">{NO_STORAGE}</p>}
+
+      <fieldset className="players-pick">
+        <legend className="muted">Ботов</legend>
+        <div className="amounts">
+          {Array.from({ length: BOTS_MAX - BOTS_MIN + 1 }, (_, i) => BOTS_MIN + i).map((n) => (
+            <button
+              key={n}
+              type="button"
+              className={count === n ? 'big primary' : 'big'}
+              aria-pressed={count === n}
+              onClick={() => setCount(n)}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+
+      <fieldset className="players-pick">
+        <legend className="muted">Уровень</legend>
+        <div className="amounts">
+          {BOT_LEVELS.map(([l, label]) => (
+            <button
+              key={l}
+              type="button"
+              className={level === l ? 'big primary' : 'big'}
+              aria-pressed={level === l}
+              onClick={() => setLevel(l)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className="muted">{BOT_LEVEL_TEXT[level]}</p>
+      </fieldset>
+
+      <TableFields sb={[sbText, setSbText]} bb={[bbText, setBbText]} stack={[stackText, setStackText]} tournament={false} />
+      <p className="muted">Игра — холдем, кэш. Кончились фишки у бота — он докупается сам.</p>
+
+      <label className="check">
+        <input type="checkbox" checked={open} onChange={(e) => setOpen(e.target.checked)} />
+        Карты ботов открыты
+      </label>
+      <p className="muted">Только на вашем экране — учиться на их решениях. Боты ваших карт не видят.</p>
+
+      {error && <p className="warn">{error}</p>}
+      <div className="row">
+        <button type="button" className="big primary grow" disabled={!ready} onClick={begin}>
+          Начать
+        </button>
+        <button type="button" className="big" onClick={onCancel}>
+          Отмена
+        </button>
+      </div>
+    </section>
+  )
+}
+
+const BOT_LEVEL_TEXT: Record<BotLevel, string> = {
+  novice: 'Часто уравнивает и редко пасует.',
+  amateur: 'Играет руки получше, позицию учитывает немного.',
+  strong: 'Руки — по позиции, ставки — от банка, иногда блефует.',
 }
 
 // Стол на этом телефоне (Р-21): кто играет — постоянные и гости по имени; без пароля и сервера

@@ -1,14 +1,17 @@
+import { parseBotTable, type BotTable } from '../calc/botTable'
 import { parseLocalTable, type LocalTable } from '../calc/localTable'
 import type { Seat } from '../calc/pokerLink'
 
 // Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги,
-// звук «ваш ход», «карты всегда открыты» и стол на этом телефоне — данные этого устройства, а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21)
+// звук «ваш ход», «карты всегда открыты», стол на этом телефоне и стол против ботов — данные этого устройства,
+// а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21, Р-38)
 const PASSWORD_KEY = 'fishki.poker.password'
 const SERVER_KEY = 'fishki.poker.server'
 const SEATS_KEY = 'fishki.poker.seats'
 const ME_KEY = 'fishki.poker.me'
 const GAMES_KEY = 'fishki.poker.games'
 const LOCAL_KEY = 'fishki.poker.local'
+const BOTS_KEY = 'fishki.poker.bots'
 const CHECK_KEY = 'fishki.poker.check'
 const SOUND_KEY = 'fishki.poker.sound'
 const OPEN_KEY = 'fishki.poker.open'
@@ -125,6 +128,31 @@ export function saveLocalTable(local: LocalTable): boolean {
 export function clearLocalTable() {
   localTable = null
   write(LOCAL_KEY, '')
+}
+
+// Стол против ботов (#117, Р-38): свой ключ — со «Столом на этом телефоне» не мешают друг другу.
+// Так же: весь стол после каждого хода, копия — в памяти страницы
+let botTable: BotTable | null | undefined // undefined — ещё не читали
+
+export function loadBotTable(): BotTable | null {
+  if (botTable === undefined) botTable = parseBotTable(read(BOTS_KEY))
+  return botTable
+}
+
+// false — память браузера не приняла: после закрытия стол пропадёт
+export function saveBotTable(bots: BotTable): boolean {
+  botTable = bots
+  try {
+    localStorage.setItem(BOTS_KEY, JSON.stringify(bots))
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function clearBotTable() {
+  botTable = null
+  write(BOTS_KEY, '')
 }
 
 // Память браузера работает: записать и прочитать
