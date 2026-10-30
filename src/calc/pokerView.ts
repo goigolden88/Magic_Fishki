@@ -7,7 +7,8 @@ import { potLimit, type HandLogEntry, type Stage } from '../poker/hand'
 import { HUD_FEW_HANDS } from '../poker/hud'
 import { buildPots } from '../poker/pots'
 import type { HistoryHand } from '../poker/history'
-import { blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type HandResult, type TableState } from '../poker/table'
+import { blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type HandRecord, type HandResult, type TableState } from '../poker/table'
+import { allInOdds } from './allInOdds'
 import {
   buildLevels,
   clockAt,
@@ -20,6 +21,8 @@ import {
   type Level,
 } from '../poker/tournament'
 import { formatNumber, formatTenths } from './format'
+
+const NBSP = ' '
 
 export type SeatView = {
   // Карты у места (карты на телефонах): в раздаче — рубашки (null), открытые всем — лицом,
@@ -464,6 +467,8 @@ export type LastHandView = {
   // Сданные, по местам; best — у победителя банка на вскрытии лучшая пятёрка, иначе null
   players: { name: string; cards: (Card | null)[] | null; hand: string | null; best: Card[] | null; won: number }[]
   rounds: { label: string; moves: string[] }[] // ходы по кругам торгов
+  // Ва-банк до ривера и вскрытие (#116): «Шансы на ва-банке (флоп): Аня 72 %, Боря 28 %»; иначе null
+  odds: string | null
 }
 
 // Прошлая раздача с картами на телефонах — вся запись: места, карты, ходы, кто что взял.
@@ -484,7 +489,16 @@ export function lastHandRecord(table: TableState): LastHandView | null {
       won: last.payouts[s.id] ?? 0,
     })),
     rounds: roundsOf(record.log, record.seats),
+    odds: oddsLine(record),
   }
+}
+
+// Шансы каждого дошедшего до вскрытия в момент ва-банка — строкой; улица — та, где закрылись торги
+function oddsLine(record: HandRecord): string | null {
+  const odds = allInOdds(record)
+  if (!odds) return null
+  const players = odds.players.map((p) => `${p.name} ${p.percent}${NBSP}%`).join(', ')
+  return `Шансы на ва-банке (${STAGE_LABELS[odds.street].toLowerCase()}): ${players}`
 }
 
 function roundsOf(log: HandLogEntry[], seats: { id: string; name: string }[]): LastHandView['rounds'] {
@@ -542,6 +556,7 @@ export function historyHandView(h: HistoryHand): HistoryHandView {
       won: h.payouts[s.id] ?? 0,
     })),
     rounds: roundsOf(record?.log ?? h.live?.log ?? [], seats),
+    odds: record ? oddsLine(record) : null,
     chips: seats.map((s) => s.chips),
     pots,
   }
