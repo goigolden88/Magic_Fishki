@@ -10,6 +10,7 @@ import {
   seatPlayer,
   toActId,
   tournamentRebuyFor,
+  withTable,
   type LocalTable,
 } from '../calc/localTable'
 import { gameFromTable, gameFromTournament } from '../calc/pokerGame'
@@ -68,7 +69,7 @@ export function PokerLocalScreen() {
       setError(r.error)
       return false
     }
-    const next = { ...local, table: r.state }
+    const next = withTable(local, r.state)
     if (!saveLocalTable(next)) setVolatile(true)
     setLocal(next)
     setError(null)

@@ -6,7 +6,8 @@ import { publicCards } from '../poker/game'
 import { potLimit, type HandLogEntry, type Stage } from '../poker/hand'
 import { HUD_FEW_HANDS } from '../poker/hud'
 import { buildPots } from '../poker/pots'
-import { blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type TableState } from '../poker/table'
+import type { HistoryHand } from '../poker/history'
+import { blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type HandResult, type TableState } from '../poker/table'
 import {
   buildLevels,
   clockAt,
@@ -442,10 +443,13 @@ export function cardFace(card: Card): { rank: string; suit: string; red: boolean
 // Победители банков прошлой раздачи, дошедшие до вскрытия, — их лучшие пятёрки (#96).
 // Банк без вскрытия, запись до #96 или раздачи с картами не было — пусто
 export function winningFives(table: TableState): Map<string, Card[]> {
-  const last = table.lastHand
-  const best = last?.record?.best
+  return table.lastHand ? fivesOf(table.lastHand) : new Map<string, Card[]>()
+}
+
+function fivesOf(last: HandResult): Map<string, Card[]> {
+  const best = last.record?.best
   const out = new Map<string, Card[]>()
-  if (!last || !best) return out
+  if (!best) return out
   for (const pot of last.pots) for (const id of pot.winners) if (best[id]) out.set(id, best[id])
   return out
 }
@@ -464,14 +468,7 @@ export function lastHandRecord(table: TableState): LastHandView | null {
   const last = table.lastHand
   const record = last?.record
   if (!last || !record || table.hand) return null
-  const names = new Map(record.seats.map((s) => [s.id, s.name]))
-  const fives = winningFives(table)
-  const rounds: LastHandView['rounds'] = []
-  for (const e of record.log) {
-    const label = STAGE_LABELS[e.street]
-    if (rounds.at(-1)?.label !== label) rounds.push({ label, moves: [] })
-    rounds[rounds.length - 1].moves.push(`${names.get(e.playerId) ?? 'Ушёл'}: ${moveText(e)}`)
-  }
+  const fives = fivesOf(last)
   return {
     number: last.number,
     board: record.board,
@@ -482,8 +479,68 @@ export function lastHandRecord(table: TableState): LastHandView | null {
       best: fives.get(s.id) ?? null,
       won: last.payouts[s.id] ?? 0,
     })),
-    rounds,
+    rounds: roundsOf(record.log, record.seats),
   }
+}
+
+function roundsOf(log: HandLogEntry[], seats: { id: string; name: string }[]): LastHandView['rounds'] {
+  const names = new Map(seats.map((s) => [s.id, s.name]))
+  const rounds: LastHandView['rounds'] = []
+  for (const e of log) {
+    const label = STAGE_LABELS[e.street]
+    if (rounds.at(-1)?.label !== label) rounds.push({ label, moves: [] })
+    rounds[rounds.length - 1].moves.push(`${names.get(e.playerId) ?? 'Ушёл'}: ${moveText(e)}`)
+  }
+  return rounds
+}
+
+// Строка списка «История раздач» (#113): номер, кто сколько взял, стол (общие карты)
+export type HistoryItem = { number: number; board: Card[]; wins: { name: string; amount: number }[] }
+
+// Раздача из истории целиком — как прошлая, и ещё стеки в начале (chips — по местам, как players)
+// и банки с именами взявших. Живые карты — без карт: места, ходы, банки
+export type HistoryHandView = LastHandView & { chips: number[]; pots: { amount: number; winners: string[] }[] }
+
+// Список истории: новые сверху
+export function historyList(hands: HistoryHand[]): HistoryItem[] {
+  return [...hands]
+    .sort((a, b) => b.number - a.number)
+    .map((h) => {
+      const names = namesOf(h)
+      const wins = Object.entries(h.payouts)
+        .filter(([, amount]) => amount > 0)
+        .map(([id, amount]) => ({ name: names.get(id) ?? 'Ушёл', amount }))
+      return { number: h.number, board: h.record?.board ?? [], wins }
+    })
+}
+
+// Раздача по тапу. Взял банк без вскрытия я и не показал — мои карты видны мне (запись уже в моём виде:
+// чужим hidden не приходит, handFor)
+export function historyHandView(h: HistoryHand): HistoryHandView {
+  const names = namesOf(h)
+  const pots = h.pots.map((p) => ({ amount: p.amount, winners: p.winners.map((id) => names.get(id) ?? 'Ушёл') }))
+  const record = h.record
+  const seats = record?.seats ?? h.live?.seats ?? []
+  const hidden = record?.hidden ?? null
+  const fives = fivesOf(h)
+  return {
+    number: h.number,
+    board: record?.board ?? [],
+    players: seats.map((s) => ({
+      name: s.name,
+      cards: hidden?.playerId === s.id ? hidden.cards : (record?.shown[s.id] ?? null),
+      hand: record?.hands[s.id] ?? null,
+      best: fives.get(s.id) ?? null,
+      won: h.payouts[s.id] ?? 0,
+    })),
+    rounds: roundsOf(record?.log ?? h.live?.log ?? [], seats),
+    chips: seats.map((s) => s.chips),
+    pots,
+  }
+}
+
+function namesOf(h: HistoryHand): Map<string, string> {
+  return new Map((h.record?.seats ?? h.live?.seats ?? []).map((s) => [s.id, s.name]))
 }
 
 // Ход словами; сумма — до какой ставки на этой улице; за игрока по таймеру — «время вышло»

@@ -1,5 +1,6 @@
 // Сообщения клиента и сервера стола. Их берут сервер комнат и экран — версия одна на всех:
 // клиент с другой версией получает отказ «обновите приложение»
+import type { HistoryHand } from './history'
 import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 
 // 2 — список постоянных игроков комнаты (lobby), вход под постоянным (regularId), «пересадить» (reseat)
@@ -17,7 +18,8 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 // 11 — HUD вечера (#79): счётчики игроков в столе (hud), настройка publicHud — при создании и в tableSettings
 // 12 — омаха и пот-лимит (#80): настройки game и limit при создании, предел ставки в раздаче (limit)
 // 13 — шорт-дек (#81): новое значение игры game — 'shortdeck'
-export const PROTOCOL_VERSION = 13
+// 14 — история раздач вечера (#113): запрос телефона (history) и ответ комнаты со всеми раздачами (history)
+export const PROTOCOL_VERSION = 14
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -92,6 +94,7 @@ export type RoomMessage = { v: number } & (
   | { type: 'join'; name?: string; regularId?: string; playerId?: string; token?: string }
   | { type: 'finish' } // ведущий: игра окончена — комната стирается
   | { type: 'reseat'; playerId: string } // ведущий: новый токен игроку — для другого устройства, старый больше не пускает
+  | { type: 'history' } // вошедший: прислать историю раздач вечера
 )
 
 // Постоянный игрок (Р-12), отмеченный ведущим при создании комнаты
@@ -118,5 +121,7 @@ export type ServerMessage = { v: number } & (
   // now — время сервера при отправке: отсчёт хода на экране — от остатка (deadline − now), не от часов телефона
   | { type: 'state'; table: TableState; now: number }
   | { type: 'ended'; table: TableState; reason: string } // комната стёрта; table — стол на момент конца, тоже в виде телефона
+  // Ответ на history: все раздачи вечера по номерам, с первой; карты взявшего без вскрытия — только ему (handFor)
+  | { type: 'history'; hands: HistoryHand[] }
   | { type: 'error'; error: string }
 )

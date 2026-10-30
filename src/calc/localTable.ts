@@ -1,6 +1,7 @@
 // Стол на одном телефоне (Р-21): правила src/poker/ работают прямо в приложении, ведущий —
 // сам телефон и ходит за каждого. Сервера нет: экран держит стол и зовёт handle, как сервер
 // комнат, а от чьего имени слать сообщение — решается здесь. Время — параметром now
+import { finishedHand, keepHand, type HistoryHand } from '../poker/history'
 import { PROTOCOL_VERSION, type BetAction, type ClientBody } from '../poker/protocol'
 import { createTable, handle, type Result, type Settings, type TableState } from '../poker/table'
 import { actionsView, hudView, tableView, type TableView } from './pokerView'
@@ -12,6 +13,7 @@ export type LocalTable = {
   id: string // свой id стола: по нему итог пишется игрой один раз
   table: TableState
   gameId: string | null // итог уже записан этой игрой — вторую не писать
+  history: HistoryHand[] // раздачи вечера по номерам (#113); стирается вместе со столом
 }
 
 export type LocalPlayer = { name: string; regularId: string | null }
@@ -39,7 +41,12 @@ export function startLocalTable(
   const ids = players.map(() => makeId())
   let r = createTable(ids[0], players[0].name, { ...settings, maxSeats: LOCAL_MAX_SEATS }, now, players[0].regularId)
   for (let i = 1; r.ok && i < players.length; i++) r = seatPlayer(r.state, ids[i], players[i], now)
-  return r.ok ? { ok: true, local: { id: makeId(), table: r.state, gameId: null } } : r
+  return r.ok ? { ok: true, local: { id: makeId(), table: r.state, gameId: null, history: [] } } : r
+}
+
+// Ход на столе удался: новый стол, а окончилась раздача — она и в историю (#113), как у комнаты
+export function withTable(local: LocalTable, next: TableState): LocalTable {
+  return { ...local, table: next, history: keepHand(local.history, finishedHand(local.table, next)) }
 }
 
 function send(table: TableState, from: string, body: ClientBody, now: number): Result {
@@ -124,7 +131,9 @@ export function parseLocalTable(text: string): LocalTable | null {
   }
   if (!isRecord(x) || typeof x.id !== 'string' || !isTable(x.table)) return null
   const gameId = typeof x.gameId === 'string' ? x.gameId : null
-  return { id: x.id, table: x.table, gameId }
+  // У столов до #113 истории нет — с пустой
+  const history = Array.isArray(x.history) ? (x.history as HistoryHand[]) : []
+  return { id: x.id, table: x.table, gameId, history }
 }
 
 function isTable(t: unknown): t is TableState {
