@@ -8,15 +8,16 @@ import { PlayersScreen } from './screens/Players'
 import { PlayerScreen } from './screens/Player'
 import { HelpScreen } from './screens/Help'
 import { PokerHomeScreen } from './screens/PokerHome'
-import { PokerRoomScreen } from './screens/PokerRoom'
+import { PokerBadLinkScreen, PokerRoomScreen } from './screens/PokerRoom'
 import { PokerLocalScreen } from './screens/PokerLocal'
 import { PokerBotsScreen } from './screens/PokerBots'
-import { normalizeCode, roomHash, type Seat } from './calc/pokerLink'
+import { parseRoomLink, roomHash, type RoomTarget } from './calc/pokerLink'
 import { saveSeat } from './screens/pokerStorage'
 
 // Маршруты: #/ — игры, #/game/:id — игра, #/game/:id/deal — раунд казино с картами, #/settings — настройки, #/import — из Телеграма, #/players — игроки,
 // #/players/:id — карточка постоянного игрока, #/help — справка, #/poker — покер онлайн,
-// #/poker/:код — стол, #/poker/:код/:игрок/:токен — стол с местом («пересадить»),
+// #/poker/:код — стол, #/poker/:код/:игрок/:токен — стол с местом («пересадить»); у обоих в конце может быть
+// ?server=адрес — комната на своём сервере (#83), кривой адрес — экран «ссылка не открывается»,
 // #/poker/local — стол на этом телефоне, #/poker/bots — против ботов (оба под код из 6 знаков не подходят)
 type Route =
   | { screen: 'games' }
@@ -28,7 +29,8 @@ type Route =
   | { screen: 'player'; id: string }
   | { screen: 'help' }
   | { screen: 'poker' }
-  | { screen: 'pokerRoom'; code: string; seat?: Seat }
+  | ({ screen: 'pokerRoom' } & RoomTarget)
+  | { screen: 'pokerBadLink'; error: string }
   | { screen: 'pokerLocal' }
   | { screen: 'pokerBots' }
 
@@ -42,12 +44,9 @@ function parseRoute(hash: string): Route {
   if (deal) return { screen: 'casinoDeal', id: decodeURIComponent(deal[1]) }
   const player = path.match(/^\/players\/([^/]+)$/)
   if (player) return { screen: 'player', id: decodeURIComponent(player[1]) }
-  const room = path.match(/^\/poker\/([^/]+)(?:\/([^/]+)\/([^/]+))?$/)
-  const code = room ? normalizeCode(decodeURIComponent(room[1])) : null
-  if (room && code) {
-    const seat = room[2] && room[3] ? { playerId: decodeURIComponent(room[2]), token: decodeURIComponent(room[3]) } : undefined
-    return { screen: 'pokerRoom', code, seat }
-  }
+  const room = path.startsWith('/poker/') ? parseRoomLink(`#${path}`) : null
+  if (room && 'error' in room) return { screen: 'pokerBadLink', error: room.error }
+  if (room) return { screen: 'pokerRoom', ...room }
   if (path === '/settings') return { screen: 'settings' }
   if (path === '/import') return { screen: 'import' }
   if (path === '/players') return { screen: 'players' }
@@ -56,14 +55,14 @@ function parseRoute(hash: string): Route {
   return { screen: 'games' }
 }
 
-// Место из ссылки «пересадить» запоминается на устройстве и убирается из адреса:
-// с ним стол откроется и без ссылки, а в адресной строке токена не видно
+// Место из ссылки «пересадить» запоминается на устройстве (с сервером из ссылки) и убирается из адреса:
+// с ним стол откроется и без ссылки, а в адресной строке токена не видно. Сервер в адресе остаётся
 function currentRoute(): Route {
   const route = parseRoute(location.hash)
   if (route.screen !== 'pokerRoom' || !route.seat) return route
-  saveSeat(route.code, route.seat)
-  history.replaceState(null, '', roomHash(route.code))
-  return { screen: 'pokerRoom', code: route.code }
+  saveSeat(route.code, { ...route.seat, server: route.server })
+  history.replaceState(null, '', roomHash(route.code, undefined, route.server))
+  return { screen: 'pokerRoom', code: route.code, server: route.server }
 }
 
 export function App() {
@@ -96,7 +95,9 @@ export function App() {
     case 'poker':
       return <PokerHomeScreen />
     case 'pokerRoom':
-      return <PokerRoomScreen key={route.code} code={route.code} />
+      return <PokerRoomScreen key={`${route.code} ${route.server ?? ''}`} code={route.code} server={route.server} />
+    case 'pokerBadLink':
+      return <PokerBadLinkScreen error={route.error} />
     case 'pokerLocal':
       return <PokerLocalScreen />
     case 'pokerBots':

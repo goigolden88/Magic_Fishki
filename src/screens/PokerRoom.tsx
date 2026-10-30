@@ -12,7 +12,7 @@ import {
   type BetSlider,
   type Spot,
 } from '../calc/pokerLayout'
-import { NO_CONNECTION, roomLink, ROOM_CLOSED, UPDATE_APP, type Seat } from '../calc/pokerLink'
+import { NO_CONNECTION, roomLink, ROOM_CLOSED, serverHost, UPDATE_APP, type Seat } from '../calc/pokerLink'
 import {
   cardFace,
   defaultWinners,
@@ -66,17 +66,19 @@ import { useRoom, type Lobby, type Room } from './useRoom'
 // Стол покера онлайн (Р-14, Р-19): вход по ссылке, ставки с телефонов, кнопки ведущего.
 // Карты живые — на столе; экран ведёт фишки, банки и очередь хода. Карты на телефонах (Р-23) —
 // свои карты под пальцем («Подглядеть»), общие — в центре стола, банки раздаются сами
-export function PokerRoomScreen({ code }: { code: string }) {
-  const room = useRoom(code)
+// server — сервер из ссылки (#83): комната на своём сервере ведущего
+export function PokerRoomScreen({ code, server }: { code: string; server?: string }) {
+  const room = useRoom(code, server)
   const [note, setNote] = useState<string | null>(null)
   const [gameId, setGameId] = useState<string | null>(null) // итог этого стола записан игрой на этом телефоне
+  const host = serverHost(room.server)
 
   useEffect(() => {
     setGameId(room.me ? loadRecordedGame(code, room.me) : null)
   }, [code, room.me])
 
   async function shareRoom() {
-    const url = roomLink(location.href, code)
+    const url = roomLink(location.href, code, undefined, room.server)
     setNote(await shareLink(`Покер — стол ${code}: ${url}`))
   }
 
@@ -125,6 +127,7 @@ export function PokerRoomScreen({ code }: { code: string }) {
         )}
       </header>
       {!seated && <h1>Стол {code}</h1>}
+      {!seated && host && <p className="muted server-line">Сервер: {host}</p>}
       {note && <p className="ok">{note}</p>}
 
       {!room.online && room.failed && (room.phase === 'loading' || room.phase === 'lobby' || room.phase === 'seated') && (
@@ -155,6 +158,21 @@ export function PokerRoomScreen({ code }: { code: string }) {
           </button>
         </section>
       )}
+    </main>
+  )
+}
+
+// Ссылка на комнату с кривым адресом сервера (#83): не подключаемся никуда, говорим, что делать
+export function PokerBadLinkScreen({ error }: { error: string }) {
+  return (
+    <main className="screen poker">
+      <header className="bar">
+        <a className="bar-link" href="#/poker">
+          ← Покер
+        </a>
+      </header>
+      <h1>Ссылка не открывается</h1>
+      <p className="card warn">{error}</p>
     </main>
   )
 }
@@ -274,6 +292,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   const v = tableView(table, me, room.serverNow())
   const sb = table.hand?.sb ?? table.settings.sb
   const dock = dockOf(v)
+  const host = serverHost(room.server) // не постоянный сервер (#83) — мелкой строкой под строкой стола
 
   // Ход заранее (#115): флажок держится до конца улицы; пришла очередь и есть связь — ход уходит сам,
   // один раз на очередь (метка хода), и флажок снимается. Без связи ждёт её
@@ -299,6 +318,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
             {blindsLine(table, v)} · {v.handNumber > 0 ? `раздача ${v.handNumber} · ` : ''}
             {v.stageLabel} · ведущий — {v.hostName}
           </p>
+          {host && <p className="muted server-line">Сервер: {host}</p>}
           <PokerTable
             view={v}
             open={open}
@@ -1116,7 +1136,7 @@ function HostCard(props: {
   const stack = parseChips(stackText) ?? (stackText.trim() === '0' ? 0 : null)
 
   async function shareSeat(seat: Seat, name: string) {
-    setNote(await shareLink(`${name}, ваше место за столом ${code}: ${roomLink(location.href, code, seat)}`))
+    setNote(await shareLink(`${name}, ваше место за столом ${code}: ${roomLink(location.href, code, seat, room.server)}`))
   }
 
   const t = v.tournament
@@ -1234,7 +1254,7 @@ function HostCard(props: {
           >
             Поделиться ссылкой
           </button>
-          <p className="link-text">{roomLink(location.href, code, room.reseated)}</p>
+          <p className="link-text">{roomLink(location.href, code, room.reseated, room.server)}</p>
           <button type="button" className="big wide" onClick={room.clearReseated}>
             Готово
           </button>

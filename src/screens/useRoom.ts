@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { closeKind, DEFAULT_SERVER, errorKind, NO_CONNECTION, retryDelay, serverBase, socketUrl, type Seat } from '../calc/pokerLink'
+import { closeKind, errorKind, NO_CONNECTION, retryDelay, roomServer, socketUrl, type Seat } from '../calc/pokerLink'
 import { PING, PING_MS, PONG, PROTOCOL_VERSION, SILENT_MS, type ClientBody, type RoomMessage, type RosterEntry } from '../poker/protocol'
 import type { HistoryHand } from '../poker/history'
 import type { TableState } from '../poker/table'
@@ -18,6 +18,7 @@ export type RoomPhase = 'loading' | 'lobby' | 'seated' | 'closed' | 'update' | '
 export type Lobby = { roster: RosterEntry[]; seated: string[] }
 
 export type Room = {
+  server: string // сервер комнаты (#83): он — в ссылках «Поделиться» и строке «Сервер: …»
   phase: RoomPhase
   online: boolean // соединение открыто
   failed: boolean // попытка связи не удалась — «Нет связи с сервером»
@@ -41,20 +42,23 @@ export type Room = {
 const OPEN_TIMEOUT_MS = 8000
 const HIDDEN_RECONNECT_MS = 15_000 // телефон спал дольше — соединение могло умереть молча
 
-export function useRoom(code: string): Room {
+// linkServer — сервер из ссылки (#83); нет — запомненный местом, иначе — из «Настроек»
+export function useRoom(code: string, linkServer?: string): Room {
+  const [target] = useState(() => roomServer(linkServer, loadSeat(code), loadServer()))
+  const base = target.base
   const [phase, setPhase] = useState<RoomPhase>('loading')
   const [online, setOnline] = useState(false)
   const [failed, setFailed] = useState(false)
   const [lobby, setLobby] = useState<Lobby | null>(null)
   const [table, setTable] = useState<TableState | null>(null)
-  const [me, setMe] = useState<string | null>(() => loadSeat(code)?.playerId ?? null)
+  const [me, setMe] = useState<string | null>(() => target.seat?.playerId ?? null)
   const [ended, setEnded] = useState<Room['ended']>(null)
   const [error, setError] = useState<string | null>(null)
   const [reseated, setReseated] = useState<Room['reseated']>(null)
   const [history, setHistory] = useState<HistoryHand[] | null>(null)
 
   const ws = useRef<WebSocket | null>(null)
-  const seat = useRef<Seat | null>(loadSeat(code))
+  const seat = useRef<Seat | null>(target.seat)
   const joining = useRef<'seat' | 'new' | null>(null)
   const attempt = useRef(0)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -91,7 +95,7 @@ export function useRoom(code: string): Room {
       case 'welcome': {
         const next = { playerId: msg.playerId as string, token: msg.token as string }
         seat.current = next
-        saveSeat(code, next)
+        saveSeat(code, { ...next, server: base })
         joining.current = null
         setMe(next.playerId)
         setError(null)
@@ -149,7 +153,6 @@ export function useRoom(code: string): Room {
   function connect() {
     clearTimeout(timer.current)
     if (stopped.current) return
-    const base = serverBase(loadServer()) ?? DEFAULT_SERVER
     let socket: WebSocket
     try {
       socket = new WebSocket(socketUrl(base, code))
@@ -264,6 +267,7 @@ export function useRoom(code: string): Room {
   }
 
   return {
+    server: base,
     phase,
     online,
     failed,
