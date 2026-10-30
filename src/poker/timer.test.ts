@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Card } from './cards'
 import { PROTOCOL_VERSION, type ClientBody } from './protocol'
 import { AUTO_START_MS, handle, nextDeadline, onTime, type TableState } from './table'
-import { award, call, fold, MODES, newTable, play, stackedDeck, start } from './testing'
+import { allin, award, call, fold, MODES, newTable, play, sit, stackedDeck, start } from './testing'
 
 const T = 30_000 // время на ход в тестах — 30 с
 
@@ -134,9 +134,8 @@ describe.each(MODES)('следующая раздача сама (%s)', (_, rt) 
   it('меньше двоих с фишками или перерыв — не начинается; выкл — как раньше', () => {
     let s = play(newTable(['h', 'g'], { autoStart: 'slow' }), [start('h'), fold('h'), award('h', [['g']], 0)], rt)
     const out = play(s, [{ from: 'g', msg: { type: 'sitOut', sittingOut: true } }], rt)
-    const r = tick(out, AUTO_START_MS.slow)!
-    expect(r.hand).toBeNull()
-    expect(r.nextHandAt).toBeNull()
+    expect(out.nextHandAt).toBeNull() // играть некому — отсчёт снят
+    expect(tick(out, AUTO_START_MS.slow)).toBeNull()
     s = play(s, [{ from: 'h', msg: { type: 'pause', paused: true } }], rt)
     expect(s.nextHandAt).toBeNull()
     expect(tick(s, AUTO_START_MS.slow)).toBeNull()
@@ -145,6 +144,52 @@ describe.each(MODES)('следующая раздача сама (%s)', (_, rt) 
     expect(s.nextHandAt).toBe(50_000 + AUTO_START_MS.slow)
     const off = play(newTable(['h', 'g']), [start('h'), fold('h'), award('h', [['g']])], rt)
     expect(off.nextHandAt).toBeNull()
+  })
+
+  // Хедз-ап: оба олл-ин, банк — h; у g ноль, с фишками один — отсчёта нет
+  const busted = (settings = {}, extra: string[] = []) => {
+    const s = play(newTable(['h', 'g', ...extra], { autoStart: 'fast', ...settings }), [start('h'), allin('h'), allin('g'), award('h', [['h']])], rt)
+    expect(s.players.find((p) => p.id === 'g')?.chips).toBe(0)
+    expect(s.nextHandAt).toBeNull()
+    return s
+  }
+
+  it('снова двое с фишками: докуп между раздачами — отсчёт, раздача сама', () => {
+    let s = busted()
+    s = play(s, [{ from: 'g', msg: { type: 'rebuy', amount: 500 }, now: 4000 }], rt)
+    expect(s.nextHandAt).toBeNull() // запрос ещё ждёт ведущего
+    s = play(s, [{ from: 'h', msg: { type: 'rebuyAnswer', playerId: 'g', approve: true }, now: 5000 }], rt)
+    expect(s.nextHandAt).toBe(5000 + fast)
+    expect(tick(s, 5000 + fast)!.hand?.number).toBe(2)
+  })
+
+  it('снова двое: стек с нуля, новый игрок, возврат в раздачи — отсчёт', () => {
+    const set = play(busted(), [{ from: 'h', msg: { type: 'setStack', playerId: 'g', chips: 300 }, now: 4000 }], rt)
+    expect(set.nextHandAt).toBe(4000 + fast)
+    const sat = play(busted(), [sit('n', 'N', 4000)], rt)
+    expect(sat.nextHandAt).toBe(4000 + fast)
+    let s = play(newTable(['h', 'g'], { autoStart: 'fast' }), [start('h'), fold('h'), award('h', [['g']])], rt)
+    s = play(s, [{ from: 'g', msg: { type: 'sitOut', sittingOut: true }, now: 1000 }], rt)
+    expect(s.nextHandAt).toBeNull()
+    s = play(s, [{ from: 'g', msg: { type: 'sitOut', sittingOut: false }, now: 2000 }], rt)
+    expect(s.nextHandAt).toBe(2000 + fast)
+    // Уже взведённый отсчёт другие перемены не сдвигают
+    s = play(s, [sit('n', 'N', 2500)], rt)
+    expect(s.nextHandAt).toBe(2000 + fast)
+  })
+
+  it('«сама» выключена — докуп ничего не взводит; идущая раздача не трогается', () => {
+    let s = busted({ autoStart: 'off' })
+    s = play(s, [{ from: 'h', msg: { type: 'setStack', playerId: 'g', chips: 300 }, now: 4000 }], rt)
+    expect(s.nextHandAt).toBeNull()
+    // Втроём: g выбыл, h и x играют раздачу; докуп g во время неё — в стек после, отсчёта нет
+    s = play(newTable(['h', 'g', 'x'], { autoStart: 'fast' }, { g: 10 }), [start('h'), allin('h'), allin('g'), fold('x'), award('h', [['h']])], rt)
+    expect(s.players.find((p) => p.id === 'g')?.chips).toBe(0)
+    s = play(s, [{ from: 'h', msg: { type: 'start' }, now: 1000 }, { from: 'g', msg: { type: 'rebuy', amount: 500 } }], rt)
+    s = play(s, [{ from: 'h', msg: { type: 'rebuyAnswer', playerId: 'g', approve: true }, now: 2000 }], rt)
+    expect(s.hand?.number).toBe(2)
+    expect(s.nextHandAt).toBeNull()
+    expect(s.approvedRebuys).toHaveLength(1)
   })
 
   it('ручной старт раньше срока — срок снят', () => {
