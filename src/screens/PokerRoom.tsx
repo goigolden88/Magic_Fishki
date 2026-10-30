@@ -12,7 +12,7 @@ import {
   type BetSlider,
   type Spot,
 } from '../calc/pokerLayout'
-import { NO_CONNECTION, roomLink, ROOM_CLOSED, serverHost, UPDATE_APP, type Seat } from '../calc/pokerLink'
+import { NO_CONNECTION, roomLink, ROOM_CLOSED, serverHost, UPDATE_APP, versionText, type Seat } from '../calc/pokerLink'
 import {
   cardFace,
   defaultWinners,
@@ -140,15 +140,28 @@ export function PokerRoomScreen({ code, server }: { code: string; server?: strin
         <TableCard room={room} table={room.table} me={room.me} code={code} gameId={gameId} onFinish={finish} />
       )}
       {room.phase === 'closed' && <ClosedCard ended={room.ended} gameId={gameId} />}
-      {room.phase === 'update' && (
-        <section className="card">
-          <h2>{UPDATE_APP}</h2>
-          <p className="muted">У сервера другая версия. Закройте приложение и откройте снова — оно обновится само.</p>
-          <button type="button" className="big primary wide" onClick={() => location.reload()}>
-            Обновить
-          </button>
-        </section>
-      )}
+      {room.phase === 'update' &&
+        (room.versionGap === 'app' ? (
+          <section className="card">
+            <h2>{UPDATE_APP}</h2>
+            <p className="muted">У сервера другая версия. Закройте приложение и откройте снова — оно обновится само.</p>
+            <button type="button" className="big primary wide" onClick={() => location.reload()}>
+              Обновить
+            </button>
+          </section>
+        ) : (
+          // Отстал сервер (#107): обновление приложения не поможет — ждать или обновить свой сервер
+          <section className="card">
+            <h2>Другая версия сервера</h2>
+            <p>{versionText(room.versionGap)}</p>
+            <p className="muted">
+              Подробнее — в <a href="#/help">справке</a>, «Покер онлайн».
+            </p>
+            <button type="button" className="big primary wide" onClick={() => location.reload()}>
+              Подключиться снова
+            </button>
+          </section>
+        ))}
       {room.phase === 'replaced' && (
         <section className="card">
           <h2>Стол открыт на другом устройстве</h2>
