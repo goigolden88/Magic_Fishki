@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { addRound, gameResult, newNames, parseRound, type PlayerResult } from '../calc/casino'
 import { balanceText, formatChips, formatNumber, formatRate, formatRub, parseChips, parseRate } from '../calc/format'
+import { clockText, gameClock } from '../calc/duration'
 import { addCasino, addPoker, gameMode } from '../calc/gameMode'
 import { shareText } from '../calc/share'
 import { formatDate, formatTime } from '../dates'
@@ -98,7 +99,7 @@ export function GameScreen({ id }: { id: string }) {
 
   // Телефон — системное «Поделиться» (Телеграм и т. п.); где его нет — в буфер обмена
   async function share() {
-    const text = shareText(current)
+    const text = shareText(current, new Date().toISOString())
     if ('share' in navigator) {
       try {
         await navigator.share({ text })
@@ -153,6 +154,7 @@ export function GameScreen({ id }: { id: string }) {
         {onlyCasino && ' · только казино'}
         {current.closed && ' · игра закрыта'}
       </p>
+      <ClockLine game={current} />
 
       {onlyCasino ? null : rateText === null ? (
         <p className="rate">
@@ -347,6 +349,17 @@ export function GameScreen({ id }: { id: string }) {
       )}
     </main>
   )
+}
+
+// Часы вечера (#49): «Идёт 1 ч 05 мин» — пересчёт сам, без перезагрузки; «Играли 4 ч 20 мин» — не меняется
+function ClockLine({ game }: { game: Game }) {
+  const [, setTick] = useState(0) // перерисовка: минута сменяется не позже чем через 15 с
+  useEffect(() => {
+    const timer = setInterval(() => setTick((t) => t + 1), 15_000)
+    return () => clearInterval(timer)
+  }, [])
+  const clock = gameClock(game, new Date().toISOString())
+  return clock && <p className="muted">{clockText(clock)}</p>
 }
 
 function BackBar() {

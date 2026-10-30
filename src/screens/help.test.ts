@@ -28,6 +28,7 @@ const PLACEHOLDERS: HelpValues = {
   botsMax: '‹ботов до›',
   botsDefault: '‹ботов сначала›',
   botPause: '‹пауза бота›',
+  forgottenHours: '‹забыли закрыть›',
 }
 
 describe('справка', () => {
@@ -86,6 +87,7 @@ describe('справка', () => {
       botsMax: '5',
       botsDefault: '3',
       botPause: '1',
+      forgottenHours: '12',
     })
   })
 })

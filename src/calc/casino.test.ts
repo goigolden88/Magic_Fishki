@@ -233,7 +233,7 @@ describe('три итога и переводы по итого', () => {
 
 describe('итог для мессенджера с казино', () => {
   it('покер, казино и итого; переводы по итого', () => {
-    expect(plain(shareText(WITH_CASINO))).toBe(
+    expect(plain(shareText(WITH_CASINO, NOW))).toBe(
       [
         'Покер · 15.10 · курс 0,5 ₽',
         'Покер: Б +1000 ₽ · А −1000 ₽',
@@ -247,7 +247,7 @@ describe('итог для мессенджера с казино', () => {
 
   it('только казино — одна строка «Казино», без курса', () => {
     const game: Game = { ...WITH_CASINO, entries: [] }
-    expect(plain(shareText(game))).toBe(
+    expect(plain(shareText(game, NOW))).toBe(
       ['Казино · 15.10', 'Казино: А +300 ₽ · Б −300 ₽', 'Переводы:', 'Б → А 300 ₽'].join('\n'),
     )
   })
