@@ -30,6 +30,7 @@ import { deleteEvening, eveningHands, getSettings, listEvenings } from '../store
 import { ulid } from '../ulid'
 import { HudFields } from './Hud'
 import { LookFields } from './LookFields'
+import { CasinoPickCard } from './CasinoPick'
 import { BOTS_HASH } from './PokerBots'
 import { LOCAL_HASH, NO_STORAGE } from './PokerLocal'
 import { HandHistory } from './PokerRoom'
@@ -57,7 +58,7 @@ const GUEST = '' // «Вы за столом» — не из постоянны�
 // «Играть» (Р-14, Р-19; до #126 — «Покер онлайн»): новая комната, вход по ссылке или коду, свои комнаты.
 // Учёт вечера от этого экрана не зависит: нет сети — он работает как раньше
 export function PokerHomeScreen() {
-  const [creating, setCreating] = useState<'room' | 'local' | 'bots' | null>(null)
+  const [creating, setCreating] = useState<'room' | 'local' | 'bots' | 'casino' | null>(null)
   const [firstTime, setFirstTime] = useState(false) // форму открыла «Быстрая комната» без пароля
   const [quick, setQuick] = useState<{ players: Regular[]; buyin: number } | null>(null)
   const [quickBusy, setQuickBusy] = useState(false)
@@ -142,7 +143,7 @@ export function PokerHomeScreen() {
         </a>
       </header>
       <h1>Играть</h1>
-      <p className="muted">Комната по ссылке для всех телефонов, стол на одном телефоне или игра против ботов.</p>
+      <p className="muted">Комната по ссылке для всех телефонов, стол на одном телефоне, игра против ботов или казино.</p>
 
       {bots && (
         <section className="card">
@@ -174,6 +175,8 @@ export function PokerHomeScreen() {
         <NewLocalCard onCancel={() => setCreating(null)} />
       ) : creating === 'bots' ? (
         <NewBotsCard onCancel={() => setCreating(null)} />
+      ) : creating === 'casino' ? (
+        <CasinoPickCard onCancel={() => setCreating(null)} />
       ) : (
         <>
           <div className="row">
@@ -202,6 +205,10 @@ export function PokerHomeScreen() {
               Против ботов
             </button>
           )}
+          {/* #129: казино — своя игра на этом телефоне; раунды пишутся в игру учёта */}
+          <button type="button" className="big wide" onClick={() => setCreating('casino')}>
+            Казино
+          </button>
         </>
       )}
 

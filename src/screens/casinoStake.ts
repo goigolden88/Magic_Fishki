@@ -1,6 +1,10 @@
+import { CARD_BACK_LABELS, FELT_LABELS, lookOf, type Look } from '../calc/pokerLook'
+
 // Ставка прошлого раунда казино с картами (#76) — в модели раунда её нет, помнится на устройстве:
 // в localStorage, не в IndexedDB и не в копии
 const STAKE_KEY = 'fishki.casino.stake'
+// Сукно и рубашка казино-стола (#129) — так же, на устройстве
+const LOOK_KEY = 'fishki.casino.look'
 
 // Копейки; нет или не похоже — null
 export function loadStake(): number | null {
@@ -17,5 +21,27 @@ export function saveStake(kopecks: number) {
     localStorage.setItem(STAKE_KEY, JSON.stringify(kopecks))
   } catch {
     // нет места или запрещено — просто не запомним
+  }
+}
+
+// Нет или не из готовых — зелёное сукно и классическая рубашка, как у покерного стола
+export function loadLook(): Look {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(LOOK_KEY) ?? 'null')
+    const o = typeof v === 'object' && v !== null ? (v as Partial<Look>) : {}
+    return lookOf({
+      felt: FELT_LABELS.some(([f]) => f === o.felt) ? o.felt : undefined,
+      cardBack: CARD_BACK_LABELS.some(([b]) => b === o.cardBack) ? o.cardBack : undefined,
+    })
+  } catch {
+    return lookOf({})
+  }
+}
+
+export function saveLook(look: Look) {
+  try {
+    localStorage.setItem(LOOK_KEY, JSON.stringify(look))
+  } catch {
+    // так же — не запомним
   }
 }
