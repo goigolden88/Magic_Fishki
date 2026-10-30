@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CLOSE_ENDED, CLOSE_NO_ROOM, CLOSE_REPLACED, CLOSE_VERSION, NO_ROOM, VERSION_ERROR, WRONG_PASSWORD } from '../poker/protocol'
 import {
+  BAD_SERVER,
   closeKind,
   createFailure,
   DEFAULT_SERVER,
@@ -9,8 +10,10 @@ import {
   retryDelay,
   roomHash,
   roomLink,
+  roomServer,
   roomsUrl,
   serverBase,
+  serverHost,
   socketUrl,
 } from './pokerLink'
 
@@ -49,6 +52,61 @@ describe('покер онлайн: адреса и ссылки', () => {
     expect(parseRoomLink('https://x.io/#/game/abc')).toBeNull()
     expect(parseRoomLink('KQ7')).toBeNull()
     expect(parseRoomLink('')).toBeNull()
+  })
+})
+
+describe('покер онлайн: свой сервер в ссылке (#83)', () => {
+  const site = 'https://goigolden88.github.io/Magic_Fishki/?app=fishki#/poker'
+  const own = 'https://poker.example.dev'
+  const ownParam = '?server=https%3A%2F%2Fpoker.example.dev'
+  const seat = { playerId: 'id1', token: 'tok' }
+
+  it('ссылка своего сервера несёт его адрес, постоянного — как была', () => {
+    expect(roomLink(site, 'KQ7MZP', undefined, own)).toBe(`https://goigolden88.github.io/Magic_Fishki/#/poker/KQ7MZP${ownParam}`)
+    expect(roomLink(site, 'KQ7MZP', seat, own)).toBe(`https://goigolden88.github.io/Magic_Fishki/#/poker/KQ7MZP/id1/tok${ownParam}`)
+    expect(roomLink(site, 'KQ7MZP', seat, DEFAULT_SERVER)).toBe('https://goigolden88.github.io/Magic_Fishki/#/poker/KQ7MZP/id1/tok')
+    expect(roomHash('KQ7MZP', undefined, DEFAULT_SERVER)).toBe('#/poker/KQ7MZP')
+  })
+
+  it('разбор ссылки с адресом: комната, место и сервер; со страницы «Домой» (?app) — тоже', () => {
+    expect(parseRoomLink(roomLink(site, 'KQ7MZP', undefined, own))).toEqual({ code: 'KQ7MZP', server: own })
+    expect(parseRoomLink(`Заходите: https://x.io/?app=fishki#/poker/kq7mzp/id1/tok${ownParam}`)).toEqual({
+      code: 'KQ7MZP',
+      seat,
+      server: own,
+    })
+    expect(parseRoomLink(`#/poker/KQ7MZP?server=${encodeURIComponent('http://localhost:8787/')}`)).toEqual({
+      code: 'KQ7MZP',
+      server: 'http://localhost:8787',
+    })
+    // Постоянный сервер, вписанный в ссылку руками, — как ссылка без адреса
+    expect(parseRoomLink(`#/poker/KQ7MZP?server=${encodeURIComponent(DEFAULT_SERVER)}`)).toEqual({ code: 'KQ7MZP' })
+  })
+
+  it('кривой адрес в ссылке — ошибка, а не запрос куда попало', () => {
+    for (const bad of ['', 'poker.example.dev', 'ftp%3A%2F%2Fx.dev', 'https%3A%2F%2F%D1%81%20%D0%BF', '%E0%A4%A']) {
+      expect(parseRoomLink(`https://x.io/#/poker/KQ7MZP?server=${bad}`), bad).toEqual({ error: BAD_SERVER })
+    }
+    expect(parseRoomLink('https://x.io/#/poker/KQ7MZP?other=1')).toBeNull()
+  })
+
+  it('сервер комнаты: из ссылки, иначе из места, иначе из «Настроек»; место — только для своего сервера', () => {
+    const old = { playerId: 'id1', token: 'tok' } // место, запомненное до #83, — без сервера
+    expect(roomServer(undefined, null, '')).toEqual({ base: DEFAULT_SERVER, seat: null })
+    expect(roomServer(undefined, old, own)).toEqual({ base: own, seat })
+    expect(roomServer(undefined, old, 'не адрес')).toEqual({ base: DEFAULT_SERVER, seat })
+    expect(roomServer(own, null, '')).toEqual({ base: own, seat: null })
+    expect(roomServer(undefined, { ...seat, server: own }, '')).toEqual({ base: own, seat })
+    expect(roomServer(own, { ...seat, server: own }, 'https://other.dev')).toEqual({ base: own, seat })
+    // Токен места с другого сервера не уходит на сервер из ссылки
+    expect(roomServer(own, old, '')).toEqual({ base: own, seat: null })
+    expect(roomServer(own, { ...seat, server: 'https://other.dev' }, own)).toEqual({ base: own, seat: null })
+  })
+
+  it('строка «Сервер: …» — имя хоста, у постоянного сервера её нет', () => {
+    expect(serverHost(own)).toBe('poker.example.dev')
+    expect(serverHost('http://localhost:8787')).toBe('localhost:8787')
+    expect(serverHost(DEFAULT_SERVER)).toBeNull()
   })
 })
 

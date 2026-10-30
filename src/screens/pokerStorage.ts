@@ -1,6 +1,6 @@
 import { parseBotTable, type BotTable } from '../calc/botTable'
 import { parseLocalTable, type LocalTable } from '../calc/localTable'
-import type { Seat } from '../calc/pokerLink'
+import { serverBase, type SavedSeat } from '../calc/pokerLink'
 
 // Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги,
 // звук «ваш ход», «карты всегда открыты», стол на этом телефоне и стол против ботов — данные этого устройства,
@@ -52,15 +52,18 @@ export const saveOpenCards = (on: boolean) => write(OPEN_KEY, on ? 'on' : '')
 export const loadMe = () => read(ME_KEY)
 export const saveMe = (regularId: string) => write(ME_KEY, regularId)
 
-// Места по кодам комнат: с ним возврат на своё место без выбора
-export function loadSeats(): Record<string, Seat> {
+// Места по кодам комнат: с ним возврат на своё место без выбора. Сервер комнаты (#83) — необязательное поле:
+// места, запомненные раньше, его не имеют и читаются как были
+export function loadSeats(): Record<string, SavedSeat> {
   try {
     const parsed: unknown = JSON.parse(read(SEATS_KEY) || '{}')
-    const out: Record<string, Seat> = {}
+    const out: Record<string, SavedSeat> = {}
     if (parsed && typeof parsed === 'object') {
       for (const [code, seat] of Object.entries(parsed as Record<string, unknown>)) {
-        const { playerId, token } = (seat ?? {}) as Record<string, unknown>
-        if (typeof playerId === 'string' && typeof token === 'string') out[code] = { playerId, token }
+        const { playerId, token, server } = (seat ?? {}) as Record<string, unknown>
+        if (typeof playerId !== 'string' || typeof token !== 'string') continue
+        const base = typeof server === 'string' && server.trim() ? serverBase(server) : null
+        out[code] = base ? { playerId, token, server: base } : { playerId, token }
       }
     }
     return out
@@ -69,11 +72,11 @@ export function loadSeats(): Record<string, Seat> {
   }
 }
 
-export function loadSeat(code: string): Seat | null {
+export function loadSeat(code: string): SavedSeat | null {
   return loadSeats()[code] ?? null
 }
 
-export function saveSeat(code: string, seat: Seat | null) {
+export function saveSeat(code: string, seat: SavedSeat | null) {
   const seats = loadSeats()
   if (seat) seats[code] = seat
   else delete seats[code]

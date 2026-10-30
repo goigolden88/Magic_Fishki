@@ -130,6 +130,26 @@ describe('стол на этом телефоне в памяти устройс
     expect(s.loadOpenCards()).toBe(false)
   })
 
+  it('места в комнатах: старое — без сервера — читается как было, новое помнит сервер (#83)', async () => {
+    const storage = fakeStorage()
+    vi.stubGlobal('localStorage', storage)
+    storage.data.set(
+      'fishki.poker.seats',
+      JSON.stringify({ KQ7MZP: { playerId: 'id1', token: 'tok' }, AB12CD: { playerId: 'id2', token: 't2', server: 'не адрес' } }),
+    )
+    let s = await reload()
+    expect(s.loadSeat('KQ7MZP')).toEqual({ playerId: 'id1', token: 'tok' })
+    expect(s.loadSeat('AB12CD')).toEqual({ playerId: 'id2', token: 't2' }) // кривой сервер — как старое место
+
+    s.saveSeat('ZZ99ZZ', { playerId: 'id3', token: 't3', server: 'https://poker.example.dev' })
+    s = await reload()
+    expect(s.loadSeats()).toEqual({
+      KQ7MZP: { playerId: 'id1', token: 'tok' },
+      AB12CD: { playerId: 'id2', token: 't2' },
+      ZZ99ZZ: { playerId: 'id3', token: 't3', server: 'https://poker.example.dev' },
+    })
+  })
+
   it('память работает — проверка говорит «да» и следов не оставляет', async () => {
     const storage = fakeStorage()
     vi.stubGlobal('localStorage', storage)

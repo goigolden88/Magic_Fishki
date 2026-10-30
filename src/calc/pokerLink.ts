@@ -41,27 +41,83 @@ export function normalizeCode(text: string): string | null {
   return /^[A-Z0-9]{6}$/.test(code) ? code : null
 }
 
-// Адрес внутри сайта: #/poker/КОД, с местом — #/poker/КОД/игрок/токен («пересадить»)
-export function roomHash(code: string, seat?: Seat): string {
-  return seat ? `#/poker/${code}/${seat.playerId}/${seat.token}` : `#/poker/${code}`
+// Место, запомненное на устройстве, — с сервером комнаты (#83). Без сервера — запомнено до #83:
+// комната на сервере из «Настроек»
+export type SavedSeat = Seat & { server?: string }
+
+// Комната из ссылки: код, место («пересадить») и сервер, если он не постоянный (#83)
+export type RoomTarget = { code: string; seat?: Seat; server?: string }
+
+export const BAD_SERVER = 'В ссылке неверный адрес сервера — попросите ведущего прислать ссылку заново'
+
+// Адрес внутри сайта: #/poker/КОД, с местом — #/poker/КОД/игрок/токен («пересадить»);
+// комната не на постоянном сервере — в конце ?server=адрес (#83)
+export function roomHash(code: string, seat?: Seat, server?: string): string {
+  const path = seat ? `#/poker/${code}/${seat.playerId}/${seat.token}` : `#/poker/${code}`
+  return server && server !== DEFAULT_SERVER ? `${path}?server=${encodeURIComponent(server)}` : path
 }
 
 // Ссылка, которую ведущий кидает в чат: адрес сайта без ?app=… и с адресом комнаты
-export function roomLink(siteUrl: string, code: string, seat?: Seat): string {
-  return siteUrl.replace(/[?#].*$/, '') + roomHash(code, seat)
+export function roomLink(siteUrl: string, code: string, seat?: Seat, server?: string): string {
+  return siteUrl.replace(/[?#].*$/, '') + roomHash(code, seat, server)
 }
 
-// Вставленная ссылка или просто код → комната и, если есть, место
-export function parseRoomLink(text: string): { code: string; seat?: Seat } | null {
+// Вставленная ссылка или просто код → комната, место и сервер; кривой адрес сервера — ошибка,
+// а не запрос куда попало
+export function parseRoomLink(text: string): RoomTarget | { error: string } | null {
   const trimmed = text.trim()
-  const m = /#\/poker\/([^/\s]+)(?:\/([^/\s]+)\/([^/\s]+))?\s*$/.exec(trimmed)
+  const m = /#\/poker\/([^/?\s]+)(?:\/([^/?\s]+)\/([^/?\s]+))?(?:\?server=(\S*))?\s*$/.exec(trimmed)
   if (!m) {
     const code = normalizeCode(trimmed)
     return code ? { code } : null
   }
-  const code = normalizeCode(decodeURIComponent(m[1]))
+  const code = normalizeCode(decode(m[1]) ?? '')
   if (!code) return null
-  return m[2] && m[3] ? { code, seat: { playerId: decodeURIComponent(m[2]), token: decodeURIComponent(m[3]) } } : { code }
+  const target: RoomTarget = { code }
+  if (m[2] && m[3]) {
+    const playerId = decode(m[2])
+    const token = decode(m[3])
+    if (playerId === null || token === null) return null
+    target.seat = { playerId, token }
+  }
+  if (m[4] !== undefined) {
+    const raw = decode(m[4])?.trim() ?? ''
+    const server = raw ? serverBase(raw) : null
+    if (!server) return { error: BAD_SERVER }
+    if (server !== DEFAULT_SERVER) target.server = server
+  }
+  return target
+}
+
+function decode(text: string): string | null {
+  try {
+    return decodeURIComponent(text)
+  } catch {
+    return null
+  }
+}
+
+// Куда идёт связь с комнатой: сервер из ссылки, иначе — запомненный местом, иначе — из «Настроек».
+// Место из памяти — только для своего сервера: токен на чужой сервер не уходит
+export function roomServer(
+  linkServer: string | undefined,
+  saved: SavedSeat | null,
+  settings: string,
+): { base: string; seat: Seat | null } {
+  const fromSettings = serverBase(settings) ?? DEFAULT_SERVER
+  const base = linkServer ?? saved?.server ?? fromSettings
+  const seat = saved && (saved.server ?? fromSettings) === base ? { playerId: saved.playerId, token: saved.token } : null
+  return { base, seat }
+}
+
+// Строка «Сервер: …» на экране комнаты — только у не постоянного сервера
+export function serverHost(base: string): string | null {
+  if (base === DEFAULT_SERVER) return null
+  try {
+    return new URL(base).host
+  } catch {
+    return base
+  }
 }
 
 // Отказ при создании комнаты → что сказать ведущему

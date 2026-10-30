@@ -50,8 +50,9 @@ export function PokerHomeScreen() {
   const [local, setLocal] = useState(() => loadLocalTable() !== null)
   const [bots, setBots] = useState(() => loadBotTable() !== null)
   const [linkText, setLinkText] = useState('')
-  const rooms = Object.keys(loadSeats())
-  const link = parseRoomLink(linkText)
+  const rooms = Object.entries(loadSeats())
+  const parsed = parseRoomLink(linkText)
+  const link = parsed && !('error' in parsed) ? parsed : null
 
   // Стол на телефоне один: идёт — второй не начать, пока не закончен или не удалён
   function removeLocal() {
@@ -70,8 +71,9 @@ export function PokerHomeScreen() {
   function enter(e: FormEvent) {
     e.preventDefault()
     if (!link) return
-    if (link.seat) saveSeat(link.code, link.seat)
-    location.hash = roomHash(link.code)
+    // Как открытие ссылки (app.tsx): место — с сервером из ссылки, сервер — в адресе; «Настройки» не трогаем
+    if (link.seat) saveSeat(link.code, { ...link.seat, server: link.server })
+    location.hash = roomHash(link.code, undefined, link.server)
   }
 
   return (
@@ -145,8 +147,8 @@ export function PokerHomeScreen() {
       {rooms.length > 0 && (
         <section className="card">
           <h2>Мои столы</h2>
-          {rooms.map((code) => (
-            <a key={code} className="big wide button-link" href={roomHash(code)}>
+          {rooms.map(([code, seat]) => (
+            <a key={code} className="big wide button-link" href={roomHash(code, undefined, seat.server)}>
               Стол {code}
             </a>
           ))}
@@ -159,7 +161,8 @@ export function PokerHomeScreen() {
           Ссылка или код комнаты
           <input value={linkText} onChange={(e) => setLinkText(e.target.value)} placeholder="Например, KQ7MZP" />
         </label>
-        {linkText.trim() !== '' && !link && <p className="warn">Не похоже на ссылку на стол или код из 6 знаков</p>}
+        {parsed && 'error' in parsed && <p className="warn">{parsed.error}</p>}
+        {linkText.trim() !== '' && !parsed && <p className="warn">Не похоже на ссылку на стол или код из 6 знаков</p>}
         <button className="big primary wide" disabled={!link}>
           Войти
         </button>
@@ -327,8 +330,9 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
     setBusy(true)
     setError(null)
     let res: CreateRoomResponse
+    const server = serverBase(loadServer()) ?? DEFAULT_SERVER // комната — на сервере из «Настроек»
     try {
-      const r = await fetch(roomsUrl(serverBase(loadServer()) ?? DEFAULT_SERVER), {
+      const r = await fetch(roomsUrl(server), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -350,11 +354,11 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
       setError(f.text)
       return
     }
-    // Пароль верный — телефон его запомнил; место ведущего — как у всех, по коду комнаты
+    // Пароль верный — телефон его запомнил; место ведущего — как у всех, по коду комнаты, с её сервером (#83)
     savePassword(secret)
     saveMe(me ? me.id : '')
-    saveSeat(res.code, { playerId: res.playerId, token: res.token })
-    location.hash = roomHash(res.code)
+    saveSeat(res.code, { playerId: res.playerId, token: res.token, server })
+    location.hash = roomHash(res.code, undefined, server)
   }
 
   if (regulars === null) return null
