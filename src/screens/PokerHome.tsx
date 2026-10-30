@@ -345,7 +345,7 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
     }
     setBusy(false)
     if ('error' in res) {
-      const f = createFailure(res.error)
+      const f = createFailure(res.error, res.v, server)
       if (f.kind === 'password') {
         savePassword('')
         setHasPassword(false)

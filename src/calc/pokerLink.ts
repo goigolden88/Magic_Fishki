@@ -6,6 +6,7 @@ import {
   CLOSE_REPLACED,
   CLOSE_VERSION,
   NO_ROOM,
+  PROTOCOL_VERSION,
   VERSION_ERROR,
   WRONG_PASSWORD,
 } from '../poker/protocol'
@@ -120,12 +121,32 @@ export function serverHost(base: string): string | null {
   }
 }
 
-// Отказ при создании комнаты → что сказать ведущему
+// Другая версия (#107): что старее — сервер или приложение. app — обновить приложение (сервер новее
+// или версию не прислал — старый ответ без v); own — отстал свой сервер ведущего; updating — постоянный
+// сервер ещё выкатывается после слияния
+export type VersionGap = 'app' | 'own' | 'updating'
+
+export const APP_OLD = `${UPDATE_APP}: версия сервера новее`
+export const OWN_SERVER_OLD = 'Сервер старее приложения — ведущему обновить свой сервер (Sync fork)'
+export const SERVER_UPDATING = 'Сервер ещё обновляется — подождите пару минут'
+
+export function versionGap(serverVersion: unknown, base: string, appVersion = PROTOCOL_VERSION): VersionGap {
+  if (typeof serverVersion !== 'number' || serverVersion >= appVersion) return 'app'
+  return base === DEFAULT_SERVER ? 'updating' : 'own'
+}
+
+export function versionText(gap: VersionGap): string {
+  if (gap === 'own') return OWN_SERVER_OLD
+  if (gap === 'updating') return SERVER_UPDATING
+  return APP_OLD
+}
+
+// Отказ при создании комнаты → что сказать ведущему; версия сервера и его адрес — для «другой версии»
 export type CreateFailure = { kind: 'password' | 'update' | 'other'; text: string }
 
-export function createFailure(error: string): CreateFailure {
+export function createFailure(error: string, serverVersion?: unknown, base = DEFAULT_SERVER): CreateFailure {
   if (error === WRONG_PASSWORD) return { kind: 'password', text: 'Неверный пароль компании — введите снова' }
-  if (error === VERSION_ERROR) return { kind: 'update', text: `${UPDATE_APP}: версия сервера новее` }
+  if (error === VERSION_ERROR) return { kind: 'update', text: versionText(versionGap(serverVersion, base)) }
   return { kind: 'other', text: error }
 }
 

@@ -1,11 +1,22 @@
 import { describe, expect, it } from 'vitest'
-import { CLOSE_ENDED, CLOSE_NO_ROOM, CLOSE_REPLACED, CLOSE_VERSION, NO_ROOM, VERSION_ERROR, WRONG_PASSWORD } from '../poker/protocol'
 import {
+  CLOSE_ENDED,
+  CLOSE_NO_ROOM,
+  CLOSE_REPLACED,
+  CLOSE_VERSION,
+  NO_ROOM,
+  PROTOCOL_VERSION,
+  VERSION_ERROR,
+  WRONG_PASSWORD,
+} from '../poker/protocol'
+import {
+  APP_OLD,
   BAD_SERVER,
   closeKind,
   createFailure,
   DEFAULT_SERVER,
   errorKind,
+  OWN_SERVER_OLD,
   parseRoomLink,
   retryDelay,
   roomHash,
@@ -13,8 +24,12 @@ import {
   roomServer,
   roomsUrl,
   serverBase,
+  SERVER_UPDATING,
   serverHost,
   socketUrl,
+  versionGap,
+  versionText,
+  type VersionGap,
 } from './pokerLink'
 
 describe('покер онлайн: адреса и ссылки', () => {
@@ -115,6 +130,31 @@ describe('покер онлайн: что сказать при отказе', (
     expect(createFailure(WRONG_PASSWORD).kind).toBe('password')
     expect(createFailure(VERSION_ERROR).kind).toBe('update')
     expect(createFailure('Комнат уже 10')).toEqual({ kind: 'other', text: 'Комнат уже 10' })
+  })
+
+  it('другая версия: сервер новее или без версии — обновить приложение; старее — смотря чей сервер', () => {
+    const own = 'https://reserve.example.dev'
+    expect(versionGap(PROTOCOL_VERSION + 1, DEFAULT_SERVER)).toBe('app')
+    expect(versionGap(PROTOCOL_VERSION + 1, own)).toBe('app')
+    expect(versionGap(undefined, own)).toBe('app') // старый ответ без v
+    expect(versionGap('13', own)).toBe('app')
+    expect(versionGap(PROTOCOL_VERSION - 1, own)).toBe('own')
+    expect(versionGap(PROTOCOL_VERSION - 1, DEFAULT_SERVER)).toBe('updating')
+    expect(versionGap(4, own, 5)).toBe('own')
+    expect(['app', 'own', 'updating'].map((g) => versionText(g as VersionGap))).toEqual([
+      'Обновите приложение: версия сервера новее',
+      'Сервер старее приложения — ведущему обновить свой сервер (Sync fork)',
+      'Сервер ещё обновляется — подождите пару минут',
+    ])
+  })
+
+  it('создание комнаты: другая версия — текст по версии сервера и его адресу', () => {
+    const own = 'https://reserve.example.dev'
+    expect(createFailure(VERSION_ERROR)).toEqual({ kind: 'update', text: APP_OLD })
+    expect(createFailure(VERSION_ERROR, PROTOCOL_VERSION + 1, own)).toEqual({ kind: 'update', text: APP_OLD })
+    expect(createFailure(VERSION_ERROR, PROTOCOL_VERSION - 1, own)).toEqual({ kind: 'update', text: OWN_SERVER_OLD })
+    expect(createFailure(VERSION_ERROR, PROTOCOL_VERSION - 1, DEFAULT_SERVER)).toEqual({ kind: 'update', text: SERVER_UPDATING })
+    expect(createFailure(VERSION_ERROR, undefined, own)).toEqual({ kind: 'update', text: APP_OLD })
   })
 
   it('соединение закрыто сервером: конец комнаты, версия, другое устройство; остальное — переподключаться', () => {

@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { closeKind, errorKind, NO_CONNECTION, retryDelay, roomServer, socketUrl, type Seat } from '../calc/pokerLink'
+import {
+  closeKind,
+  errorKind,
+  NO_CONNECTION,
+  retryDelay,
+  roomServer,
+  socketUrl,
+  versionGap,
+  type Seat,
+  type VersionGap,
+} from '../calc/pokerLink'
 import { PING, PING_MS, PONG, PROTOCOL_VERSION, SILENT_MS, type ClientBody, type RoomMessage, type RosterEntry } from '../poker/protocol'
 import type { HistoryHand } from '../poker/history'
 import type { TableState } from '../poker/table'
@@ -20,6 +30,7 @@ export type Lobby = { roster: RosterEntry[]; seated: string[] }
 export type Room = {
   server: string // сервер комнаты (#83): он — в ссылках «Поделиться» и строке «Сервер: …»
   phase: RoomPhase
+  versionGap: VersionGap // при phase 'update' (#107): что старее — сервер или приложение
   online: boolean // соединение открыто
   failed: boolean // попытка связи не удалась — «Нет связи с сервером»
   lobby: Lobby | null
@@ -47,6 +58,7 @@ export function useRoom(code: string, linkServer?: string): Room {
   const [target] = useState(() => roomServer(linkServer, loadSeat(code), loadServer()))
   const base = target.base
   const [phase, setPhase] = useState<RoomPhase>('loading')
+  const [gap, setGap] = useState<VersionGap>('app')
   const [online, setOnline] = useState(false)
   const [failed, setFailed] = useState(false)
   const [lobby, setLobby] = useState<Lobby | null>(null)
@@ -66,6 +78,7 @@ export function useRoom(code: string, linkServer?: string): Room {
   const connectRef = useRef<() => void>(() => {})
   const heardAt = useRef(0) // когда сервер последний раз что-то прислал
   const clockOffset = useRef(0) // время сервера минус часы телефона — при последнем столе
+  const serverVersion = useRef<unknown>(undefined) // v последнего сообщения сервера — для «другой версии» (#107)
 
   function forgetSeat() {
     seat.current = null
@@ -75,6 +88,7 @@ export function useRoom(code: string, linkServer?: string): Room {
   function stop(next: RoomPhase) {
     stopped.current = true
     clearTimeout(timer.current)
+    if (next === 'update') setGap(versionGap(serverVersion.current, base))
     setPhase(next)
   }
 
@@ -87,6 +101,7 @@ export function useRoom(code: string, linkServer?: string): Room {
     } catch {
       return
     }
+    serverVersion.current = msg.v
     switch (msg.type) {
       case 'lobby':
         setLobby({ roster: msg.roster as RosterEntry[], seated: msg.seated as string[] })
@@ -153,6 +168,7 @@ export function useRoom(code: string, linkServer?: string): Room {
   function connect() {
     clearTimeout(timer.current)
     if (stopped.current) return
+    serverVersion.current = undefined // версия — только этого соединения: сервер могли выкатить заново
     let socket: WebSocket
     try {
       socket = new WebSocket(socketUrl(base, code))
@@ -269,6 +285,7 @@ export function useRoom(code: string, linkServer?: string): Room {
   return {
     server: base,
     phase,
+    versionGap: gap,
     online,
     failed,
     lobby,
