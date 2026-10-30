@@ -121,6 +121,41 @@ function random(seed: number): () => number {
   }
 }
 
+function rulesOf(variant: Variant): Rules {
+  return { place: CATEGORIES.map((c) => variant.order.indexOf(c)), low: variant.deck === 36 ? 6 : 2 }
+}
+
+// Пятёрки номерами в ряду «стол, затем рука» — по правилу варианта; одни на каждый размер руки и стола
+const fivesCache = new Map<string, number[][]>()
+
+function fivesOf(fromHand: Variant['fromHand'], hand: number, board: number): number[][] {
+  const key = `${fromHand}|${hand}|${board}`
+  let out = fivesCache.get(key)
+  if (!out) {
+    const table = range(0, board)
+    const own = range(board, hand)
+    out =
+      fromHand === 'any'
+        ? combinations([...table, ...own], 5)
+        : combinations(own, fromHand).flatMap((h) => combinations(table, 5 - fromHand).map((t) => [...h, ...t]))
+    fivesCache.set(key, out)
+  }
+  return out
+}
+
+// Сила лучшей пятёрки руки и стола числом: больше — сильнее, равны — ничья (как compareHands у bestHand).
+// Без проверок карт и без строк — для бота (#117): сотни досдач на ход
+export function handScore(variant: Variant, hand: Card[], board: Card[]): number {
+  const rules = rulesOf(variant)
+  const all = [...board, ...hand].map(code)
+  let best = -1
+  for (const f of fivesOf(variant.fromHand, hand.length, board.length)) {
+    const s = score5(rules, all[f[0]], all[f[1]], all[f[2]], all[f[3]], all[f[4]])
+    if (s > best) best = s
+  }
+  return best
+}
+
 // Доли основного банка при досдаче стола до boardSize карт: у каждой руки, сумма — 1.
 // dead — известные карты вне игры (открытые у сбросивших). Карты неверные или повторяются — null
 export function equity(variant: Variant, hands: Card[][], board: Card[], boardSize: number, dead: Card[] = []): number[] | null {
@@ -150,10 +185,7 @@ export function equity(variant: Variant, hands: Card[][], board: Card[], boardSi
     at += hand.length
   }
 
-  const rules: Rules = {
-    place: CATEGORIES.map((c) => variant.order.indexOf(c)),
-    low: variant.deck === 36 ? 6 : 2,
-  }
+  const rules = rulesOf(variant)
   const shares = new Float64Array(hands.length)
   const best = new Float64Array(hands.length)
   const showdown = () => {
