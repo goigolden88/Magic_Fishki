@@ -220,6 +220,7 @@ export function handle(state: TableState, from: string, message: unknown, now: n
   const error = apply(next, from, message as ClientBody, now, deck) ?? settle(next, now)
   if (error) return { ok: false, error }
   endWait(next, now)
+  rearm(next, now)
   clock(next, now)
   return { ok: true, state: next }
 }
@@ -296,12 +297,25 @@ function sameTurn(turn: TurnClock, hand: Hand): boolean {
 }
 
 // Раздача «сама» — через паузу из настроек; выкл, перерыв, идёт раздача, раздач ещё не было,
-// турнир окончен или ждёт ребая — нет
+// турнир окончен или ждёт ребая, играть некому (с фишками и не пропускают меньше двоих) — нет
 function armNext(state: TableState, now: number): void {
   const mode = state.settings.autoStart ?? 'off'
+  state.nextHandAt = mode !== 'off' && autoReady(state) ? now + AUTO_START_MS[mode] : null
+}
+
+function autoReady(state: TableState): boolean {
   const ended = typeof state.tournament?.endedAt === 'number'
-  const ready = mode !== 'off' && !state.hand && !state.paused && state.handCount > 0 && !ended && !alone(state)
-  state.nextHandAt = ready ? now + AUTO_START_MS[mode] : null
+  const playing = state.players.filter((p) => p.chips > 0 && !p.sittingOut).length
+  return !state.hand && !state.paused && state.handCount > 0 && !ended && !alone(state) && playing >= 2
+}
+
+// После любой перемены между раздачами (#106): снова двое с фишками — докуп, возврат в раздачи,
+// новый игрок, стек с нуля — раздача «сама» взводится; стало некому — снимается.
+// Уже взведённая не сдвигается; идущую раздачу не трогает
+function rearm(state: TableState, now: number): void {
+  if (state.hand) return
+  if (!autoReady(state)) state.nextHandAt = null
+  else if (state.nextHandAt == null) armNext(state, now)
 }
 
 // Что видит телефон игрока playerId: без колоды и без чужих закрытых карт — ни в раздаче,
@@ -509,7 +523,6 @@ function tournamentRebuy(state: TableState, me: TablePlayer, now: number): strin
   state.chipLog.push({ kind: 'rebuy', playerId: me.id, by: me.id, from: me.chips, to: chips, at: now })
   me.chips = chips
   me.buyIn += chips
-  if (!state.hand && state.nextHandAt == null) armNext(state, now)
   return null
 }
 
