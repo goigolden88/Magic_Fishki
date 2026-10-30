@@ -256,7 +256,21 @@ describe('экран стола: карты на телефонах', () => {
         { label: 'Тёрн', moves: ['P2: чек', 'P0: чек'] },
         { label: 'Ривер', moves: ['P2: чек', 'P0: чек'] },
       ],
+      odds: null, // торги закрылись на ривере
     })
+  })
+
+  it('ва-банк до ривера (#116): шансы дошедших — в прошлой раздаче и в той же раздаче из истории', () => {
+    const steps = [start('p0', deck), call('p0'), fold('p1'), check('p2'), allin('p2'), call('p0')]
+    const s = play(newTable(['p0', 'p1', 'p2'], PHONES), steps, false)
+    const odds = lastHandRecord(viewFor(s, 'p1'))?.odds
+    expect(odds).toMatch(/^Шансы на ва-банке \(флоп\): P0 \d+ %, P2 \d+ %$/)
+    const [p0, p2] = [...(odds ?? '').matchAll(/(\d+) %/g)].map((m) => Number(m[1]))
+    expect(p0 + p2).toBe(100)
+    expect(p2).toBeGreaterThan(p0) // у P2 две пары против пары тузов
+    const before = play(newTable(['p0', 'p1', 'p2'], PHONES), steps.slice(0, -1), false)
+    const history = keepHand([], finishedHand(before, s))
+    expect(historyHandView(handFor(history[0], 'p1')).odds).toBe(odds)
   })
 
   it('побочный банк: пятёрка — у победителя каждого банка, на столе — карты обеих пятёрок', () => {
@@ -457,6 +471,7 @@ describe('история раздач (#113)', () => {
         { label: 'Тёрн', moves: ['P1: чек', 'P2: чек'] },
         { label: 'Ривер', moves: ['P1: чек', 'P2: чек'] },
       ],
+      odds: null,
       chips: [1000, 1000, 500],
       pots: [{ label: 'Банк', amount: 20, winners: ['P2'] }],
     })

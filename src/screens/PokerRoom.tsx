@@ -502,7 +502,7 @@ export function LastHand({ table, view: v }: { table: TableState; view: TableVie
   )
 }
 
-// Раздача целиком: стол, места с картами и комбинациями, кто сколько взял, ходы по улицам.
+// Раздача целиком: стол, места с картами и комбинациями, кто сколько взял, шансы на ва-банке (#116), ходы по улицам.
 // Из истории (#113) — ещё стек каждого в начале и банки с именами взявших; ходы сразу раскрыты
 function HandBody({ view: v }: { view: LastHandView | HistoryHandView }) {
   const full = 'chips' in v ? v : null
@@ -527,6 +527,7 @@ function HandBody({ view: v }: { view: LastHandView | HistoryHandView }) {
           </li>
         ))}
       </ul>
+      {v.odds && <p>{v.odds}</p>}
       {full?.pots.map((pot) => (
         <p key={pot.label} className="muted">
           {pot.label} {formatNumber(pot.amount)} — {pot.winners.join(', ')}
