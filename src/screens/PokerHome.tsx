@@ -138,7 +138,8 @@ function NewRoomCard({ onCancel }: { onCancel: () => void }) {
   const [sbText, setSbText] = useState(String(DEFAULT_SETTINGS.sb))
   const [bbText, setBbText] = useState(String(DEFAULT_SETTINGS.bb))
   const [stackText, setStackText] = useState('')
-  const [cards, setCards] = useState<CardsMode>(DEFAULT_SETTINGS.cards)
+  // Р-35: в форме сначала — карты на телефонах; DEFAULT_SETTINGS.cards остаётся живыми для столов без поля
+  const [cards, setCards] = useState<CardsMode>('phones')
   const [variant, setVariant] = useState<GameChoice>(DEFAULT_GAME)
   const [timer, setTimer] = useState<TimerForm>(() =>
     timerForm(DEFAULT_SETTINGS.turnSeconds ?? null, DEFAULT_SETTINGS.autoStart ?? 'off'),
