@@ -13,6 +13,7 @@ import {
   withTable,
   type LocalTable,
 } from '../calc/localTable'
+import { localEvening, savedHands } from '../calc/evenings'
 import { gameFromTable, gameFromTournament } from '../calc/pokerGame'
 import { dockOf, waitLine } from '../calc/pokerLayout'
 import { lookClass, lookOf } from '../calc/pokerLook'
@@ -21,7 +22,7 @@ import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS, type Regular } from '../model'
 import type { HistoryHand } from '../poker/history'
 import { closeRebuyWait, type Result, type TableState } from '../poker/table'
-import { getSettings, saveGame } from '../store/db'
+import { getSettings, saveGame, saveHands } from '../store/db'
 import { ulid } from '../ulid'
 import { openGameYear } from './openYears'
 import { LookFields } from './LookFields'
@@ -51,7 +52,8 @@ export const NO_STORAGE =
 // устройства после каждого изменения
 export function PokerLocalScreen() {
   const [local, setLocal] = useState<LocalTable | null>(() => loadLocalTable())
-  const [done, setDone] = useState<{ table: TableState; gameId: string } | null>(null)
+  // copied — раздачи записались в «Прошлые вечера»
+  const [done, setDone] = useState<{ table: TableState; gameId: string; copied: boolean } | null>(null)
   const [volatile, setVolatile] = useState(() => !storageWorks())
   const [error, setError] = useState<string | null>(null)
   const [finishing, setFinishing] = useState(false)
@@ -65,12 +67,16 @@ export function PokerLocalScreen() {
     })
   }, [])
 
-  // Итог уже записан, а стол не стёрт (оборвалось посередине) — второй игры не писать, стол стереть
+  // Итог уже записан, а стол не стёрт (оборвалось посередине) — второй игры не писать, раздачи —
+  // в «Прошлые вечера» (повтор записи дублей не даёт), стол стереть
   useEffect(() => {
     if (!local?.gameId) return
-    setDone({ table: local.table, gameId: local.gameId })
-    clearLocalTable()
-    setLocal(null)
+    const gameId = local.gameId
+    void copyHands(local).then((copied) => {
+      setDone({ table: local.table, gameId, copied })
+      clearLocalTable()
+      setLocal(null)
+    })
   }, [local])
 
   // Ход или команда ведущего: удалось — стол сразу в память устройства
@@ -119,8 +125,10 @@ export function PokerLocalScreen() {
         return
       }
     }
+    // Раздачи стола — в «Прошлые вечера» (#114); не вышло — игра всё равно записана, на экране предупреждение
+    const copied = await copyHands(local)
     clearLocalTable()
-    setDone({ table: local.table, gameId })
+    setDone({ table: local.table, gameId, copied })
     setLocal(null)
     setFinishing(false)
   }
@@ -148,6 +156,7 @@ export function PokerLocalScreen() {
         <section className="card">
           <h2>Игра закончена</h2>
           <p className="ok">Игра записана в историю</p>
+          {!done.copied && <p className="warn">Раздачи стола на телефоне не сохранились — память браузера недоступна</p>}
           <FinalStacks table={done.table} />
           <a className="big primary wide button-link" href={`#/game/${done.gameId}`}>
             Открыть игру
@@ -179,6 +188,16 @@ export function PokerLocalScreen() {
       )}
     </main>
   )
+}
+
+// Раздачи законченного стола — в «Прошлые вечера» (#114); «Удалить стол» сюда не приходит. false — не записались
+async function copyHands(local: LocalTable): Promise<boolean> {
+  try {
+    await saveHands(savedHands(localEvening(local.id, local.table), local.history))
+    return true
+  } catch {
+    return false
+  }
 }
 
 type Apply = (make: (table: TableState, now: number) => Result) => boolean

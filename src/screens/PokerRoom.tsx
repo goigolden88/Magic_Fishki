@@ -31,6 +31,7 @@ import {
   type SeatView,
   type TableView,
 } from '../calc/pokerView'
+import { roomEvening } from '../calc/evenings'
 import { gameFromTable, gameFromTournament } from '../calc/pokerGame'
 import { lookClass, lookOf } from '../calc/pokerLook'
 import { timerSettings, turnSecondsOf } from '../calc/pokerTimer'
@@ -43,6 +44,7 @@ import { FINISHED, type ClientBody } from '../poker/protocol'
 import { limitFor, type TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
+import { NO_COPY, useHandCopy } from './handCopy'
 import { openGameYear } from './openYears'
 import { HudCard, HudFields, HudLine } from './Hud'
 import { LookFields } from './LookFields'
@@ -248,15 +250,17 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
     signaled.current = mark
   }, [mark])
 
-  // «История раздач» (#113) открыта — взять у сервера; окончилась раздача, кто-то «Показал» или вернулась
-  // связь — взять заново. Без связи не просим: в карточке — «нет связи», стол работает дальше.
-  // askHistory — новый на каждый вид стола, поэтому в зависимостях только эти три
+  // История раздач (#113) — у сервера: взять при входе, и заново, когда окончилась раздача, кто-то «Показал»
+  // или вернулась связь. Без связи не просим: в карточке — «нет связи», стол работает дальше.
+  // Каждый ответ — в копию на этом телефоне (#114), и когда карточка «История раздач» закрыта.
+  // askHistory — новый на каждый вид стола, поэтому в зависимостях только эти два
   const [history, setHistory] = useState(false)
   const lastKey = JSON.stringify([table.lastHand?.number, table.lastHand?.record?.shown])
   const { online, askHistory } = room
   useEffect(() => {
-    if (history && online) askHistory()
-  }, [history, online, lastKey])
+    if (online) askHistory()
+  }, [online, lastKey])
+  const copyWorks = useHandCopy(roomEvening(code, table), room.history)
 
   const v = tableView(table, me, room.serverNow())
   const sb = table.hand?.sb ?? table.settings.sb
@@ -303,6 +307,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
             История раздач
           </button>
         )}
+        {!copyWorks && <p className="warn">{NO_COPY}</p>}
 
         {v.canShow && (
           <ShowCard
@@ -482,9 +487,16 @@ function HandBody({ view: v }: { view: LastHandView | HistoryHandView }) {
 
 // «История раздач» вечера (#113): список — новые сверху, тап — раздача целиком, «← Все раздачи» — назад.
 // Карточкой под столом: панель хода внизу экрана не закрывает, игра идёт. hands — null: ещё не пришла;
-// note — почему не приходит (нет связи); старый список при этом остаётся
-export function HandHistory(props: { hands: HistoryHand[] | null; note?: string | null; onClose: () => void }) {
-  const { hands, note = null, onClose } = props
+// note — почему не приходит (нет связи); старый список при этом остаётся.
+// Прошлый вечер (#114) — та же карточка: title — вместо «История раздач», back — вместо «Закрыть»
+export function HandHistory(props: {
+  hands: HistoryHand[] | null
+  note?: string | null
+  title?: string
+  back?: string
+  onClose: () => void
+}) {
+  const { hands, note = null, title = 'История раздач', back = 'Закрыть', onClose } = props
   const [open, setOpen] = useState<number | null>(null)
   const ref = useRef<HTMLElement>(null)
   const hand = hands?.find((h) => h.number === open) ?? null
@@ -496,9 +508,9 @@ export function HandHistory(props: { hands: HistoryHand[] | null; note?: string 
   return (
     <section ref={ref} className="card hand-history last-hand">
       <div className="history-head">
-        <h2>{hand ? `Раздача ${hand.number}` : 'История раздач'}</h2>
+        <h2>{hand ? `Раздача ${hand.number}` : title}</h2>
         <button type="button" className="big" onClick={hand ? () => setOpen(null) : onClose}>
-          {hand ? '← Все раздачи' : 'Закрыть'}
+          {hand ? '← Все раздачи' : back}
         </button>
       </div>
       {hand ? (

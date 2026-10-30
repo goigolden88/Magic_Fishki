@@ -1,10 +1,15 @@
-// Единственный вход в IndexedDB. База magic_fishki: хранилища games (ключ id) и settings (одна запись).
+// Единственный вход в IndexedDB. База magic_fishki: хранилища games (ключ id), settings (одна запись)
+// и hands — раздачи прошлых вечеров покера (ключ [evening, number], #114).
+import { byNewest, type EveningSummary, type SavedHand } from '../calc/evenings'
 import { linkRegulars, regularsFromNames, settingsWithDefaults, type Game, type Regular, type Settings } from '../model'
+import type { HistoryHand } from '../poker/history'
 import { ulid } from '../ulid'
 
 const DB_NAME = 'magic_fishki'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const SETTINGS_KEY = 'settings'
+const HANDS = 'hands'
+const BY_EVENING = 'evening'
 
 let opening: Promise<IDBDatabase> | null = null
 
@@ -15,6 +20,11 @@ function migrate(db: IDBDatabase, tx: IDBTransaction, oldVersion: number): void 
     db.createObjectStore('settings')
   }
   if (oldVersion < 2) toRegularIds(tx)
+  // Версия 3 (Р-37): только новое хранилище раздач; игры и настройки не трогаются
+  if (oldVersion < 3) {
+    const hands = db.createObjectStore(HANDS, { keyPath: ['evening', 'number'] })
+    hands.createIndex(BY_EVENING, 'evening')
+  }
 }
 
 // Версия 2 (Р-12): постоянные игроки — из строк в { id, name } с новыми id в прежнем порядке;
@@ -64,7 +74,7 @@ function open(): Promise<IDBDatabase> {
 }
 
 async function run<T>(
-  storeName: 'games' | 'settings',
+  storeName: 'games' | 'settings' | typeof HANDS,
   mode: IDBTransactionMode,
   fn: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
@@ -143,4 +153,69 @@ export async function getSettings(): Promise<Settings> {
 
 export async function saveSettings(settings: Settings): Promise<void> {
   await run('settings', 'readwrite', (s) => s.put(settings, SETTINGS_KEY))
+}
+
+// Раздачи вечера (#114) — одной транзакцией. Ключ — вечер и номер: та же раздача второй раз
+// заменяет запись (после «Показать» — с показанными картами), дублей нет
+export async function saveHands(hands: SavedHand[]): Promise<void> {
+  if (hands.length === 0) return
+  const db = await open()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(HANDS, 'readwrite')
+    const store = tx.objectStore(HANDS)
+    for (const hand of hands) store.put(hand)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error)
+  })
+}
+
+// «Прошлые вечера», новые сверху: по первой записи каждого вечера и число его раздач — раздачи целиком не читаются
+export async function listEvenings(): Promise<EveningSummary[]> {
+  const db = await open()
+  return new Promise<EveningSummary[]>((resolve, reject) => {
+    const tx = db.transaction(HANDS, 'readonly')
+    const index = tx.objectStore(HANDS).index(BY_EVENING)
+    const evenings: EveningSummary[] = []
+    const cursor = index.openCursor(null, 'nextunique')
+    cursor.onsuccess = () => {
+      const c = cursor.result
+      if (!c) return
+      const h = c.value as SavedHand
+      const evening: EveningSummary = { id: h.evening, code: h.code, startedAt: h.startedAt, hands: 0 }
+      evenings.push(evening)
+      const count = index.count(h.evening)
+      count.onsuccess = () => {
+        evening.hands = count.result
+      }
+      c.continue()
+    }
+    tx.oncomplete = () => resolve(byNewest(evenings))
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error)
+  })
+}
+
+// Раздачи вечера по номерам
+export async function eveningHands(id: string): Promise<HistoryHand[]> {
+  const saved = await run<SavedHand[]>(HANDS, 'readonly', (s) => s.index(BY_EVENING).getAll(id))
+  return saved.sort((a, b) => a.number - b.number).map((h) => h.hand)
+}
+
+// «Удалить» у вечера: все его раздачи одной транзакцией. Окончательно, как удаление игры
+export async function deleteEvening(id: string): Promise<void> {
+  const db = await open()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(HANDS, 'readwrite')
+    const cursor = tx.objectStore(HANDS).index(BY_EVENING).openCursor(id)
+    cursor.onsuccess = () => {
+      const c = cursor.result
+      if (!c) return
+      c.delete()
+      c.continue()
+    }
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error)
+  })
 }
