@@ -31,6 +31,15 @@ import {
   type SeatView,
   type TableView,
 } from '../calc/pokerView'
+import {
+  activePreAction,
+  preActionMove,
+  showPreActions,
+  streetKey,
+  togglePreAction,
+  type PreAction,
+  type PreActionMark,
+} from '../calc/preAction'
 import { roomEvening } from '../calc/evenings'
 import { gameFromTable, gameFromTournament } from '../calc/pokerGame'
 import { lookClass, lookOf } from '../calc/pokerLook'
@@ -266,6 +275,20 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   const sb = table.hand?.sb ?? table.settings.sb
   const dock = dockOf(v)
 
+  // Ход заранее (#115): флажок держится до конца улицы; пришла очередь и есть связь — ход уходит сам,
+  // один раз на очередь (метка хода), и флажок снимается. Без связи ждёт её
+  const [preMark, setPreMark] = useState<PreActionMark | null>(null)
+  const street = streetKey(v.handNumber, v.stage)
+  const pre = activePreAction(preMark, street)
+  const autoMove = room.online ? preActionMove(pre, v.actions) : null
+  const autoSent = useRef<string | null>(null)
+  useEffect(() => {
+    if (autoMove === null || mark === null || autoSent.current === mark) return
+    autoSent.current = mark
+    setPreMark(null)
+    room.send({ type: 'act', action: autoMove })
+  }, [mark, autoMove?.type])
+
   // Вид стола (#77) — классом на обёртке: сукно и рубашки своих и чужих карт.
   // Колонка (#97): стол — на весь первый экран, под ним листается остальное, панель хода — внизу
   return (
@@ -336,7 +359,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
         </p>
       )}
 
-      {dock === 'turn' && v.actions && (
+      {dock === 'turn' && v.actions && autoMove === null && (
         // Свой ход и новый минимум — сумма снова с минимума
         <ActionsCard
           key={`${v.handNumber}-${v.stage}-${v.actions.raise?.min ?? ''}`}
@@ -348,7 +371,19 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
           onAct={(body) => room.send(body)}
         />
       )}
-      {dock === 'wait' && <p className="dock wait-strip">{waitLine(v)}</p>}
+      {(dock === 'wait' || autoMove !== null) &&
+        (showPreActions(v.actions) || autoMove !== null ? (
+          <PreActionsDock
+            line={waitLine(v)}
+            pre={pre}
+            onToggle={(kind) => {
+              const next = togglePreAction(pre, kind)
+              setPreMark(next !== null && street !== null ? { kind: next, street } : null)
+            }}
+          />
+        ) : (
+          <p className="dock wait-strip">{waitLine(v)}</p>
+        ))}
       {dock === 'host' && (
         <HostDock
           view={v}
@@ -358,6 +393,32 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
         />
       )}
     </div>
+  )
+}
+
+// Ход не мой, а я в раздаче (#115) — вместо полосы «Ждём хода» она же строкой и два флажка хода заранее:
+// «Чек/пас» и «Колл любой». Отмечен — подсвечен; тап снимает, отмечен только один
+function PreActionsDock(props: { line: string; pre: PreAction | null; onToggle: (kind: PreAction) => void }) {
+  const { line, pre, onToggle } = props
+  const flag = (kind: PreAction, label: string) => (
+    <button
+      type="button"
+      className={pre === kind ? 'big primary grow' : 'big grow'}
+      aria-pressed={pre === kind}
+      onClick={() => onToggle(kind)}
+    >
+      {pre === kind ? '✓ ' : ''}
+      {label}
+    </button>
+  )
+  return (
+    <section className="dock pre-actions">
+      <p className="dock-title muted">{line}</p>
+      <div className="dock-row">
+        {flag('checkFold', 'Чек/пас')}
+        {flag('callAny', 'Колл любой')}
+      </div>
+    </section>
   )
 }
 
