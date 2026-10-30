@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { SHORT_DECK } from '../poker/cards'
 import { allin, award, call, check, fold, newTable, play, raise, stackedDeck, start } from '../poker/testing'
 import { HOST_TAKEOVER_MS, onTime, viewFor } from '../poker/table'
 import {
@@ -295,10 +296,49 @@ describe('экран стола: карты на телефонах', () => {
     expect(tableView(viewFor(shown, 'p1'), 'p1', 0).seats[0].cards).toEqual([null, 'Ad'])
   })
 
+  it('моя комбинация сейчас (#105): с флопа и по улицам; префлоп, пас и чужие места — без неё', () => {
+    let s = play(newTable(['p0', 'p1', 'p2'], PHONES), [start('p0', deck)], false)
+    expect(tableView(viewFor(s, 'p0'), 'p0', 0).myHand).toBeNull() // префлоп
+    s = play(s, [call('p0'), fold('p1'), check('p2')], false)
+    const flop = tableView(viewFor(s, 'p0'), 'p0', 0)
+    expect(flop.myHand).toBe('Пара, тузы')
+    expect(flop.seats.every((x) => x.handName === null)).toBe(true) // у мест подписи нет
+    expect(tableView(viewFor(s, 'p2'), 'p2', 0).myHand).toBe('Две пары, семёрки и двойки')
+    expect(tableView(viewFor(s, 'p1'), 'p1', 0).myHand).toBeNull() // спасовал
+    s = play(s, [check('p2'), check('p0')], false)
+    expect(tableView(viewFor(s, 'p0'), 'p0', 0).myHand).toBe('Пара, тузы') // тёрн: Jc
+    s = play(s, [check('p2'), check('p0')], false)
+    expect(s.hand?.stage).toBe('river')
+    expect(tableView(viewFor(s, 'p2'), 'p2', 0).myHand).toBe('Две пары, семёрки и двойки') // ривер: 3s
+  })
+
+  it('моя комбинация: тёрн меняет её; омаха — две из руки, шорт-дек — свой порядок', () => {
+    // Хедз-ап: кнопка p0, сдача с p1; hole — [карты p1, карты p0]
+    const omaha = stackedDeck([['Kh', 'Kc', 'Qd', 'Js'], ['9c', '9d', 'Ts', '8s']], ['Ah', '9h', '6h', '3h', '2c'])
+    let s = play(newTable(['p0', 'p1'], { cards: 'phones', game: 'omaha' }), [start('p0', omaha), call('p0'), check('p1')], false)
+    expect(tableView(viewFor(s, 'p0'), 'p0', 0).myHand).toBe('Тройка, девятки')
+    s = play(s, [check('p1'), check('p0')], false)
+    // На столе четыре черви, у p1 одна — по омахе флеша нет
+    expect(tableView(viewFor(s, 'p1'), 'p1', 0).myHand).toBe('Пара, короли')
+
+    const short = stackedDeck([['Ad', '9c'], ['Kd', 'Ks']], ['6c', '7d', '8s', 'Kh', 'Qc'], SHORT_DECK)
+    s = play(newTable(['p0', 'p1'], { cards: 'phones', game: 'shortdeck' }), [start('p0', short), call('p0'), check('p1')], false)
+    expect(tableView(viewFor(s, 'p1'), 'p1', 0).myHand).toBe('Стрит до девятки') // A-6-7-8-9
+
+    const flush = stackedDeck([['Ah', 'Th'], ['Ks', '9s']], ['Kh', 'Kd', '9h', '7h', '6c'], SHORT_DECK)
+    s = play(newTable(['p0', 'p1'], { cards: 'phones', game: 'shortdeck' }), [start('p0', flush), call('p0'), check('p1')], false)
+    expect(tableView(viewFor(s, 'p1'), 'p1', 0).myHand).toBe('Пара, короли')
+    s = play(s, [check('p1'), check('p0')], false)
+    expect(tableView(viewFor(s, 'p1'), 'p1', 0).myHand).toBe('Флеш, старший туз') // тёрн: 7h
+    expect(tableView(viewFor(s, 'p0'), 'p0', 0).myHand).toBe('Фулл-хаус, короли и девятки')
+  })
+
   it('живые карты — карт на экране нет', () => {
     const s = play(three(), [start('p0')], false)
     const v = tableView(s, 'p0', 0)
     expect([v.phoneCards, v.board, v.myCards, v.canShow]).toEqual([false, [], null, null])
+    const flop = tableView(play(s, [call('p0'), call('p1'), check('p2')], false), 'p1', 0)
+    expect([flop.stage, flop.myHand]).toEqual(['flop', null])
     expect(v.seats.every((x) => x.cards === null && x.handName === null)).toBe(true)
     expect(lastHandRecord(s)).toBeNull()
   })
