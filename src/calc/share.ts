@@ -1,6 +1,7 @@
 import { formatDate } from '../dates'
 import type { Game } from '../model'
 import { gameResult, type PlayerResult } from './casino'
+import { formatDuration, gameClock } from './duration'
 import { chipsGenitive, formatNumber, formatRate } from './format'
 import { basisText, type Stats } from './stats'
 
@@ -42,8 +43,9 @@ function title(game: Game, fallback: string): string {
 // Текст итога для мессенджера: заголовок, итоги от большего выигрыша к большему проигрышу, переводы.
 // Расчёт — тот же, что на экране; меняется только порядок переводов: должники от большего
 // проигрыша, у каждого получатели от большего выигрыша — как в строке итогов.
-// С казино (Р-13) — строки «Покер:», «Казино:», «Итого:»; только казино — одна строка «Казино:»
-export function shareText(game: Game): string {
+// С казино (Р-13) — строки «Покер:», «Казино:», «Итого:»; только казино — одна строка «Казино:».
+// Под заголовком — «Играли 4 ч 20 мин» (#49): то же время, что на экране; меньше минуты — без строки
+export function shareText(game: Game, now: string): string {
   const result = gameResult(game)
   const nameById = new Map(game.players.map((p) => [p.id, p.name]))
   const onlyCasino = result.hasCasino && game.entries.length === 0
@@ -61,6 +63,8 @@ export function shareText(game: Game): string {
       ? `${title(game, CASINO_TITLE)} · ${shortDate(game.date)}`
       : `${title(game, DEFAULT_TITLE)} · ${shortDate(game.date)} · курс ${formatRate(game.rate)}${NBSP}₽`,
   ]
+  const clock = gameClock(game, now)
+  if (clock !== null && clock.minutes > 0) lines.push('Играли ' + formatDuration(clock.minutes))
   if (!result.hasCasino) {
     if (sorted.length > 0) lines.push(line(sorted, (r) => r.poker.kopecks))
   } else {

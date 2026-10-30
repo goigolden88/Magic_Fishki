@@ -15,11 +15,13 @@ const EXAMPLE: [string, number, number][] = [
 ]
 
 const DATE = '2026-10-09'
+// Все записи — в одну минуту: открытая игра «идёт 0 мин», строки «Играли» нет
+const AT = '2026-10-09T20:00:00.000Z'
 
 function makeGame(rows: [string, number, number][], rate = 0.5, name = formatDate(DATE)): Game {
   const entries: Entry[] = []
   const add = (playerId: string, kind: EntryKind, chips: number) =>
-    entries.push({ id: String(entries.length), playerId, kind, chips, at: '2026-10-09T20:00:00.000Z' })
+    entries.push({ id: String(entries.length), playerId, kind, chips, at: AT })
   for (const [player, buyin, cashout] of rows) {
     add(player, 'buyin', buyin)
     if (cashout > 0) add(player, 'cashout', cashout)
@@ -39,7 +41,7 @@ const plain = (s: string) => s.replace(/ /g, ' ')
 
 describe('текст итога для мессенджера', () => {
   it('пример со скриншота', () => {
-    expect(plain(shareText(makeGame(EXAMPLE)))).toBe(
+    expect(plain(shareText(makeGame(EXAMPLE), AT))).toBe(
       [
         'Покер · 09.10 · курс 0,5 ₽',
         'Кирилл +1475 ₽ · Вика +1170 ₽ · Эрик +182,5 ₽ · Арман +172,5 ₽ · Здик −500 ₽ · Искоч −2500 ₽',
@@ -55,7 +57,7 @@ describe('текст итога для мессенджера', () => {
 
   it('игра не сходится — вместо переводов «не хватает N фишек»', () => {
     const rows = EXAMPLE.map(([n, b, c]): [string, number, number] => [n, b, n === 'Арман' ? 0 : c])
-    expect(plain(shareText(makeGame(rows)))).toBe(
+    expect(plain(shareText(makeGame(rows), AT))).toBe(
       [
         'Покер · 09.10 · курс 0,5 ₽',
         'Кирилл +1475 ₽ · Вика +1170 ₽ · Эрик +182,5 ₽ · Здик −500 ₽ · Арман −500 ₽ · Искоч −2500 ₽',
@@ -65,29 +67,78 @@ describe('текст итога для мессенджера', () => {
   })
 
   it('выведено больше, чем закуплено — переводов тоже нет', () => {
-    const text = plain(shareText(makeGame([['А', 1000, 1200], ['Б', 1000, 1000]])))
+    const text = plain(shareText(makeGame([['А', 1000, 1200], ['Б', 1000, 1000]]), AT))
     expect(text.split('\n')[2]).toBe('Выведено 2200 из 2000 фишек — больше, чем закуплено; переводы не посчитаны')
   })
 
   it('своё название игры остаётся', () => {
-    const text = plain(shareText(makeGame(EXAMPLE, 0.5, 'Пятница у Кирилла')))
+    const text = plain(shareText(makeGame(EXAMPLE, 0.5, 'Пятница у Кирилла'), AT))
     expect(text.split('\n')[0]).toBe('Пятница у Кирилла · 09.10 · курс 0,5 ₽')
   })
 
   it('пустое название — «Покер»', () => {
-    expect(plain(shareText(makeGame(EXAMPLE, 0.5, ' '))).split('\n')[0]).toBe('Покер · 09.10 · курс 0,5 ₽')
+    expect(plain(shareText(makeGame(EXAMPLE, 0.5, ' '), AT)).split('\n')[0]).toBe('Покер · 09.10 · курс 0,5 ₽')
   })
 
   it('крупные суммы — с пробелами, копейки — как есть', () => {
-    const text = plain(shareText(makeGame([['А', 10000, 30001], ['Б', 20001, 0]], 1.05)))
+    const text = plain(shareText(makeGame([['А', 10000, 30001], ['Б', 20001, 0]], 1.05), AT))
     expect(text).toBe(
       ['Покер · 09.10 · курс 1,05 ₽', 'А +21 001,05 ₽ · Б −21 001,05 ₽', 'Переводы:', 'Б → А 21 001,05 ₽'].join('\n'),
     )
   })
 
   it('все при своих — переводы не нужны', () => {
-    const text = plain(shareText(makeGame([['А', 1000, 1000], ['Б', 500, 500]])))
+    const text = plain(shareText(makeGame([['А', 1000, 1000], ['Б', 500, 500]]), AT))
     expect(text).toBe(['Покер · 09.10 · курс 0,5 ₽', 'А 0 ₽ · Б 0 ₽', 'Переводы не нужны'].join('\n'))
+  })
+})
+
+describe('строка «Играли» в итоге для мессенджера (#49)', () => {
+  // Закупы в 20:00, выходы в 00:20 — 4 ч 20 мин
+  function played(closed: boolean): Game {
+    const g = makeGame(EXAMPLE)
+    const entries = g.entries.map((e) => (e.kind === 'cashout' ? { ...e, at: '2026-10-10T00:20:00.000Z' } : e))
+    return { ...g, entries, closed }
+  }
+
+  it('закрытая игра — сразу под заголовком, остальные строки те же', () => {
+    const lines = plain(shareText(played(true), '2026-10-12T10:00:00.000Z')).split('\n')
+    const without = plain(shareText(makeGame(EXAMPLE), AT)).split('\n')
+    expect(lines[0]).toBe('Покер · 09.10 · курс 0,5 ₽')
+    expect(lines[1]).toBe('Играли 4 ч 20 мин')
+    expect([lines[0], ...lines.slice(2)]).toEqual(without)
+  })
+
+  it('открытая игра — время до «сейчас», как на экране', () => {
+    const lines = plain(shareText(played(false), '2026-10-10T00:25:30.000Z')).split('\n')
+    expect(lines[1]).toBe('Играли 4 ч 25 мин')
+  })
+
+  it('забыли закрыть — от первой записи до последней', () => {
+    const lines = plain(shareText(played(false), '2026-10-11T00:00:00.000Z')).split('\n')
+    expect(lines[1]).toBe('Играли 4 ч 20 мин')
+  })
+
+  it('все записи в одну минуту — строки нет', () => {
+    const g = { ...makeGame(EXAMPLE), closed: true }
+    expect(plain(shareText(g, '2026-10-10T03:00:00.000Z')).split('\n')[1]).not.toMatch(/^Играли/)
+    expect(plain(shareText(makeGame(EXAMPLE), '2026-10-09T20:00:59.000Z'))).not.toMatch(/Играли/)
+  })
+
+  it('только казино — под заголовком казино', () => {
+    const g: Game = {
+      ...makeGame([]),
+      players: [
+        { id: 'А', name: 'А' },
+        { id: 'Б', name: 'Б' },
+      ],
+      casino: [
+        { id: 'c1', at: '2026-10-09T20:00:00.000Z', amounts: [{ playerId: 'А', kopecks: 100 }, { playerId: 'Б', kopecks: -100 }] },
+        { id: 'c2', at: '2026-10-09T20:45:00.000Z', amounts: [{ playerId: 'А', kopecks: -50 }, { playerId: 'Б', kopecks: 50 }] },
+      ],
+      closed: true,
+    }
+    expect(plain(shareText(g, '2026-10-10T00:00:00.000Z')).split('\n').slice(0, 2)).toEqual(['Казино · 09.10', 'Играли 45 мин'])
   })
 })
 
