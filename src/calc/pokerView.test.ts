@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { SHORT_DECK } from '../poker/cards'
-import { allin, award, call, check, fold, newTable, play, raise, stackedDeck, start } from '../poker/testing'
-import { HOST_TAKEOVER_MS, onTime, viewFor } from '../poker/table'
+import { finishedHand, handFor, keepHand, type HistoryHand } from '../poker/history'
+import { allin, award, call, check, fold, newTable, play, raise, stackedDeck, start, type Step } from '../poker/testing'
+import { HOST_TAKEOVER_MS, onTime, viewFor, type TableState } from '../poker/table'
 import {
   cardFace,
   defaultWinners,
   finalStacks,
+  historyHandView,
+  historyList,
   lastHandRecord,
   lastHandWins,
   myTurnMark,
@@ -387,5 +390,75 @@ describe('экран стола: время на ход, перерыв, раз�
     s = onTime(s, 30_000)! // p0 — пас по времени
     s = play(s, [fold('p1')], false)
     expect(lastHandRecord(s)?.rounds).toEqual([{ label: 'Префлоп', moves: ['P0: пас, время вышло', 'P1: пас'] }])
+  })
+})
+
+describe('история раздач (#113)', () => {
+  // Прогон с историей: после каждого сообщения — запись, как у комнаты и стола на телефоне
+  function playKeeping(s: TableState, steps: Step[], history: HistoryHand[]): [TableState, HistoryHand[]] {
+    for (const step of steps) {
+      const next = play(s, [step], false)
+      history = keepHand(history, finishedHand(s, next))
+      s = next
+    }
+    return [s, history]
+  }
+  const showdown = stackedDeck([['Kh', 'Qh'], ['2c', '7d'], ['Ah', 'Ad']], ['2s', '7h', '9d', 'Jc', '3s'])
+  // Вторая раздача: кнопка — p1, сдача с p2; p1 взял банк без вскрытия с Kc Ks
+  const quiet = stackedDeck([['5c', '5d'], ['6c', '6d'], ['Kc', 'Ks']])
+
+  it('карты на телефонах: список — новые сверху; раздача — как прошлая, плюс стеки и банки; без вскрытия — карты только взявшему', () => {
+    const steps = [start('p0', showdown), call('p0'), fold('p1'), check('p2'), raise('p2', 20), call('p0')]
+    for (let k = 0; k < 2; k++) steps.push(check('p2'), check('p0'))
+    let [s, history] = playKeeping(newTable(['p0', 'p1', 'p2'], { cards: 'phones' }), steps, [])
+    const last = lastHandRecord(viewFor(s, 'p1'))
+    ;[s, history] = playKeeping(s, [start('p0', quiet), raise('p1', 30), fold('p2'), fold('p0')], history)
+
+    expect(historyList(history)).toEqual([
+      { number: 2, board: [], wins: [{ name: 'P1', amount: 25 }] },
+      { number: 1, board: ['2s', '7h', '9d', 'Jc', '3s'], wins: [{ name: 'P2', amount: 65 }] },
+    ])
+    expect(historyHandView(handFor(history[0], 'p1'))).toEqual({
+      ...last,
+      chips: [1000, 1000, 1000],
+      pots: [{ label: 'Банк', amount: 65, winners: ['P2'] }],
+    })
+    // Карты сбросивших — нигде; взявший без вскрытия видит свои, остальные — нет
+    expect(JSON.stringify(history)).not.toContain('"Qh"')
+    const cardsOf = (me: string) => historyHandView(handFor(history[1], me)).players.map((p) => p.cards)
+    expect(cardsOf('p1')).toEqual([null, ['Kc', 'Ks'], null])
+    expect(cardsOf('p0')).toEqual([null, null, null])
+    expect(JSON.stringify(handFor(history[1], 'p0'))).not.toContain('"Kc"')
+
+    // «Показать» одну — запись той же раздачи переписана, а не добавлена
+    ;[s, history] = playKeeping(s, [{ from: 'p1', msg: { type: 'show', cards: [1] } }], history)
+    expect(history.map((h) => h.number)).toEqual([1, 2])
+    expect(cardsOf('p0')).toEqual([null, [null, 'Ks'], null])
+  })
+
+  it('живые карты: без карт — места со стеками, ходы и банки', () => {
+    const steps = [start('p0'), fold('p0'), call('p1'), check('p2')]
+    for (let k = 0; k < 3; k++) steps.push(check('p1'), check('p2'))
+    const [s, history] = playKeeping(three({ p2: 500 }), steps, [])
+    expect(history).toEqual([]) // торги закрыты, банк ведущий ещё не раздал
+    const [, done] = playKeeping(s, [award('p0', [['p2']])], history)
+    expect(historyList(done)).toEqual([{ number: 1, board: [], wins: [{ name: 'P2', amount: 20 }] }])
+    expect(historyHandView(done[0])).toEqual({
+      number: 1,
+      board: [],
+      players: [
+        { name: 'P0', cards: null, hand: null, best: null, won: 0 },
+        { name: 'P1', cards: null, hand: null, best: null, won: 0 },
+        { name: 'P2', cards: null, hand: null, best: null, won: 20 },
+      ],
+      rounds: [
+        { label: 'Префлоп', moves: ['P0: пас', 'P1: колл до 10', 'P2: чек'] },
+        { label: 'Флоп', moves: ['P1: чек', 'P2: чек'] },
+        { label: 'Тёрн', moves: ['P1: чек', 'P2: чек'] },
+        { label: 'Ривер', moves: ['P1: чек', 'P2: чек'] },
+      ],
+      chips: [1000, 1000, 500],
+      pots: [{ label: 'Банк', amount: 20, winners: ['P2'] }],
+    })
   })
 })

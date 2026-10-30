@@ -20,6 +20,7 @@ import {
 } from '../../src/poker/protocol'
 import { deckFor, shuffle } from '../../src/poker/game'
 import type { Card } from '../../src/poker/cards'
+import { finishedHand, handFor, type HistoryHand } from '../../src/poker/history'
 import {
   createTable,
   gameFor,
@@ -55,6 +56,7 @@ export type RoomRecord = {
 export type RoomStorage = {
   get<T>(key: string): Promise<T | undefined>
   put<T>(key: string, value: T): Promise<void>
+  list<T>(options: { prefix: string }): Promise<Map<string, T>> // по возрастанию ключа
   deleteAll(): Promise<void>
   getAlarm(): Promise<number | null>
   setAlarm(time: number): Promise<void>
@@ -78,6 +80,12 @@ export type RoomEnv = {
 }
 
 const KEY = 'room'
+
+// История раздач вечера (#113): каждая раздача — своей записью «hand:000012», не в столе — стол
+// пишется целиком и уходит телефонам на каждый ход. Номер с нулями — по порядку ключей.
+// Стирается вместе с комнатой (deleteAll в end)
+export const HAND_PREFIX = 'hand:'
+export const handKey = (number: number) => HAND_PREFIX + String(number).padStart(6, '0')
 
 export async function initRoom(
   env: RoomEnv,
@@ -148,8 +156,10 @@ export async function message(env: RoomEnv, peer: Peer, raw: string, now: number
     return end(env, room, FINISHED)
   }
   if (msg.type === 'reseat') return reseat(env, room, peer, me, msg.playerId, now)
+  if (msg.type === 'history') return sendHistory(env, peer, me)
   const r = handle(room.table, me, msg, now, msg.type === 'start' ? newDeck(env, room.table) : undefined)
   if (!r.ok) return send(peer, { type: 'error', error: r.error })
+  await keepHand(env, room.table, r.state)
   room.table = r.state
   room.lastMoveAt = now
   // Убранный со стола не вернётся по токену: войдёт новым
@@ -205,6 +215,7 @@ export async function alarm(env: RoomEnv, now: number): Promise<void> {
   let changed = online() !== before
   const timed = onTime(room.table, now, newDeck(env, room.table))
   if (timed) {
+    await keepHand(env, room.table, timed)
     room.table = timed
     changed = true
   }
@@ -293,6 +304,19 @@ async function reseat(env: RoomEnv, room: RoomRecord, peer: Peer, me: string, pl
   room.table = setOnline(room.table, playerId, false, now)
   send(peer, { type: 'reseated', playerId, token })
   await save(env, room, now)
+}
+
+// Ход стола окончил раздачу (ходом, по таймеру) или «Показать» поменял её запись — записать в историю.
+// Пишется до стола: телефон, получивший новый стол, уже найдёт раздачу в истории
+async function keepHand(env: RoomEnv, before: TableState, after: TableState): Promise<void> {
+  const hand = finishedHand(before, after)
+  if (hand) await env.storage.put<HistoryHand>(handKey(hand.number), hand)
+}
+
+// История раздач — только запросившему: все раздачи вечера с первой, в его виде
+async function sendHistory(env: RoomEnv, peer: Peer, me: string): Promise<void> {
+  const hands = await env.storage.list<HistoryHand>({ prefix: HAND_PREFIX })
+  send(peer, { type: 'history', hands: [...hands.values()].map((h) => handFor(h, me)) })
 }
 
 function sendLobby(peer: Peer, room: RoomRecord): void {

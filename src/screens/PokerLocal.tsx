@@ -10,6 +10,7 @@ import {
   seatPlayer,
   toActId,
   tournamentRebuyFor,
+  withTable,
   type LocalTable,
 } from '../calc/localTable'
 import { gameFromTable, gameFromTournament } from '../calc/pokerGame'
@@ -18,13 +19,25 @@ import { lookClass, lookOf } from '../calc/pokerLook'
 import { tournamentView, type TableView } from '../calc/pokerView'
 import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS, type Regular } from '../model'
+import type { HistoryHand } from '../poker/history'
 import { closeRebuyWait, type Result, type TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 import { openGameYear } from './openYears'
 import { LookFields } from './LookFields'
 import { clearLocalTable, loadLocalTable, saveLocalTable, storageWorks } from './pokerStorage'
-import { ActionsCard, AwardPanel, blindsLine, FinalStacks, HostDock, LastHand, MoveSeat, PokerTable, PotList } from './PokerRoom'
+import {
+  ActionsCard,
+  AwardPanel,
+  blindsLine,
+  FinalStacks,
+  HandHistory,
+  HostDock,
+  LastHand,
+  MoveSeat,
+  PokerTable,
+  PotList,
+} from './PokerRoom'
 import { TournamentPanel, TournamentResults } from './Tournament'
 
 // Адрес стола на телефоне: под код комнаты (6 знаков) не подходит
@@ -68,7 +81,7 @@ export function PokerLocalScreen() {
       setError(r.error)
       return false
     }
-    const next = { ...local, table: r.state }
+    const next = withTable(local, r.state)
     if (!saveLocalTable(next)) setVolatile(true)
     setLocal(next)
     setError(null)
@@ -153,6 +166,7 @@ export function PokerLocalScreen() {
       ) : (
         <LocalTableCard
           table={local.table}
+          history={local.history}
           amounts={amounts}
           regulars={regulars}
           error={error}
@@ -171,6 +185,7 @@ type Apply = (make: (table: TableState, now: number) => Result) => boolean
 
 function LocalTableCard(props: {
   table: TableState
+  history: HistoryHand[]
   amounts: number[]
   regulars: Regular[]
   error: string | null
@@ -180,8 +195,9 @@ function LocalTableCard(props: {
   onFinish: () => void
   onRemove: () => void
 }) {
-  const { table, amounts, regulars, error, finishing, onError, apply, onFinish, onRemove } = props
+  const { table, history, amounts, regulars, error, finishing, onError, apply, onFinish, onRemove } = props
   const [, setTick] = useState(0)
+  const [showHistory, setShowHistory] = useState(false)
   const v = localTableView(table, Date.now())
   const sb = table.hand?.sb ?? table.settings.sb
   const actId = toActId(table)
@@ -221,6 +237,15 @@ function LocalTableCard(props: {
         {t && <TournamentPanel view={t} onEnd={() => apply((s, now) => hostDo(s, { type: 'endTournament' }, now))} />}
         <PotList view={v} />
         <LastHand table={table} view={v} />
+
+        {/* История раздач (#113) — на этом телефоне, вместе со столом */}
+        {showHistory ? (
+          <HandHistory hands={history} onClose={() => setShowHistory(false)} />
+        ) : (
+          <button type="button" className="big wide" onClick={() => setShowHistory(true)}>
+            История раздач
+          </button>
+        )}
 
         <section className="card host">
           <h2>Ведущий</h2>

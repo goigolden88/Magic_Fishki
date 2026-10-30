@@ -1211,6 +1211,40 @@ button.seat.free {
   font-size: 0.9rem;
 }
 
+/* История раздач (#113): заголовок с кнопкой в строку; раздача — строкой-кнопкой во всю ширину,
+   на узком экране стол переносится под имена, а не уходит вбок */
+.history-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.history-head h2 {
+  margin: 0;
+}
+
+.history-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  align-items: center;
+  width: 100%;
+  min-height: 3rem;
+  text-align: left;
+}
+
+.history-number {
+  font-weight: 600;
+}
+
+.history-wins {
+  flex: 1 1 8rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 /* Раунд казино с картами (#76): карты участников лицом, столы рубашкой; на открытом — победитель */
 .deal-hands,
 .deal-winners {

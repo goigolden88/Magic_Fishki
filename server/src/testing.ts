@@ -13,6 +13,10 @@ export class FakeStorage implements RoomStorage {
   async put<T>(key: string, value: T): Promise<void> {
     this.data.set(key, JSON.stringify(value))
   }
+  async list<T>(options: { prefix: string }): Promise<Map<string, T>> {
+    const keys = [...this.data.keys()].filter((k) => k.startsWith(options.prefix)).sort()
+    return new Map(keys.map((k) => [k, JSON.parse(this.data.get(k) as string) as T]))
+  }
   async deleteAll(): Promise<void> {
     this.data.clear()
   }

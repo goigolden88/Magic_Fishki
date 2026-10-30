@@ -13,6 +13,7 @@ import {
   seatPlayer,
   startLocalTable,
   toActId,
+  withTable,
   type LocalPlayer,
   type LocalTable,
 } from './localTable'
@@ -239,5 +240,49 @@ describe('стол на одном телефоне', () => {
     const sum = (kind: string) => game.entries.filter((e) => e.kind === kind).reduce((s, e) => s + e.chips, 0)
     expect([sum('buyin'), sum('rebuy'), sum('cashout')]).toEqual([3000, 500, 3500])
     expect(borya).toBe(t.hostId)
+  })
+
+  it('история раздач (#113): каждая раздача — с местами, ходами и банками; хранится со столом', () => {
+    let local = start()
+    expect(local.history).toEqual([])
+    const [anya, borya, vova] = local.table.players.map((p) => p.id)
+    const step = (make: (t: TableState) => { ok: true; state: TableState } | { ok: false; error: string }) => {
+      local = withTable(local, ok(make(local.table)))
+    }
+    for (let n = 0; n < 3; n++) {
+      step((t) => hostDo(t, { type: 'start' }, 0))
+      step((t) => actFor(t, { type: 'fold' }, 0))
+      step((t) => actFor(t, { type: 'fold' }, 0))
+      expect(local.history).toHaveLength(n) // торги закрыты, банк ещё не раздан
+      const winner = local.table.hand?.pots[0].eligible ?? []
+      step((t) => hostDo(t, { type: 'award', winners: [winner] }, 0))
+    }
+    expect(local.history.map((h) => h.number)).toEqual([1, 2, 3])
+    // Первая: кнопка — Аня, блайнды — Боря и Вова; Аня и Боря пас — банк Вове (непокрытые 5 — вернулись ему)
+    expect(local.history[0]).toEqual({
+      number: 1,
+      pots: [{ amount: 10, winners: [vova] }],
+      payouts: { [vova]: 10 },
+      live: {
+        seats: [
+          { id: anya, name: 'Аня', chips: 1000 },
+          { id: borya, name: 'Боря', chips: 1000 },
+          { id: vova, name: 'Гость Вова', chips: 1000 },
+        ],
+        button: 0,
+        log: [
+          { street: 'preflop', playerId: anya, type: 'fold', bet: 0, allIn: false },
+          { street: 'preflop', playerId: borya, type: 'fold', bet: 5, allIn: false },
+        ],
+      },
+    })
+    // Ходы и правки между раздачами историю не трогают
+    step((t) => hostDo(t, { type: 'setStack', playerId: anya, chips: 900 }, 0))
+    expect(local.history).toHaveLength(3)
+    // Восстановление: история на месте; стол до #113 — с пустой
+    expect(parseLocalTable(JSON.stringify(local))?.history).toEqual(local.history)
+    const old = JSON.parse(JSON.stringify(local)) as Partial<LocalTable>
+    delete old.history
+    expect(parseLocalTable(JSON.stringify(old))?.history).toEqual([])
   })
 })
