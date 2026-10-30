@@ -348,10 +348,14 @@ function potsView(table: TableState, nameOf: (id: string) => string): PotView[] 
     if (pots.length < 2) return []
   }
   return pots.map((pot, k) => ({
-    label: pots.length === 1 ? 'Банк' : k === 0 ? 'Основной банк' : pots.length === 2 ? 'Побочный банк' : `Побочный банк ${k}`,
+    label: potLabel(k, pots.length),
     amount: pot.amount,
     eligible: pot.eligible.map((id) => ({ id, name: nameOf(id) })),
   }))
+}
+
+function potLabel(k: number, count: number): string {
+  return count === 1 ? 'Банк' : k === 0 ? 'Основной банк' : count === 2 ? 'Побочный банк' : `Побочный банк ${k}`
 }
 
 // Кнопки хода игрока meId; стол на одном телефоне берёт их за того, чей ход (localTable.ts)
@@ -499,7 +503,7 @@ export type HistoryItem = { number: number; board: Card[]; wins: { name: string;
 
 // Раздача из истории целиком — как прошлая, и ещё стеки в начале (chips — по местам, как players)
 // и банки с именами взявших. Живые карты — без карт: места, ходы, банки
-export type HistoryHandView = LastHandView & { chips: number[]; pots: { amount: number; winners: string[] }[] }
+export type HistoryHandView = LastHandView & { chips: number[]; pots: { label: string; amount: number; winners: string[] }[] }
 
 // Список истории: новые сверху
 export function historyList(hands: HistoryHand[]): HistoryItem[] {
@@ -518,7 +522,11 @@ export function historyList(hands: HistoryHand[]): HistoryItem[] {
 // чужим hidden не приходит, handFor)
 export function historyHandView(h: HistoryHand): HistoryHandView {
   const names = namesOf(h)
-  const pots = h.pots.map((p) => ({ amount: p.amount, winners: p.winners.map((id) => names.get(id) ?? 'Ушёл') }))
+  const pots = h.pots.map((p, k) => ({
+    label: potLabel(k, h.pots.length),
+    amount: p.amount,
+    winners: p.winners.map((id) => names.get(id) ?? 'Ушёл'),
+  }))
   const record = h.record
   const seats = record?.seats ?? h.live?.seats ?? []
   const hidden = record?.hidden ?? null

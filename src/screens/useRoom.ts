@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { closeKind, DEFAULT_SERVER, errorKind, NO_CONNECTION, retryDelay, serverBase, socketUrl, type Seat } from '../calc/pokerLink'
 import { PING, PING_MS, PONG, PROTOCOL_VERSION, SILENT_MS, type ClientBody, type RoomMessage, type RosterEntry } from '../poker/protocol'
+import type { HistoryHand } from '../poker/history'
 import type { TableState } from '../poker/table'
 import { loadSeat, loadServer, saveSeat } from './pokerStorage'
 
@@ -26,6 +27,8 @@ export type Room = {
   ended: { table: TableState | null; reason: string } | null
   error: string | null // отказ сервера на последнее действие
   reseated: { playerId: string; token: string } | null // ведущему: новое место для «Пересадить»
+  history: HistoryHand[] | null // история раздач вечера (#113) — последний ответ сервера; null — ещё не приходила
+  askHistory: () => void // попросить историю; без связи — ничего, отказ последнего действия не трогает
   send: (body: RoomBody) => boolean
   join: (choice: { regularId: string } | { name: string }) => void
   resume: () => void // после «стол открыт на другом устройстве» — вернуться сюда
@@ -48,6 +51,7 @@ export function useRoom(code: string): Room {
   const [ended, setEnded] = useState<Room['ended']>(null)
   const [error, setError] = useState<string | null>(null)
   const [reseated, setReseated] = useState<Room['reseated']>(null)
+  const [history, setHistory] = useState<HistoryHand[] | null>(null)
 
   const ws = useRef<WebSocket | null>(null)
   const seat = useRef<Seat | null>(loadSeat(code))
@@ -101,6 +105,9 @@ export function useRoom(code: string): Room {
         return
       case 'reseated':
         setReseated({ playerId: msg.playerId as string, token: msg.token as string })
+        return
+      case 'history':
+        if (Array.isArray(msg.hands)) setHistory(msg.hands as HistoryHand[])
         return
       case 'ended':
         forgetSeat()
@@ -266,6 +273,11 @@ export function useRoom(code: string): Room {
     ended,
     error,
     reseated,
+    history,
+    askHistory() {
+      const socket = ws.current
+      if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'history' }))
+    },
     send,
     join(choice) {
       if (send({ type: 'join', ...choice })) joining.current = 'new'

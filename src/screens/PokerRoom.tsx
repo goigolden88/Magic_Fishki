@@ -17,6 +17,8 @@ import {
   cardFace,
   defaultWinners,
   finalStacks,
+  historyHandView,
+  historyList,
   lastHandRecord,
   lastHandWins,
   myTurnMark,
@@ -24,6 +26,8 @@ import {
   toggleWinner,
   winnersReady,
   type ActionsView,
+  type HistoryHandView,
+  type LastHandView,
   type SeatView,
   type TableView,
 } from '../calc/pokerView'
@@ -34,6 +38,7 @@ import { levelText, prizesOf } from '../calc/tournamentForm'
 import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS } from '../model'
 import type { Card } from '../poker/cards'
+import type { HistoryHand } from '../poker/history'
 import { FINISHED, type ClientBody } from '../poker/protocol'
 import { limitFor, type TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
@@ -243,6 +248,16 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
     signaled.current = mark
   }, [mark])
 
+  // «История раздач» (#113) открыта — взять у сервера; окончилась раздача, кто-то «Показал» или вернулась
+  // связь — взять заново. Без связи не просим: в карточке — «нет связи», стол работает дальше.
+  // askHistory — новый на каждый вид стола, поэтому в зависимостях только эти три
+  const [history, setHistory] = useState(false)
+  const lastKey = JSON.stringify([table.lastHand?.number, table.lastHand?.record?.shown])
+  const { online, askHistory } = room
+  useEffect(() => {
+    if (history && online) askHistory()
+  }, [history, online, lastKey])
+
   const v = tableView(table, me, room.serverNow())
   const sb = table.hand?.sb ?? table.settings.sb
   const dock = dockOf(v)
@@ -276,6 +291,18 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
 
         <PotList view={v} />
         <LastHand table={table} view={v} />
+
+        {history ? (
+          <HandHistory
+            hands={room.history}
+            note={room.online ? null : `${NO_CONNECTION} — история придёт, когда связь вернётся`}
+            onClose={() => setHistory(false)}
+          />
+        ) : (
+          <button type="button" className="big wide" onClick={() => setHistory(true)}>
+            История раздач
+          </button>
+        )}
 
         {v.canShow && (
           <ShowCard
@@ -404,12 +431,24 @@ export function LastHand({ table, view: v }: { table: TableState; view: TableVie
   return (
     <section className="card last-hand">
       <h2>Прошлая раздача {record.number}</h2>
-      {record.board.length > 0 && <CardRow cards={record.board} />}
+      <HandBody view={record} />
+    </section>
+  )
+}
+
+// Раздача целиком: стол, места с картами и комбинациями, кто сколько взял, ходы по улицам.
+// Из истории (#113) — ещё стек каждого в начале и банки с именами взявших; ходы сразу раскрыты
+function HandBody({ view: v }: { view: LastHandView | HistoryHandView }) {
+  const full = 'chips' in v ? v : null
+  return (
+    <>
+      {v.board.length > 0 && <CardRow cards={v.board} />}
       <ul className="list">
-        {record.players.map((p, i) => (
+        {v.players.map((p, i) => (
           <li key={i} className="row">
             <span className="grow">
               {p.name}
+              {full && <span className="muted"> · стек {formatNumber(full.chips[i])}</span>}
               {p.hand && <span className="muted"> · {p.hand}</span>}
               {p.best && (
                 <span className="last-best">
@@ -422,15 +461,69 @@ export function LastHand({ table, view: v }: { table: TableState; view: TableVie
           </li>
         ))}
       </ul>
-      {record.rounds.length > 0 && (
-        <details>
+      {full?.pots.map((pot) => (
+        <p key={pot.label} className="muted">
+          {pot.label} {formatNumber(pot.amount)} — {pot.winners.join(', ')}
+        </p>
+      ))}
+      {v.rounds.length > 0 && (
+        <details open={full !== null}>
           <summary>Ходы</summary>
-          {record.rounds.map((r) => (
+          {v.rounds.map((r) => (
             <p key={r.label}>
               <strong>{r.label}:</strong> {r.moves.join('; ')}
             </p>
           ))}
         </details>
+      )}
+    </>
+  )
+}
+
+// «История раздач» вечера (#113): список — новые сверху, тап — раздача целиком, «← Все раздачи» — назад.
+// Карточкой под столом: панель хода внизу экрана не закрывает, игра идёт. hands — null: ещё не пришла;
+// note — почему не приходит (нет связи); старый список при этом остаётся
+export function HandHistory(props: { hands: HistoryHand[] | null; note?: string | null; onClose: () => void }) {
+  const { hands, note = null, onClose } = props
+  const [open, setOpen] = useState<number | null>(null)
+  const ref = useRef<HTMLElement>(null)
+  const hand = hands?.find((h) => h.number === open) ?? null
+  const list = hands ? historyList(hands) : []
+
+  // Открыли историю или раздачу — к её началу
+  useEffect(() => ref.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), [open])
+
+  return (
+    <section ref={ref} className="card hand-history last-hand">
+      <div className="history-head">
+        <h2>{hand ? `Раздача ${hand.number}` : 'История раздач'}</h2>
+        <button type="button" className="big" onClick={hand ? () => setOpen(null) : onClose}>
+          {hand ? '← Все раздачи' : 'Закрыть'}
+        </button>
+      </div>
+      {hand ? (
+        <HandBody view={historyHandView(hand)} />
+      ) : (
+        <>
+          {note && <p className="warn">{note}</p>}
+          {hands === null ? (
+            !note && <p className="muted">Загружаем…</p>
+          ) : list.length === 0 ? (
+            <p className="muted">Раздач ещё не было</p>
+          ) : (
+            <ul className="list history-list">
+              {list.map((item) => (
+                <li key={item.number}>
+                  <button type="button" className="history-item" onClick={() => setOpen(item.number)}>
+                    <span className="history-number">№ {item.number}</span>
+                    <span className="history-wins">{item.wins.map((w) => `${w.name} +${formatNumber(w.amount)}`).join(', ')}</span>
+                    {item.board.length > 0 && <CardRow cards={item.board} size="small" />}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </section>
   )
