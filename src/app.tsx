@@ -14,7 +14,7 @@ import { PokerBotsScreen } from './screens/PokerBots'
 import { parseRoomLink, roomHash, type RoomTarget } from './calc/pokerLink'
 import { saveSeat } from './screens/pokerStorage'
 
-// Маршруты: #/ — игры, #/game/:id — игра, #/game/:id/deal — раунд казино с картами, #/settings — настройки, #/import — из Телеграма, #/players — игроки,
+// Маршруты: #/ — игры, #/game/:id — игра, #/game/:id/deal — казино-стол игры, #/settings — настройки, #/import — из Телеграма, #/players — игроки,
 // #/players/:id — карточка постоянного игрока, #/help — справка, #/poker — покер онлайн,
 // #/poker/:код — стол, #/poker/:код/:игрок/:токен — стол с местом («пересадить»); у обоих в конце может быть
 // ?server=адрес — комната на своём сервере (#83), кривой адрес — экран «ссылка не открывается»,
