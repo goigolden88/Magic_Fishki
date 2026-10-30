@@ -8,6 +8,7 @@ import { getSettings, listGames, saveGame } from '../store/db'
 import { formatDate, today } from '../dates'
 import { ulid } from '../ulid'
 import { loadOpenYears, openGameYear, saveOpenYears } from './openYears'
+import { loadBotTable, loadLocalTable } from './pokerStorage'
 
 export function GamesScreen() {
   const [games, setGames] = useState<Game[] | null>(null)
@@ -21,6 +22,9 @@ export function GamesScreen() {
   const [picked, setPicked] = useState<Set<string>>(new Set()) // id отмеченных — участники игры
   const [defaultBuyin, setDefaultBuyin] = useState(DEFAULT_BUYIN) // закуп по умолчанию из настроек (Р-09)
   const [askBuyin, setAskBuyin] = useState(false) // вопрос «Записать всем закуп?»
+  const [recording, setRecording] = useState(false) // выбор «Записать игру»: вручную или из Телеграма
+  // Стол с ботами или на этом телефоне идёт — напоминание под «Играть», чтобы не потерять его
+  const [tableGoing] = useState(() => loadLocalTable() !== null || loadBotTable() !== null)
 
   useEffect(() => {
     void listGames().then(setGames)
@@ -36,6 +40,7 @@ export function GamesScreen() {
     setPicked(new Set(settings.players.map((r) => r.id)))
     setDefaultBuyin(settings.defaultBuyin)
     setAskBuyin(false)
+    setRecording(false)
     setCreating(true)
   }
 
@@ -169,16 +174,28 @@ export function GamesScreen() {
             </button>
           </div>
         </section>
-      ) : (
-        <>
+      ) : recording ? (
+        <section className="card">
+          <h2>Записать игру</h2>
           <button className="big primary wide" onClick={() => void openForm()}>
-            Новая игра
+            Вручную
           </button>
           <button className="big wide" onClick={() => (location.hash = '#/import')}>
             Из Телеграма
           </button>
-          <button className="big wide" onClick={() => (location.hash = '#/poker')}>
-            Покер онлайн
+          <button className="big wide" onClick={() => setRecording(false)}>
+            Отмена
+          </button>
+        </section>
+      ) : (
+        <>
+          {/* #126: две двери — «Играть» (экран покера) и «Записать игру» (учёт вечера) */}
+          <button className="big primary wide" onClick={() => (location.hash = '#/poker')}>
+            Играть
+          </button>
+          {tableGoing && <p className="muted">Идёт стол — продолжить в «Играть»</p>}
+          <button className="big wide" onClick={() => setRecording(true)}>
+            Записать игру
           </button>
         </>
       )}

@@ -167,7 +167,7 @@ export function PokerLocalScreen() {
         </section>
       ) : !local ? (
         <section className="card">
-          <p className="muted">Стола на этом телефоне нет — начните его на экране «Покер онлайн».</p>
+          <p className="muted">Стола на этом телефоне нет — начните его на экране «Играть».</p>
           <a className="big primary wide button-link" href="#/poker">
             К покеру
           </a>
