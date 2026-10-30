@@ -823,6 +823,20 @@ button.seat.free {
   font-size: 0.7rem;
 }
 
+/* Моя комбинация сейчас (#105) — у открытых своих карт: до двух строк, место под них держится и
+   под рубашкой — карты не прыгают под пальцем */
+.seat-now {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  min-height: 2.3em;
+  overflow-wrap: anywhere;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
 /* HUD вечера (#79): одна короткая строка у места — кнопкой во всю ширину места; мало раздач — приглушена */
 .seat-hud {
   display: block;

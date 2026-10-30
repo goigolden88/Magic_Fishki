@@ -467,9 +467,10 @@ function CardRow(props: { cards: (Card | null)[]; size?: CardSize; best?: boolea
 
 // «Подглядеть»: свои карты рубашкой; держишь палец — лицом, отпустил — снова рубашкой.
 // «Всегда открыты» (#86) — лицом без пальца; только на своём экране, сервер не знает.
-// На моём месте у стола (#97) — без подписи (hint) и без переключателя: он под столом
-function PeekCards(props: { cards: Card[]; open: boolean; size: CardSize; hint?: boolean; className?: string }) {
-  const { cards, open, size, hint, className = 'peek-cards' } = props
+// На моём месте у стола (#97) — без подписи (hint) и без переключателя: он под столом.
+// label — моя комбинация сейчас (#105): видна, только пока карты лицом, иначе выдаст руку
+function PeekCards(props: { cards: Card[]; open: boolean; size: CardSize; hint?: boolean; label?: string | null; className?: string }) {
+  const { cards, open, size, hint, label = null, className = 'peek-cards' } = props
   const [peek, setPeek] = useState(false)
   const on = () => setPeek(true)
   const off = () => setPeek(false)
@@ -480,13 +481,19 @@ function PeekCards(props: { cards: Card[]; open: boolean; size: CardSize; hint?:
     return () => document.removeEventListener('visibilitychange', off)
   }, [])
 
+  // Рубашкой — пустая строка того же места: карты не прыгают под пальцем, когда подпись появляется
+  const now = (shown: boolean) => label && <span className="seat-now">{shown ? label : ' '}</span>
+
   if (open)
     return (
-      <div className={className}>
-        {cards.map((c, i) => (
-          <PlayingCard key={i} card={c} size={size} />
-        ))}
-      </div>
+      <>
+        <div className={className}>
+          {cards.map((c, i) => (
+            <PlayingCard key={i} card={c} size={size} />
+          ))}
+        </div>
+        {now(true)}
+      </>
     )
 
   return (
@@ -513,6 +520,7 @@ function PeekCards(props: { cards: Card[]; open: boolean; size: CardSize; hint?:
           <PlayingCard key={i} card={peek ? c : null} size={size} />
         ))}
       </div>
+      {now(peek)}
       {hint && <p className="muted">{peek ? 'Отпустите — карты закроются' : 'Подглядеть — держите палец на картах'}</p>}
     </>
   )
@@ -603,6 +611,7 @@ export function PokerTable(props: { view: TableView; open?: boolean; onSeat?: (s
             at={spots[s.seat]}
             bottom={s.seat === bottom}
             myCards={s.isMe ? v.myCards : null}
+            myHand={s.isMe ? v.myHand : null}
             open={open}
             onHud={() => setHudOf(s.id)}
           />
@@ -644,10 +653,19 @@ function FreeSeat(props: { seat: number; at: Spot; bottom: boolean; onSeat?: (se
 }
 
 // Место у стола. bottom — нижнее по центру (я): растёт вверх от низа рамки, остальные — от своей точки
-// в обе стороны. myCards — мои карты в раздаче: крупнее чужих, лицом — пока держишь палец или «всегда открыты».
+// в обе стороны. myCards — мои карты в раздаче: крупнее чужих, лицом — пока держишь палец или «всегда открыты»;
+// myHand — подпись моей комбинации сейчас, у открытых карт.
 // onHud — касание строки HUD (#79): подробно
-function SeatSpot(props: { seat: SeatView; at: Spot; bottom: boolean; myCards: Card[] | null; open: boolean; onHud: () => void }) {
-  const { seat: s, at, bottom, myCards, open, onHud } = props
+function SeatSpot(props: {
+  seat: SeatView
+  at: Spot
+  bottom: boolean
+  myCards: Card[] | null
+  myHand: string | null
+  open: boolean
+  onHud: () => void
+}) {
+  const { seat: s, at, bottom, myCards, myHand, open, onHud } = props
   const marks = [
     s.place !== null && `${s.place} место`,
     s.allIn && 'олл-ин',
@@ -684,7 +702,7 @@ function SeatSpot(props: { seat: SeatView; at: Spot; bottom: boolean; myCards: C
       <span className="seat-chips">{formatNumber(s.chips)}</span>
       {s.hud && <HudLine hud={s.hud} onOpen={onHud} />}
       {myCards ? (
-        <PeekCards cards={myCards} open={open} size="mid" className="seat-cards" />
+        <PeekCards cards={myCards} open={open} size="mid" label={myHand} className="seat-cards" />
       ) : (
         s.cards && <CardRow cards={s.cards} size={s.isMe ? 'mid' : 'small'} />
       )}

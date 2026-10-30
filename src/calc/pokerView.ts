@@ -1,7 +1,7 @@
 // Экран стола: что показать каждому по состоянию стола. Правил не держит — только читает
 // стол (src/poker/) и решает, какие кнопки показать и с какими суммами; отказ всё равно
 // скажет сервер. Время — параметром now, как у стола
-import type { Card } from '../poker/cards'
+import { bestHand, type Card } from '../poker/cards'
 import { publicCards } from '../poker/game'
 import { potLimit, type HandLogEntry, type Stage } from '../poker/hand'
 import { HUD_FEW_HANDS } from '../poker/hud'
@@ -124,6 +124,9 @@ export type TableView = {
   // Между раздачами после вскрытия — карты стола из пятёрок победителей: их подсветить, остальные приглушить; иначе null
   boardWin: Card[] | null
   myCards: Card[] | null // мои закрытые и открытые карты в раздаче — для «Подглядеть»
+  // Моя лучшая комбинация сейчас (#105) — с флопа, пока я в раздаче и не спасовал: «Пара, дамы».
+  // Видна только вместе с открытыми картами — это решает экран. Префлоп, пас, живые карты — null
+  myHand: string | null
   canShow: { cards: Card[]; shown: boolean[] } | null // взял банк без вскрытия: что можно показать
   paused: boolean // «Перерыв»
   turnLeft: number | null // секунд на ход у того, чей ход; таймера нет — null
@@ -188,6 +191,13 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
   const me = seats.find((s) => s.isMe) ?? null
   const isHost = meId === table.hostId
   const myHole = cards?.hole[meId]
+  const myCards = myHole && myHole.length > 0 && myHole.every((c) => c !== null) ? (myHole as Card[]) : null
+  const mySeat = hand?.seats.find((s) => s.id === meId)
+  // Правило руки — варианта раздачи (омаха — ровно две из руки, шорт-дек — свой порядок)
+  const myHand =
+    cards && myCards && mySeat && !mySeat.folded && cards.board.length >= 3
+      ? bestHand(cards.game.variant, myCards, cards.board).name
+      : null
   const hidden = record?.hidden?.playerId === meId ? record.hidden : null
   const maxSeats = table.settings.maxSeats
   const taken = new Set(table.players.map((p) => p.seat))
@@ -218,7 +228,8 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
     phoneCards: table.settings.cards === 'phones',
     board: cards?.board ?? record?.board ?? [],
     boardWin: record && fives.size > 0 ? record.board.filter((c) => [...fives.values()].some((five) => five.includes(c))) : null,
-    myCards: myHole && myHole.length > 0 && myHole.every((c) => c !== null) ? (myHole as Card[]) : null,
+    myCards,
+    myHand,
     canShow: hidden && record ? { cards: hidden.cards, shown: hidden.cards.map((_, i) => Boolean(record.shown[meId]?.[i])) } : null,
     paused: table.paused === true,
     turnLeft,
