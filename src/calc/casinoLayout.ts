@@ -6,19 +6,21 @@ import { BOARD_CARDS, DEAL_KINDS, type DealKind } from './casinoDeal'
 // За казино-столом мест — как у покерного стола (Р-26, #129)
 export const MAX_CASINO_SEATS = 10
 
-// Самый узкий экран — 320 px без полей экрана (по 16 px с боков): 18rem. Шире места и столы не растут
-export const MIN_WIDTH = 18
+// Самый узкий экран — 320 px без полей экрана (по 16 px с боков) при rem = 18 px: 16rem.
+// Шире места и столы не растут
+export const MIN_WIDTH = 16
 export const GAP = 0.3 // между местами и между столами
 const CENTER_PAD = 0.6 // от рядов мест до колонки столов
 
-// Карта у места: холдем — две крупнее, омаха — четыре мельче, чтобы три места вошли в ряд
+// Карта у места: холдем — две крупнее, омаха — четыре мельче (как у чужих мест покерного стола),
+// чтобы три места вошли в ряд
 const HAND_CARD: Record<DealKind, { w: number; h: number }> = {
-  holdem: { w: 1.5, h: 2.1 },
-  omaha: { w: 1.2, h: 1.7 },
+  holdem: { w: 1.7, h: 2.35 },
+  omaha: { w: 1.1, h: 1.55 },
 }
-const HAND_GAP = 0.1
-const SEAT_PAD = 0.5 // поля и рамка места по ширине
-const SEAT_MIN_W = 4.2 // имя читается и у холдема с двумя картами
+const HAND_GAP = 0.06
+const SEAT_PAD = 0.4 // поля и рамка места по ширине
+const SEAT_MIN_W = 4.8 // имя читается и у холдема с двумя картами
 const SEAT_TEXT_H = 2.4 // имя и подпись руки победителя, с полями
 
 const BOARD_CARD = { w: 2.2, h: 3.05 }

@@ -1253,64 +1253,177 @@ button.seat.free {
   overflow-wrap: anywhere;
 }
 
-/* Раунд казино с картами (#76): карты участников лицом, столы рубашкой; на открытом — победитель */
-.deal-hands,
-.deal-winners {
-  list-style: none;
-  padding: 0;
+/* Казино-стол (#76, #129): ряды мест над и под колонкой столов — в потоке, без наезда; размеры мест
+   и карт — CSS-переменные из casinoLayout (rem). Не хватает высоты — стол выше, экран листается */
+.casino-fold {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 3rem;
+  margin: 0.4rem 0;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--card);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+}
+
+.casino-fold.plain {
   margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
 }
 
-.deal-hands li {
+.casino-table {
+  position: relative;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  border-top: 1px solid var(--line);
-}
-
-.deal-board h2 {
-  margin-top: 0;
-}
-
-.deal-board .card-row {
-  gap: 6px;
-}
-
-.deal-board .playing-card {
-  width: 44px;
-  height: 62px;
-  border-radius: 6px;
-  font-size: 1.1rem;
-}
-
-.deal-board.open {
-  border: 2px solid var(--gold);
-}
-
-.deal-winners li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.deal-winners strong {
-  color: var(--gold);
-}
-
-/* Победитель стола: подпись, под ней пятёрка лучшей руки (#96) */
-.deal-winners li.deal-winner {
   flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  max-width: 40rem;
+  margin: 0.4rem auto;
 }
 
-.deal-winners .playing-card.small {
-  width: 30px;
-  height: 42px;
-  border-radius: 4px;
-  font-size: 0.85rem;
+/* Сукно — под рядами: края проходят по серединам верхних и нижних мест, как места вокруг стола */
+.felt.casino-felt {
+  inset: calc(var(--seat-h) / 2) 0;
+  border-radius: 50% / 12%;
+}
+
+.casino-seats {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  width: 100%;
+}
+
+.casino-row {
+  display: flex;
+  justify-content: center;
+  gap: 0.3rem;
+}
+
+.casino-seat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 0 1 var(--seat-w);
+  min-width: 0;
+  min-height: var(--seat-h);
+  padding: 0.2rem;
+  border: 2px solid var(--line);
+  border-radius: 0.65rem;
+  background: var(--card);
+  text-align: center;
+  font-size: 0.8rem;
+  line-height: 1.15;
+}
+
+.casino-seat .seat-name,
+.casino-seat .seat-mark {
+  width: 100%;
+}
+
+.casino-seat.winner {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px rgba(231, 184, 74, 0.35);
+}
+
+.casino-hand {
+  display: flex;
+  gap: 0.06rem;
+  max-width: 100%;
+  margin: 0.15rem 0;
+}
+
+.casino-hand .playing-card {
+  flex: 0 1 var(--hand-w);
+  width: var(--hand-w);
+  height: var(--hand-h);
+  min-width: 0;
+  font-size: calc(var(--hand-w) * 0.6);
+  letter-spacing: -0.05em;
+}
+
+.casino-boards {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  width: min(100%, var(--board-w));
+}
+
+.casino-board {
+  padding: 0.3rem;
+  border: 2px solid transparent;
+  border-radius: 0.6rem;
+  background: rgba(0, 0, 0, 0.25);
+  text-align: center;
+  font-size: 0.8rem;
+}
+
+.casino-board.open {
+  border-color: rgba(231, 184, 74, 0.45);
+}
+
+/* Последний открытый — его победители в рамке у мест */
+.casino-board.last {
+  border-color: var(--gold);
+}
+
+.casino-board-line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.casino-board .card-row {
+  display: flex;
+  gap: 0.2rem;
+  margin: 0.15rem 0;
+}
+
+.casino-board .playing-card {
+  flex: 0 1 var(--board-card-w);
+  width: var(--board-card-w);
+  height: var(--board-card-h);
+  min-width: 0;
+  border-radius: 0.35rem;
+  font-size: 1rem;
+}
+
+/* «Играть» → «Казино»: открытая игра строкой — название и дата; длинное переносится */
+a.button-link.casino-game {
+  flex-wrap: wrap;
+  gap: 0 0.5rem;
+  margin: 0.4rem 0;
+  padding: 0.3rem 0.6rem;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* Кнопки раунда — внизу экрана, видны и при листании длинного стола */
+.casino-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  padding: 0.3rem 0 calc(env(safe-area-inset-bottom) + 0.3rem);
+  background: var(--bg);
+}
+
+.casino-dock .wide {
+  margin: 0.3rem 0;
+}
+
+.casino-dock p {
+  margin: 0.2rem 0;
 }
 
 .visually-hidden {

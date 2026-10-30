@@ -32,7 +32,7 @@ describe('раскладка казино-стола', () => {
     expect(l.bottom).toEqual([[5, 4, 3]])
   })
 
-  it('на 320 px без полей — без прокрутки вбок: ширина не больше 18rem', () => {
+  it('на 320 px без полей — без прокрутки вбок: ширина не больше 16rem', () => {
     for (const { kind, n, m } of every()) {
       const l = casinoLayout(kind, n, m)
       expect(l.width).toBeLessThanOrEqual(MIN_WIDTH)
@@ -66,9 +66,10 @@ describe('раскладка казино-стола', () => {
     expect(five.hand).toEqual(one.hand)
   })
 
-  it('холдем — по четыре места в ряду, омаха — по три: четыре карты руки мельче', () => {
-    expect(casinoLayout('holdem', 10, 5).perRow).toBe(4)
+  it('по три места в ряду; у омахи четыре карты руки мельче', () => {
+    expect(casinoLayout('holdem', 10, 5).perRow).toBe(3)
     expect(casinoLayout('omaha', 10, 1).perRow).toBe(3)
+    expect(casinoLayout('holdem', 10, 5).top).toEqual([[0, 1, 2], [3, 4]])
     expect(casinoLayout('omaha', 10, 1).hand.w).toBeLessThan(casinoLayout('holdem', 10, 1).hand.w)
     // 10 омахой: по пять сверху и снизу — в два ряда, длинный первым
     expect(casinoLayout('omaha', 10, 1).top).toEqual([[0, 1, 2], [3, 4]])
