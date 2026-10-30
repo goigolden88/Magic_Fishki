@@ -80,7 +80,7 @@ export function PokerBotsScreen() {
 
       {!bots ? (
         <section className="card">
-          <p className="muted">Стола с ботами нет — начните его на экране «Покер онлайн».</p>
+          <p className="muted">Стола с ботами нет — начните его на экране «Играть».</p>
           <a className="big primary wide button-link" href="#/poker">
             К покеру
           </a>
