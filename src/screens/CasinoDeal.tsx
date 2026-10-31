@@ -1,7 +1,6 @@
 import {
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -9,7 +8,27 @@ import {
   type MouseEvent,
 } from 'react'
 import { addRound } from '../calc/casino'
-import { dealFlights, flyKey, seatGroup, type Flight } from '../calc/dealAnimation'
+import {
+  allShown,
+  AUTO_OPEN_CHOICES,
+  autoOpenLabel,
+  BOARD_FLIP_MS,
+  cardsShown,
+  nextWake,
+  openNext,
+  openNow,
+  revealEvery,
+  revealHold,
+  revealPause,
+  revealRelease,
+  revealResume,
+  revealStart,
+  revealTick,
+  secondsLeft,
+  turning,
+  type Reveal,
+} from '../calc/casinoReveal'
+import { dealFlights, flightsEnd, flyKey, seatGroup, type Flight } from '../calc/dealAnimation'
 import {
   boardResult,
   BOARD_CARDS,
@@ -38,7 +57,7 @@ import type { Game } from '../model'
 import type { Card } from '../poker/cards'
 import { getGame, getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
-import { loadLook, loadStake, saveLook, saveStake } from './casinoStake'
+import { loadAutoOpen, loadLook, loadStake, saveAutoOpen, saveLook, saveStake } from './casinoStake'
 import { playFlights, useLandOnHide } from './cardFly'
 import { LookFields } from './LookFields'
 import { PlayingCard } from './PokerRoom'
@@ -55,8 +74,8 @@ const TOO_MANY = `За столом казино до ${MAX_CASINO_SEATS} уча
 const players = (n: number) => `${formatNumber(n)} ${pluralForm(n, 'участник', 'участника', 'участников')}`
 const tablesOf = (n: number) => `${formatNumber(n)} ${pluralForm(n, 'стол', 'стола', 'столов')}`
 
-// Раздача прошла: карты, победители столов и ставка этого раунда
-type Dealt = { deal: Deal; results: BoardResult[]; stake: number }
+// Раздача прошла: карты, победители столов, ставка этого раунда и план анимации раздачи (#133; нет — карты сразу)
+type Dealt = { deal: Deal; results: BoardResult[]; stake: number; fly: Flight[] | null }
 
 // Казино-стол (#76, #129): участники, ставка, вариант и столы → у мест карты в открытую, столы в центре
 // друг под другом, открываются по одному; итог — обычным раундом казино игры (Р-13). До «Записать раунд»
@@ -69,8 +88,10 @@ export function CasinoDealScreen({ id }: { id: string }) {
   const [tables, setTables] = useState(DEFAULT_TABLES)
   const [look, setLook] = useState<Look>(loadLook)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [autoOpen, setAutoOpen] = useState(loadAutoOpen) // «Открывать столы сами», секунд; 0 — «Нет» (#134)
   const [dealt, setDealt] = useState<Dealt | null>(null)
-  const [opened, setOpened] = useState(0) // сколько столов открыто
+  const [reveal, setReveal] = useState<Reveal | null>(null) // сколько столов открыто и отсчёт до следующего
+  const [now, setNow] = useState(() => Date.now()) // часы экрана: по ним переворот карт и отсчёт
   const [recorded, setRecorded] = useState(false) // раунд записан в игру
   const [summaryOpen, setSummaryOpen] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -83,8 +104,31 @@ export function CasinoDealScreen({ id }: { id: string }) {
     })
   }, [id])
 
+  // Шаг открытия столов в эту минуту: часы экрана — заодно
+  function act(step: (r: Reveal, t: number) => Reveal) {
+    const t = Date.now()
+    setNow(t)
+    setReveal((r) => (r ? step(r, t) : r))
+  }
+
+  // Будильник экрана: к следующей карте, смене секунды отсчёта или сроку; срок пришёл — открыть стол
+  useEffect(() => {
+    if (!reveal) return
+    const wait = nextWake(reveal, now)
+    if (wait === null) return
+    const timer = setTimeout(() => act(revealTick), wait)
+    return () => clearTimeout(timer)
+  }, [reveal, now])
+
+  // Свернули приложение или ушли на другую вкладку — отсчёт стоит; вернулись — с того же места
+  useEffect(() => {
+    const onVisibility = () => act(document.visibilityState === 'hidden' ? revealHold : revealRelease)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
+
   const gameHash = `#/game/${encodeURIComponent(id)}`
-  const allOpen = dealt !== null && opened >= dealt.deal.boards.length
+  const allOpen = dealt !== null && reveal !== null && allShown(reveal, now)
   const even =
     dealt !== null &&
     roundShares(
@@ -96,9 +140,22 @@ export function CasinoDealScreen({ id }: { id: string }) {
   const finished = recorded || (allOpen && even)
   const pending = dealt !== null && !finished
 
+  // «Бросить раунд?» — пока вопрос, отсчёт стоит; остались — идёт с того же места
+  function abandon(): boolean {
+    if (!pending) return true
+    const held = reveal && revealHold(reveal, Date.now())
+    const ok = confirm(ABANDON)
+    if (!ok && held) {
+      const t = Date.now()
+      setNow(t)
+      setReveal(revealRelease(held, t))
+    }
+    return ok
+  }
+
   // Свои кнопки ухода спрашивают; системная «Назад» — нет (сторожа ухода в приложении нет)
   function leave(e?: MouseEvent) {
-    if (pending && !confirm(ABANDON)) {
+    if (!abandon()) {
       e?.preventDefault()
       return
     }
@@ -107,8 +164,16 @@ export function CasinoDealScreen({ id }: { id: string }) {
 
   function dealWith(k: DealKind, ids: string[], count: number, stake: number) {
     const d = newDeal(k, ids, count)
-    setDealt({ deal: d, results: d.boards.map((_, i) => boardResult(d, i)), stake })
-    setOpened(0)
+    const anim = loadCardAnim()
+    // Анимация раздачи (#133): карты по местам по одной, по часовой с первого; план — один на раздачу,
+    // открытие столов его не проигрывает заново. Первый стол сам — через промежуток после неё (#134)
+    const fly = anim ? dealFlights(d.ids.map((_, i) => i), 0, DEAL_KINDS[k].hand) : null
+    const t = Date.now()
+    setDealt({ deal: d, results: d.boards.map((_, i) => boardResult(d, i)), stake, fly })
+    setNow(t)
+    setReveal(
+      revealStart(d.boards.length, autoOpen > 0 ? autoOpen * 1000 : null, anim ? BOARD_FLIP_MS : 0, t, fly ? flightsEnd(fly) : 0),
+    )
     setRecorded(false)
     setSummaryOpen(true)
     setSettingsOpen(false)
@@ -203,11 +268,18 @@ export function CasinoDealScreen({ id }: { id: string }) {
     saveLook(next)
   }
 
+  // Промежуток помнится на устройстве; посреди раунда — отсчёт заново с новым, «Нет» — снят
+  function changeAutoOpen(seconds: number) {
+    setAutoOpen(seconds)
+    saveAutoOpen(seconds)
+    act((r, t) => revealEvery(r, seconds > 0 ? seconds * 1000 : null, t))
+  }
+
   // «Раздать» из настроек или снизу: идёт незаписанный раунд — сначала вопрос
   function deal(e?: FormEvent) {
     e?.preventDefault()
     if (!ready || stake === null) return
-    if (pending && !confirm(ABANDON)) return
+    if (!abandon()) return
     dealWith(kind, ids, count, stake)
   }
 
@@ -217,7 +289,26 @@ export function CasinoDealScreen({ id }: { id: string }) {
     dealWith(dealt.deal.kind, dealt.deal.ids, dealt.deal.boards.length, dealt.stake)
   }
 
-  const line = [label, tablesOf(count), stake === null ? 'ставка ?' : formatRub(stake), `участников ${formatNumber(n)}`].join(' · ')
+  const line = [
+    label,
+    tablesOf(count),
+    stake === null ? 'ставка ?' : formatRub(stake),
+    `участников ${formatNumber(n)}`,
+    autoOpen > 0 && `сами через ${autoOpen} с`,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+
+  // Открытие столов: сколько открыто, сколько карт лицом у последнего, переворачивается ли он
+  const opened = reveal?.opened ?? 0
+  const shown = reveal ? cardsShown(reveal, now) : 0
+  const flipping = reveal !== null && turning(reveal, now)
+  const counting = reveal !== null && reveal.every !== null && reveal.opened < reveal.total
+  const autoLine = !reveal
+    ? ''
+    : reveal.paused
+      ? `Пауза · стол ${opened + 1}`
+      : `Стол ${opened + 1} через ${secondsLeft(reveal, now) ?? autoOpen} с`
 
   return (
     <main className="screen casino-screen">
@@ -329,6 +420,29 @@ export function CasinoDealScreen({ id }: { id: string }) {
             )}
           </fieldset>
 
+          {/* Столы сами через промежуток (#134): помнится на этом устройстве */}
+          <fieldset className="players-pick">
+            <legend className="muted">Открывать столы сами</legend>
+            <div className="row casino-auto">
+              {AUTO_OPEN_CHOICES.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className={autoOpen === s ? 'big primary grow' : 'big grow'}
+                  aria-pressed={autoOpen === s}
+                  onClick={() => changeAutoOpen(s)}
+                >
+                  {autoOpenLabel(s)}
+                </button>
+              ))}
+            </div>
+            <p className="muted">
+              {autoOpen > 0
+                ? `После раздачи столы открываются по одному, каждый через ${autoOpen} с после прошлого`
+                : 'Столы открываются кнопкой «Открыть стол»'}
+            </p>
+          </fieldset>
+
           {/* Вид стола — как у покерного (#77): помнится на этом устройстве */}
           <LookFields look={look} backs onChange={changeLook} />
 
@@ -345,7 +459,7 @@ export function CasinoDealScreen({ id }: { id: string }) {
       )}
 
       {dealt ? (
-        <CasinoTable dealt={dealt} opened={opened} nameById={nameById} look={look} />
+        <CasinoTable dealt={dealt} opened={opened} shown={shown} flipping={flipping} nameById={nameById} look={look} />
       ) : (
         ready &&
         stake !== null && <EmptyTable kind={kind} ids={ids} tables={count} stake={stake} nameById={nameById} look={look} />
@@ -384,9 +498,32 @@ export function CasinoDealScreen({ id }: { id: string }) {
               <button type="button" className="big primary wide" disabled={busy} onClick={() => void record(dealt)}>
                 Записать раунд
               </button>
-            ) : (
-              <button type="button" className="big primary wide" onClick={() => setOpened(opened + 1)}>
+            ) : counting ? (
+              <>
+                <p className="muted" aria-live="polite">
+                  {autoLine}
+                </p>
+                <div className="dock-row">
+                  <button type="button" className="big primary grow" onClick={() => act(openNow)}>
+                    Открыть сейчас
+                  </button>
+                  <button
+                    type="button"
+                    className="big grow"
+                    onClick={() => act(reveal?.paused ? revealResume : revealPause)}
+                  >
+                    {reveal?.paused ? 'Продолжить' : 'Пауза'}
+                  </button>
+                </div>
+              </>
+            ) : opened < dealt.deal.boards.length ? (
+              <button type="button" className="big primary wide" onClick={() => act(openNext)}>
                 Открыть стол {opened + 1}
+              </button>
+            ) : (
+              // Последний стол ещё переворачивается — открыть его сразу целиком
+              <button type="button" className="big primary wide" onClick={() => act(openNow)}>
+                Открыть сейчас
               </button>
             )}
             <button type="button" className="big wide danger-text" onClick={() => leave()}>
@@ -414,7 +551,16 @@ function layoutStyle(l: CasinoLayout): CSSProperties {
 }
 
 type SeatData = { id: string; name: string; cards: (Card | null)[]; win: string | null }
-type BoardData = { cards: (Card | null)[]; part: number; open: boolean; last: boolean; foot: string; win: Card[] }
+// turn — стол открывается: карты лицом по одной (#134), победителя ещё не видно
+type BoardData = {
+  cards: (Card | null)[]
+  part: number
+  open: boolean
+  turn?: boolean
+  last: boolean
+  foot: string
+  win: Card[]
+}
 
 // Сукно с рядами мест над и под колонкой столов (casinoLayout): места по часовой от верхнего левого.
 // fly — анимация раздачи (#133): новый план — карты мест летят к ним из колонки столов; нет — карты сразу на местах
@@ -440,7 +586,10 @@ function Felt(props: { layout: CasinoLayout; seats: SeatData[]; boards: BoardDat
       <div className="casino-seats">{block(l.top)}</div>
       <div className="casino-boards" data-fly-origin>
         {boards.map((b, i) => (
-          <section key={i} className={['casino-board', b.open && 'open', b.last && 'last'].filter(Boolean).join(' ')}>
+          <section
+            key={i}
+            className={['casino-board', b.open && 'open', b.turn && 'turn', b.last && 'last'].filter(Boolean).join(' ')}
+          >
             <div className="casino-board-line">
               Стол {i + 1} · {formatRub(b.part)}
             </div>
@@ -505,26 +654,21 @@ function EmptyTable(props: {
   )
 }
 
-// После раздачи: у мест карты лицом, столы рубашкой до «Открыть стол»
-function CasinoTable(props: { dealt: Dealt; opened: number; nameById: Map<string, string>; look: Look }) {
-  const { dealt, opened, nameById, look } = props
-  const { deal, results, stake } = dealt
+// После раздачи: у мест карты лицом, столы рубашкой до «Открыть стол» или своего срока (#134).
+// Открывающийся стол (flipping) — shown карт лицом слева, остальные рубашкой; победитель — после последней
+function CasinoTable(props: {
+  dealt: Dealt
+  opened: number
+  shown: number
+  flipping: boolean
+  nameById: Map<string, string>
+  look: Look
+}) {
+  const { dealt, opened, shown, flipping, nameById, look } = props
+  const { deal, results, stake, fly } = dealt
   const name = (pid: string) => nameById.get(pid) ?? '?'
   const parts = tableParts(stake * deal.ids.length, deal.boards.length)
-  const current = opened > 0 ? results[opened - 1] : null
-  // Анимация раздачи (#133): новая раздача — карты по местам по одной, по часовой с первого; столы — рубашкой.
-  // План — один на раздачу: открытие столов его не проигрывает заново
-  const fly = useMemo(
-    () =>
-      loadCardAnim()
-        ? dealFlights(
-            deal.ids.map((_, k) => k),
-            0,
-            DEAL_KINDS[deal.kind].hand,
-          )
-        : null,
-    [deal],
-  )
+  const current = opened > 0 && !flipping ? results[opened - 1] : null
   return (
     <Felt
       layout={casinoLayout(deal.kind, deal.ids.length, deal.boards.length)}
@@ -537,12 +681,14 @@ function CasinoTable(props: { dealt: Dealt; opened: number; nameById: Map<string
         win: current?.winners.includes(pid) ? current.hand : null,
       }))}
       boards={deal.boards.map((board, i) => {
-        const open = i < opened
+        const turn = flipping && i === opened - 1
+        const open = i < opened && !turn // открыт целиком
         const r = results[i]
         return {
-          cards: open ? board : board.map(() => null),
+          cards: open ? board : turn ? board.map((c, k) => (k < shown ? c : null)) : board.map(() => null),
           part: parts[i],
           open,
+          turn,
           last: open && i === opened - 1,
           foot: !open ? ' ' : r.winners.length > 1 ? 'Ничья, поровну' : `${name(r.winners[0])} · ${r.hand}`,
           win: open ? r.winners.flatMap((pid) => r.best[pid]) : [],

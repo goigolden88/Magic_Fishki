@@ -1412,6 +1412,23 @@ button.seat.free {
   font-size: 1rem;
 }
 
+/* Стол открывается (#134): карта, ставшая лицом, доворачивается из ребра — только transform,
+   размер и место те же, соседние столы не сдвигаются. 0,3 с — шаг карты в casinoReveal (1,5 с / 5) */
+.casino-board.turn .playing-card:not(.back) {
+  animation: card-turn 0.3s ease-out;
+}
+
+@keyframes card-turn {
+  from {
+    transform: scaleX(0);
+  }
+}
+
+/* «Открывать столы сами»: четыре коротких выбора в ряд и на 320 px */
+.casino-auto button.big {
+  padding: 0 0.3rem;
+}
+
 /* «Играть» → «Казино»: открытая игра строкой — название и дата; длинное переносится */
 a.button-link.casino-game {
   flex-wrap: wrap;
@@ -1437,6 +1454,11 @@ a.button-link.casino-game {
 
 .casino-dock p {
   margin: 0.2rem 0;
+}
+
+/* «Открыть сейчас» и «Продолжить» в ряд — и на 320 px */
+.casino-dock .dock-row button.big {
+  padding: 0 0.5rem;
 }
 
 .visually-hidden {
