@@ -1,5 +1,15 @@
-import { useEffect, useState, type CSSProperties, type FormEvent, type MouseEvent } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type MouseEvent,
+} from 'react'
 import { addRound } from '../calc/casino'
+import { dealFlights, flyKey, seatGroup, type Flight } from '../calc/dealAnimation'
 import {
   boardResult,
   BOARD_CARDS,
@@ -29,8 +39,10 @@ import type { Card } from '../poker/cards'
 import { getGame, getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 import { loadLook, loadStake, saveLook, saveStake } from './casinoStake'
+import { playFlights, useLandOnHide } from './cardFly'
 import { LookFields } from './LookFields'
 import { PlayingCard } from './PokerRoom'
+import { loadCardAnim } from './pokerStorage'
 
 const KINDS: DealKind[] = ['holdem', 'omaha']
 const KIND_NOTE: Record<DealKind, string> = {
@@ -404,22 +416,29 @@ function layoutStyle(l: CasinoLayout): CSSProperties {
 type SeatData = { id: string; name: string; cards: (Card | null)[]; win: string | null }
 type BoardData = { cards: (Card | null)[]; part: number; open: boolean; last: boolean; foot: string; win: Card[] }
 
-// Сукно с рядами мест над и под колонкой столов (casinoLayout): места по часовой от верхнего левого
-function Felt(props: { layout: CasinoLayout; seats: SeatData[]; boards: BoardData[]; look: Look }) {
-  const { layout: l, seats, boards, look } = props
+// Сукно с рядами мест над и под колонкой столов (casinoLayout): места по часовой от верхнего левого.
+// fly — анимация раздачи (#133): новый план — карты мест летят к ним из колонки столов; нет — карты сразу на местах
+function Felt(props: { layout: CasinoLayout; seats: SeatData[]; boards: BoardData[]; look: Look; fly?: Flight[] | null }) {
+  const { layout: l, seats, boards, look, fly = null } = props
+  const ref = useRef<HTMLDivElement>(null)
+  // До отрисовки: карты не мелькают на местах перед полётом
+  useLayoutEffect(() => {
+    if (fly && ref.current && document.visibilityState === 'visible') playFlights(ref.current, fly)
+  }, [fly])
+  useLandOnHide(ref)
   const block = (rows: number[][]) =>
     rows.map((row, r) => (
       <div key={r} className="casino-row">
         {row.map((k) => (
-          <Seat key={seats[k].id} seat={seats[k]} />
+          <Seat key={seats[k].id} seat={seats[k]} index={k} />
         ))}
       </div>
     ))
   return (
-    <div className={`casino-table ${lookClass(look)}`} style={layoutStyle(l)}>
+    <div ref={ref} className={`casino-table ${lookClass(look)}`} style={layoutStyle(l)}>
       <div className="felt casino-felt" />
       <div className="casino-seats">{block(l.top)}</div>
-      <div className="casino-boards">
+      <div className="casino-boards" data-fly-origin>
         {boards.map((b, i) => (
           <section key={i} className={['casino-board', b.open && 'open', b.last && 'last'].filter(Boolean).join(' ')}>
             <div className="casino-board-line">
@@ -439,14 +458,15 @@ function Felt(props: { layout: CasinoLayout; seats: SeatData[]; boards: BoardDat
   )
 }
 
-// Место: имя, карты лицом; победитель последнего открытого стола — рамка и подпись руки
-function Seat({ seat }: { seat: SeatData }) {
+// Место: имя, карты лицом; победитель последнего открытого стола — рамка и подпись руки.
+// index — номер места по часовой: по нему карты места в анимации раздачи
+function Seat({ seat, index }: { seat: SeatData; index: number }) {
   return (
     <div className={seat.win ? 'casino-seat winner' : 'casino-seat'}>
       <span className="seat-name">{seat.name}</span>
       <span className="card-row casino-hand">
         {seat.cards.map((c, i) => (
-          <PlayingCard key={i} card={c} />
+          <PlayingCard key={i} card={c} fly={flyKey(seatGroup(index), i)} />
         ))}
       </span>
       <span className="seat-mark" title={seat.win ?? undefined}>
@@ -492,10 +512,24 @@ function CasinoTable(props: { dealt: Dealt; opened: number; nameById: Map<string
   const name = (pid: string) => nameById.get(pid) ?? '?'
   const parts = tableParts(stake * deal.ids.length, deal.boards.length)
   const current = opened > 0 ? results[opened - 1] : null
+  // Анимация раздачи (#133): новая раздача — карты по местам по одной, по часовой с первого; столы — рубашкой.
+  // План — один на раздачу: открытие столов его не проигрывает заново
+  const fly = useMemo(
+    () =>
+      loadCardAnim()
+        ? dealFlights(
+            deal.ids.map((_, k) => k),
+            0,
+            DEAL_KINDS[deal.kind].hand,
+          )
+        : null,
+    [deal],
+  )
   return (
     <Felt
       layout={casinoLayout(deal.kind, deal.ids.length, deal.boards.length)}
       look={look}
+      fly={fly}
       seats={deal.ids.map((pid) => ({
         id: pid,
         name: name(pid),

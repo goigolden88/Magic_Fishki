@@ -1020,6 +1020,19 @@ button.seat.free {
   white-space: nowrap;
 }
 
+/* Анимация раздачи (#133): карта стоит на своём месте и прилетает к нему из центра стола —
+   сдвиг (--fly-x, --fly-y) и прозрачность ставит экран (cardFly.ts); до вылета карта не видна.
+   Только transform и opacity: места и раскладка не сдвигаются */
+@keyframes card-fly {
+  from {
+    transform: translate(var(--fly-x, 0), var(--fly-y, 0)) scale(0.6);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
 .playing-card.red {
   color: #c62828;
 }

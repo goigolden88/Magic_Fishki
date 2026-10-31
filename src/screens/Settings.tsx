@@ -8,7 +8,7 @@ import { deleteDemoGames, getSettings, listGames, restoreGames, saveSettings } f
 import { ulid } from '../ulid'
 import { loadLastBackup, saveLastBackup } from './lastBackup'
 import { DEFAULT_SERVER, serverBase } from '../calc/pokerLink'
-import { loadServer, loadTurnSound, saveServer, saveTurnSound } from './pokerStorage'
+import { loadCardAnim, loadServer, loadTurnSound, saveCardAnim, saveServer, saveTurnSound } from './pokerStorage'
 
 export function SettingsScreen() {
   const [settings, setSettings] = useState<Settings | null>(null)
@@ -439,6 +439,7 @@ function PokerServerCard() {
   const [text, setText] = useState(loadServer)
   const [saved, setSaved] = useState(false)
   const [sound, setSound] = useState(loadTurnSound) // звук «ваш ход» на этом устройстве (#75) — сохраняется сразу
+  const [anim, setAnim] = useState(loadCardAnim) // «Анимация карт» на этом устройстве (#133) — так же
   const base = serverBase(text)
 
   function save(e: FormEvent) {
@@ -484,6 +485,21 @@ function PokerServerCard() {
         Звук «Ваш ход»
       </label>
       <p className="muted">Короткий звук, когда за столом наступил ваш ход; вибрация — где телефон умеет. Только на этом устройстве.</p>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={anim}
+          onChange={(e) => {
+            setAnim(e.target.checked)
+            saveCardAnim(e.target.checked)
+          }}
+        />
+        Анимация карт
+      </label>
+      <p className="muted">
+        Карты раздачи прилетают к местам по одной, общие карты выкладываются по одной — за столом покера и казино. Выключено — карты
+        появляются сразу. Только на этом устройстве.
+      </p>
     </form>
   )
 }
