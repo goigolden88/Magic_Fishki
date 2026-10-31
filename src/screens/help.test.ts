@@ -32,6 +32,9 @@ const PLACEHOLDERS: HelpValues = {
   forgottenHours: '‹забыли закрыть›',
   dealSeconds: '‹раздача летит›',
   streetSeconds: '‹улица летит›',
+  autoOpenChoices: '‹столы сами›',
+  autoOpenDefault: '‹столы сами сначала›',
+  flipSeconds: '‹стол переворачивается›',
 }
 
 describe('справка', () => {
@@ -94,6 +97,9 @@ describe('справка', () => {
       forgottenHours: '12',
       dealSeconds: '1,5',
       streetSeconds: '1',
+      autoOpenChoices: '3, 5 или 10',
+      autoOpenDefault: '5',
+      flipSeconds: '1,5',
     })
   })
 })
