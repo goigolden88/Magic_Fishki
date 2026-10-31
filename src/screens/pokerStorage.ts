@@ -3,7 +3,7 @@ import { parseLocalTable, type LocalTable } from '../calc/localTable'
 import { serverBase, type SavedSeat } from '../calc/pokerLink'
 
 // Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги,
-// звук «ваш ход», «карты всегда открыты», стол на этом телефоне и стол против ботов — данные этого устройства,
+// звук «ваш ход», «карты всегда открыты», «анимация карт», стол на этом телефоне и стол против ботов — данные этого устройства,
 // а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21, Р-38)
 const PASSWORD_KEY = 'fishki.poker.password'
 const SERVER_KEY = 'fishki.poker.server'
@@ -15,6 +15,7 @@ const BOTS_KEY = 'fishki.poker.bots'
 const CHECK_KEY = 'fishki.poker.check'
 const SOUND_KEY = 'fishki.poker.sound'
 const OPEN_KEY = 'fishki.poker.open'
+const ANIM_KEY = 'fishki.poker.anim'
 
 function read(key: string): string {
   try {
@@ -47,6 +48,20 @@ export const saveTurnSound = (on: boolean) => write(SOUND_KEY, on ? '' : 'off')
 // «Карты всегда открыты» на этом устройстве (#86): свои карты лицом без пальца; сначала — выключено
 export const loadOpenCards = () => read(OPEN_KEY) === 'on'
 export const saveOpenCards = (on: boolean) => write(OPEN_KEY, on ? 'on' : '')
+
+// «Анимация карт» на этом устройстве (#133): раздача прилетает к местам по одной — за столом покера и казино.
+// Свой выбор человека главнее; не выбирал — включена, а при системном «Уменьшить движение» — выключена
+export function loadCardAnim(): boolean {
+  const own = read(ANIM_KEY)
+  if (own === 'on') return true
+  if (own === 'off') return false
+  try {
+    return !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  } catch {
+    return true
+  }
+}
+export const saveCardAnim = (on: boolean) => write(ANIM_KEY, on ? 'on' : 'off')
 
 // Кто из постоянных — ведущий на этом телефоне: отмечен в новой комнате сразу
 export const loadMe = () => read(ME_KEY)

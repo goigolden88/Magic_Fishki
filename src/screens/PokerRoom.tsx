@@ -1,4 +1,13 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from 'react'
+import {
+  BOARD_GROUP,
+  dealPlan,
+  flightsEnd,
+  flyKey,
+  seatGroup,
+  tableSnapshot,
+  type DealSnapshot,
+} from '../calc/dealAnimation'
 import { formatChips, formatNumber, formatRub, parseChips } from '../calc/format'
 import {
   betSide,
@@ -57,7 +66,15 @@ import { NO_COPY, useHandCopy } from './handCopy'
 import { openGameYear } from './openYears'
 import { HudCard, HudFields, HudLine } from './Hud'
 import { LookFields } from './LookFields'
-import { loadOpenCards, loadRecordedGame, loadTurnSound, saveOpenCards, saveRecordedGame } from './pokerStorage'
+import { playFlights, useLandOnHide } from './cardFly'
+import {
+  loadCardAnim,
+  loadOpenCards,
+  loadRecordedGame,
+  loadTurnSound,
+  saveOpenCards,
+  saveRecordedGame,
+} from './pokerStorage'
 import { TimerFields, timerForm, type TimerForm } from './TimerFields'
 import { PrizeFields, TournamentPanel, TournamentResults } from './Tournament'
 import { signalTurn, unlockSound } from './turnSignal'
@@ -302,6 +319,22 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   }, [online, lastKey])
   const copyWorks = useHandCopy(roomEvening(code, table), room.history)
 
+  // Анимация раздачи (#133) — только для стола, сменившегося на глазах. Первый стол после (пере)подключения
+  // догоняет пропущенное: карты уже лежат; стол при входе на экран — уже догнавший. Без связи стол не меняется
+  const sync = useRef<{ online: boolean; before: TableState | null; first: TableState | null }>({
+    online: room.online,
+    before: null,
+    first: room.online ? table : null,
+  })
+  const sy = sync.current
+  if (room.online && !sy.online) {
+    sy.before = table
+    sy.first = null
+  }
+  sy.online = room.online
+  if (room.online && sy.first === null && table !== sy.before) sy.first = table
+  const live = room.online && sy.first !== null && table !== sy.first
+
   const v = tableView(table, me, room.serverNow())
   const sb = table.hand?.sb ?? table.settings.sb
   const dock = dockOf(v)
@@ -335,6 +368,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
           <PokerTable
             view={v}
             open={open}
+            live={live}
             onSeat={room.online ? (seat) => room.send({ type: 'moveSeat', seat }) : undefined}
           />
         </div>
@@ -640,12 +674,14 @@ export function HandHistory(props: {
 // size: small — у чужих мест, mid — свои на моём месте (#97), big — «Банк ваш без вскрытия»
 type CardSize = 'small' | 'mid' | 'big'
 
-export function PlayingCard({ card, size, mark }: { card: Card | null; size?: CardSize; mark?: 'win' | 'dim' }) {
+// fly — ключ карты для анимации раздачи (#133, cardFly): группа и номер в ней; без него карта не летает
+export function PlayingCard(props: { card: Card | null; size?: CardSize; mark?: 'win' | 'dim'; fly?: string }) {
+  const { card, size, mark, fly } = props
   const f = card === null ? null : cardFace(card)
   const cls = ['playing-card', size, !f && 'back', f?.red && 'red', mark].filter(Boolean).join(' ')
-  if (!f) return <span className={cls} aria-label="карта рубашкой" />
+  if (!f) return <span className={cls} data-fly={fly} aria-label="карта рубашкой" />
   return (
-    <span className={cls}>
+    <span className={cls} data-fly={fly}>
       {f.rank}
       {f.suit}
     </span>
@@ -653,13 +689,20 @@ export function PlayingCard({ card, size, mark }: { card: Card | null; size?: Ca
 }
 
 // best — пятёрка победителя: ряд плотнее, чтобы войти в место у стола;
-// win — карты из пятёрок победителей: они подсвечены, остальные в ряду приглушены
-function CardRow(props: { cards: (Card | null)[]; size?: CardSize; best?: boolean; win?: Card[] | null }) {
-  const { cards, size, best, win } = props
+// win — карты из пятёрок победителей: они подсвечены, остальные в ряду приглушены;
+// fly — группа карт ряда для анимации раздачи (#133)
+function CardRow(props: { cards: (Card | null)[]; size?: CardSize; best?: boolean; win?: Card[] | null; fly?: string }) {
+  const { cards, size, best, win, fly } = props
   return (
     <span className={best ? 'card-row best-row' : 'card-row'}>
       {cards.map((c, i) => (
-        <PlayingCard key={i} card={c} size={size} mark={win && c ? (win.includes(c) ? 'win' : 'dim') : undefined} />
+        <PlayingCard
+          key={i}
+          card={c}
+          size={size}
+          mark={win && c ? (win.includes(c) ? 'win' : 'dim') : undefined}
+          fly={fly && flyKey(fly, i)}
+        />
       ))}
     </span>
   )
@@ -669,8 +712,17 @@ function CardRow(props: { cards: (Card | null)[]; size?: CardSize; best?: boolea
 // «Всегда открыты» (#86) — лицом без пальца; только на своём экране, сервер не знает.
 // На моём месте у стола (#97) — без подписи (hint) и без переключателя: он под столом.
 // label — моя комбинация сейчас (#105): видна, только пока карты лицом, иначе выдаст руку
-function PeekCards(props: { cards: Card[]; open: boolean; size: CardSize; hint?: boolean; label?: string | null; className?: string }) {
-  const { cards, open, size, hint, label = null, className = 'peek-cards' } = props
+// fly — группа карт для анимации раздачи (#133)
+function PeekCards(props: {
+  cards: Card[]
+  open: boolean
+  size: CardSize
+  hint?: boolean
+  label?: string | null
+  className?: string
+  fly?: string
+}) {
+  const { cards, open, size, hint, label = null, className = 'peek-cards', fly } = props
   const [peek, setPeek] = useState(false)
   const on = () => setPeek(true)
   const off = () => setPeek(false)
@@ -689,7 +741,7 @@ function PeekCards(props: { cards: Card[]; open: boolean; size: CardSize; hint?:
       <>
         <div className={className}>
           {cards.map((c, i) => (
-            <PlayingCard key={i} card={c} size={size} />
+            <PlayingCard key={i} card={c} size={size} fly={fly && flyKey(fly, i)} />
           ))}
         </div>
         {now(true)}
@@ -717,7 +769,7 @@ function PeekCards(props: { cards: Card[]; open: boolean; size: CardSize; hint?:
         onBlur={off}
       >
         {cards.map((c, i) => (
-          <PlayingCard key={i} card={peek ? c : null} size={size} />
+          <PlayingCard key={i} card={peek ? c : null} size={size} fly={fly && flyKey(fly, i)} />
         ))}
       </div>
       {now(peek)}
@@ -769,16 +821,19 @@ function ShowCard(props: {
 // на телефоне — всё место над панелью хода. open — свои карты лицом без пальца (#86).
 // onSeat — касание свободного места пересаживает меня туда; нет — свободные места только видны.
 // HUD вечера (#79) — строкой у места, касание строки — подробно поверх стола
-export function PokerTable(props: { view: TableView; open?: boolean; onSeat?: (seat: number) => void }) {
-  const { view: v, open = false, onSeat } = props
+// live — стол меняется на глазах: раздачу и улицы можно проигрывать (#133); первый стол после (пере)подключения — нет
+export function PokerTable(props: { view: TableView; open?: boolean; live?: boolean; onSeat?: (seat: number) => void }) {
+  const { view: v, open = false, live = true, onSeat } = props
   const [hudOf, setHudOf] = useState<string | null>(null)
+  const wrap = useRef<HTMLDivElement>(null)
+  const dealing = useTableDeal(wrap, v, live)
   const bottom = v.me?.seat ?? 0
   const spots = spotsBySeat(v.maxSeats, v.me?.seat ?? null)
   const hudSeat = v.seats.find((s) => s.id === hudOf && s.hud !== null)
   return (
-    <div className="felt-wrap">
+    <div className="felt-wrap" ref={wrap}>
       <div className="felt" />
-      <div className="felt-center">
+      <div className="felt-center" data-fly-origin>
         <div className="muted">{v.stageLabel}</div>
         {v.stage !== null && (
           <div className="pot-total">
@@ -793,7 +848,7 @@ export function PokerTable(props: { view: TableView; open?: boolean; onSeat?: (s
           ))}
         {v.board.length > 0 && (
           <div className="board">
-            <CardRow cards={v.board} win={v.boardWin} />
+            <CardRow cards={v.board} win={v.boardWin} fly={BOARD_GROUP} />
           </div>
         )}
         {v.paused && v.stage !== null && (
@@ -812,7 +867,7 @@ export function PokerTable(props: { view: TableView; open?: boolean; onSeat?: (s
             bottom={s.seat === bottom}
             myCards={s.isMe ? v.myCards : null}
             myHand={s.isMe ? v.myHand : null}
-            open={open}
+            open={open && !dealing}
             onHud={() => setHudOf(s.id)}
           />
         ))}
@@ -823,6 +878,44 @@ export function PokerTable(props: { view: TableView; open?: boolean; onSeat?: (s
       {hudSeat?.hud && <HudCard name={hudSeat.name} hud={hudSeat.hud} onClose={() => setHudOf(null)} />}
     </div>
   )
+}
+
+// Анимация раздачи (#133): стол сменился на глазах — новая раздача летит к местам, новые общие карты — на стол.
+// Стол только открыли, он не live, вкладка не видна или «Анимация карт» выключена — карты сразу на местах.
+// Пока раздача летит — true: мои карты летят рубашкой и при «Всегда открыты», «Подглядеть» работает как всегда
+const WAKE_MS = 1000
+
+function useTableDeal(ref: RefObject<HTMLDivElement | null>, v: TableView, live: boolean): boolean {
+  const prev = useRef<DealSnapshot | null>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const shownAt = useRef(0) // когда вернулись на вкладку: накопленное во сне догоняет — не проигрывать
+  const [dealing, setDealing] = useState(false)
+  const snap = tableSnapshot(v)
+  const key = JSON.stringify(snap)
+
+  // До отрисовки: карты не мелькают на местах перед полётом
+  useLayoutEffect(() => {
+    const before = prev.current
+    prev.current = snap
+    const root = ref.current
+    const waking = Date.now() - shownAt.current < WAKE_MS
+    if (!root || !live || waking || document.visibilityState !== 'visible' || !loadCardAnim()) return
+    const plan = dealPlan(before, snap)
+    if (!plan) return
+    playFlights(root, plan.flights)
+    if (plan.kind !== 'deal') return
+    clearTimeout(timer.current)
+    setDealing(true)
+    timer.current = setTimeout(() => setDealing(false), flightsEnd(plan.flights))
+  }, [key])
+
+  useLandOnHide(ref, () => {
+    if (document.visibilityState === 'visible') shownAt.current = Date.now()
+    clearTimeout(timer.current)
+    setDealing(false)
+  })
+  useEffect(() => () => clearTimeout(timer.current), [])
+  return dealing
 }
 
 // У бокового края — прижато к нему
@@ -902,9 +995,9 @@ function SeatSpot(props: {
       <span className="seat-chips">{formatNumber(s.chips)}</span>
       {s.hud && <HudLine hud={s.hud} onOpen={onHud} />}
       {myCards ? (
-        <PeekCards cards={myCards} open={open} size="mid" label={myHand} className="seat-cards" />
+        <PeekCards cards={myCards} open={open} size="mid" label={myHand} className="seat-cards" fly={seatGroup(s.seat)} />
       ) : (
-        s.cards && <CardRow cards={s.cards} size={s.isMe ? 'mid' : 'small'} />
+        s.cards && <CardRow cards={s.cards} size={s.isMe ? 'mid' : 'small'} fly={seatGroup(s.seat)} />
       )}
       {s.handName && <span className="seat-mark">{s.handName}</span>}
       {s.best && <CardRow cards={s.best} size="small" best />}
