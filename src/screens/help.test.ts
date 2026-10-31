@@ -30,6 +30,8 @@ const PLACEHOLDERS: HelpValues = {
   botsDefault: '‹ботов сначала›',
   botPause: '‹пауза бота›',
   forgottenHours: '‹забыли закрыть›',
+  dealSeconds: '‹раздача летит›',
+  streetSeconds: '‹улица летит›',
 }
 
 describe('справка', () => {
@@ -90,6 +92,8 @@ describe('справка', () => {
       botsDefault: '3',
       botPause: '1',
       forgottenHours: '12',
+      dealSeconds: '1,5',
+      streetSeconds: '1',
     })
   })
 })
