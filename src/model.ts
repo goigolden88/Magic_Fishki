@@ -104,21 +104,46 @@ export function playersFromRegulars(regulars: Regular[], makeId: () => string): 
   return regulars.map((r) => ({ id: makeId(), name: r.name, regularId: r.id }))
 }
 
+export const SAME_NAME = 'Такой участник уже есть'
+
+// Гость к участникам по имени (Р-44): имя постоянного — связь с ним (Р-12), иначе гость без связи.
+// Пустое имя или имя уже есть у участника — отказ: null
+export function withGuest(players: Player[], name: string, regulars: Regular[], id: string): Player[] | null {
+  const n = name.trim()
+  if (!n || players.some((p) => p.name === n)) return null
+  return [...players, playerByName(n, regulars, id)]
+}
+
+// Участники новой игры (Р-44): отмеченные постоянные, за ними гости по имени — связь по имени через
+// все постоянные (regulars). Гость с именем, которое уже есть, не добавляется
+export function newGamePlayers(
+  picked: Regular[],
+  guests: string[],
+  regulars: Regular[],
+  makeId: () => string,
+): Player[] {
+  let players = playersFromRegulars(picked, makeId)
+  for (const name of guests) players = withGuest(players, name, regulars, makeId()) ?? players
+  return players
+}
+
 export type NewGame = {
   name: string
   date: string // YYYY-MM-DD
   rate: number // «только казино» — курс из настроек (Р-29)
   players: Regular[] // отмеченные постоянные игроки
+  guests?: string[] // гости по имени (Р-44); нет — только постоянные
+  regulars?: Regular[] // все постоянные — связь гостя по имени (Р-12); нет — отмеченные
   buyin: number | null // «Да» на «Записать всем закуп?» — сумма; «Нет» — null (Р-09)
   now: string // ISO 8601: время закупов и updatedAt
   mode?: GameMode // выбор в «Новой игре» (Р-29); нет — «покер»
 }
 
-// Новая игра; с закупом — каждому участнику одна запись buyin на эту сумму.
+// Новая игра; с закупом — каждому участнику, и гостю тоже, одна запись buyin на эту сумму.
 // «Только казино» — без закупа (Р-29)
 export function createGame(input: NewGame, makeId: () => string): Game {
   const id = makeId()
-  const players = playersFromRegulars(input.players, makeId)
+  const players = newGamePlayers(input.players, input.guests ?? [], input.regulars ?? input.players, makeId)
   const mode = input.mode ?? 'poker'
   const buyin = mode === 'casino' ? null : input.buyin
   const entries: Entry[] =

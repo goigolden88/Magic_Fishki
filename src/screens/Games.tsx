@@ -3,10 +3,20 @@ import { formatNumber, formatRate, parseRate } from '../calc/format'
 import { defaultOpenYear, gameSummary, groupByYear, isYearOpen } from '../calc/gameList'
 import { MODE_LABEL } from '../calc/gameMode'
 import { allPicked, toggleAll } from '../calc/pick'
-import { createGame, DEFAULT_BUYIN, DEFAULT_RATE, GAME_MODES, type Game, type GameMode, type Regular } from '../model'
+import {
+  createGame,
+  DEFAULT_BUYIN,
+  DEFAULT_RATE,
+  GAME_MODES,
+  newGamePlayers,
+  type Game,
+  type GameMode,
+  type Regular,
+} from '../model'
 import { getSettings, listGames, saveGame } from '../store/db'
 import { formatDate, today } from '../dates'
 import { ulid } from '../ulid'
+import { GuestField, GuestList } from './GuestField'
 import { loadOpenYears, openGameYear, saveOpenYears } from './openYears'
 import { loadBotTable, loadLocalTable } from './pokerStorage'
 
@@ -20,6 +30,7 @@ export function GamesScreen() {
   const [defaultRate, setDefaultRate] = useState(DEFAULT_RATE) // курс из настроек — у «только казино»
   const [regulars, setRegulars] = useState<Regular[]>([]) // постоянные игроки из настроек
   const [picked, setPicked] = useState<Set<string>>(new Set()) // id отмеченных — участники игры
+  const [guests, setGuests] = useState<string[]>([]) // гости по имени — тоже участники (Р-44)
   const [defaultBuyin, setDefaultBuyin] = useState(DEFAULT_BUYIN) // закуп по умолчанию из настроек (Р-09)
   const [askBuyin, setAskBuyin] = useState(false) // вопрос «Записать всем закуп?»
   const [recording, setRecording] = useState(false) // выбор «Записать игру»: вручную или из Телеграма
@@ -38,6 +49,7 @@ export function GamesScreen() {
     setMode('poker')
     setRegulars(settings.players)
     setPicked(new Set(settings.players.map((r) => r.id)))
+    setGuests([])
     setDefaultBuyin(settings.defaultBuyin)
     setAskBuyin(false)
     setRecording(false)
@@ -64,11 +76,14 @@ export function GamesScreen() {
 
   const players = regulars.filter((r) => picked.has(r.id))
   const regularIds = regulars.map((r) => r.id)
+  const pickedNames = players.map((r) => r.name)
+  // Участников всего: отмеченные и гости; гость с именем отмеченного — не второй участник
+  const count = newGamePlayers(players, guests, regulars, () => '').length
 
   // Участники выбраны — сначала вопрос про закуп; нет участников или «только казино» — сразу игра без записей
   function startCreate() {
     if (rate === null) return
-    if (players.length > 0 && mode !== 'casino') setAskBuyin(true)
+    if (count > 0 && mode !== 'casino') setAskBuyin(true)
     else void create(null)
   }
 
@@ -76,7 +91,17 @@ export function GamesScreen() {
     if (rate === null) return
     const date = today()
     const game = createGame(
-      { name: name.trim() || formatDate(date), date, rate, players, buyin, mode, now: new Date().toISOString() },
+      {
+        name: name.trim() || formatDate(date),
+        date,
+        rate,
+        players,
+        guests,
+        regulars,
+        buyin,
+        mode,
+        now: new Date().toISOString(),
+      },
       () => ulid(),
     )
     await saveGame(game)
@@ -104,7 +129,7 @@ export function GamesScreen() {
       {creating && askBuyin ? (
         <section className="card">
           <h2>Записать всем закуп по {formatNumber(defaultBuyin)} фишек?</h2>
-          <p className="muted">Участников: {players.length}. Сумма меняется в настройках.</p>
+          <p className="muted">Участников: {count}. Сумма меняется в настройках.</p>
           <div className="row">
             <button className="big primary grow" onClick={() => void create(defaultBuyin)}>
               Да
@@ -162,9 +187,11 @@ export function GamesScreen() {
                   {r.name}
                 </label>
               ))}
-              <p className="muted">Гостя можно добавить на экране игры.</p>
             </fieldset>
           )}
+          {/* Р-44: гости — прямо здесь, и когда постоянных нет совсем */}
+          <GuestList guests={guests} onRemove={(i) => setGuests(guests.filter((_, k) => k !== i))} />
+          <GuestField taken={[...pickedNames, ...guests]} onAdd={(g) => setGuests([...guests, g])} />
           <div className="row">
             <button className="big primary" disabled={rate === null} onClick={startCreate}>
               Создать
