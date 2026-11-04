@@ -637,7 +637,9 @@ function layoutStyle(l: CasinoLayout): CSSProperties {
 type SeatData = { id: string; name: string; cards: (Card | null)[]; win: string | null; net?: number; exact?: boolean }
 type Chance = { name: string; percent: number }
 // turn — стол открывается: карты лицом по одной (#134), победителя ещё не видно.
-// chances — шансы стола вместо подписи под картами, пока он не открыт целиком (#137); more — «ещё N»
+// chances — шансы стола вместо подписи под картами, пока он не открыт целиком (#137); more — «ещё N».
+// Касание строки раскрывает её (#142): all — все ненулевые шансы, expanded — раскрыта, onToggle — касание
+type Chances = { top: Chance[]; more: number; all: Chance[]; expanded: boolean; onToggle: () => void }
 type BoardData = {
   cards: (Card | null)[]
   part: number
@@ -646,7 +648,7 @@ type BoardData = {
   last: boolean
   foot: string
   win: Card[]
-  chances?: { top: Chance[]; more: number }
+  chances?: Chances
 }
 
 // Сукно с рядами мест над и под колонкой столов (casinoLayout): места по часовой от верхнего левого.
@@ -694,10 +696,36 @@ function Felt(props: { layout: CasinoLayout; seats: SeatData[]; boards: BoardDat
   )
 }
 
-// Строка шансов стола (#137): одна строка подписи — имена сжимаются многоточием, проценты и «ещё N» — нет
-function ChanceLine({ top, more }: { top: Chance[]; more: number }) {
+// Строка шансов стола (#137): одна строка подписи — имена сжимаются многоточием, проценты и «ещё N» — нет.
+// Кнопка (#142): касание раскрывает список столбиком — все ненулевые шансы, полные имена; ещё касание сворачивает
+function ChanceLine({ top, more, all, expanded, onToggle }: Chances) {
+  if (expanded)
+    return (
+      <button
+        type="button"
+        className="casino-odds-toggle"
+        aria-expanded
+        title="Шансы стола — свернуть"
+        onClick={onToggle}
+      >
+        <span className="odds-list">
+          {all.map((c, i) => (
+            <span key={i} className="odds-row">
+              <span className="odds-full">{c.name}</span> — <span className="odds-pct">{`${c.percent} %`}</span>
+            </span>
+          ))}
+        </span>
+      </button>
+    )
   return (
-    <div className="casino-board-line casino-odds" aria-label="Шансы стола">
+    <button
+      type="button"
+      className="casino-odds-toggle casino-board-line casino-odds"
+      aria-expanded={false}
+      disabled={top.length === 0}
+      title="Шансы стола — раскрыть"
+      onClick={onToggle}
+    >
       {top.map((c, i) => (
         <span key={i} className="odds-item">
           <span className="odds-name">{c.name}</span>
@@ -705,8 +733,13 @@ function ChanceLine({ top, more }: { top: Chance[]; more: number }) {
         </span>
       ))}
       {more > 0 && <span className="odds-more">ещё {more}</span>}
+      {top.length > 0 && (
+        <span className="odds-more" aria-hidden="true">
+          ▾
+        </span>
+      )}
       {top.length === 0 && ' '}
-    </div>
+    </button>
   )
 }
 
@@ -786,9 +819,22 @@ function CasinoTable(props: {
   const parts = tableParts(stake * deal.ids.length, deal.boards.length)
   const current = opened > 0 && !flipping ? results[opened - 1] : null
   const exact = opened >= deal.boards.length && !flipping
-  const chancesOf = (t: number) => {
-    const { top, more } = topOdds(deal.ids, odds?.boards[t] ?? [])
-    return { top: top.map((c) => ({ name: name(c.id), percent: c.percent })), more }
+  // Раскрытые строки шансов (#142) — только у этой раздачи: «Ещё раунд» — всё свёрнуто; не помнится
+  const [unfolded, setUnfolded] = useState<{ deal: Deal; boards: number[] }>({ deal, boards: [] })
+  const expanded = unfolded.deal === deal ? unfolded.boards : []
+  const toggle = (t: number) =>
+    setUnfolded({ deal, boards: expanded.includes(t) ? expanded.filter((b) => b !== t) : [...expanded, t] })
+  const chancesOf = (t: number): Chances => {
+    const shares = odds?.boards[t] ?? []
+    const named = (list: { id: string; percent: number }[]) => list.map((c) => ({ name: name(c.id), percent: c.percent }))
+    const { top, more } = topOdds(deal.ids, shares)
+    return {
+      top: named(top),
+      more,
+      all: named(topOdds(deal.ids, shares, deal.ids.length).top),
+      expanded: expanded.includes(t),
+      onToggle: () => toggle(t),
+    }
   }
   return (
     <Felt
