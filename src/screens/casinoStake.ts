@@ -8,6 +8,8 @@ const STAKE_KEY = 'fishki.casino.stake'
 const LOOK_KEY = 'fishki.casino.look'
 // «Открывать столы сами» (#134) — секунды, 0 — «Нет»; так же, на устройстве
 const AUTO_OPEN_KEY = 'fishki.casino.autoOpen'
+// «Шансы» (#137) — да или нет; так же, на устройстве
+const ODDS_KEY = 'fishki.casino.odds'
 
 // Копейки; нет или не похоже — null
 export function loadStake(): number | null {
@@ -62,6 +64,23 @@ export function loadAutoOpen(): number {
 export function saveAutoOpen(seconds: number) {
   try {
     localStorage.setItem(AUTO_OPEN_KEY, JSON.stringify(seconds))
+  } catch {
+    // так же — не запомним
+  }
+}
+
+// Нет или не похоже — «Да»
+export function loadOdds(): boolean {
+  try {
+    return JSON.parse(localStorage.getItem(ODDS_KEY) ?? 'true') !== false
+  } catch {
+    return true
+  }
+}
+
+export function saveOdds(on: boolean) {
+  try {
+    localStorage.setItem(ODDS_KEY, JSON.stringify(on))
   } catch {
     // так же — не запомним
   }
