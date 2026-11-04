@@ -817,6 +817,16 @@ button.seat.free {
   font-size: 0.85rem;
 }
 
+/* Стиль бота под именем (#139): «ЛАГ», «Колл-станция» */
+.seat-tag {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
 .seat.me .seat-name {
   color: var(--gold);
 }
