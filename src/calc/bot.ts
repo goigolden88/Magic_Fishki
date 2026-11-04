@@ -19,6 +19,7 @@ import {
   quantiles,
   rangeOf,
   readHand,
+  topOfRange,
   type HandRead,
   type Random,
 } from './botRead'
@@ -263,13 +264,13 @@ function nitPre(x: Spot): Intent {
   const pair = x.own.length === 2 && x.own[0][0] === x.own[1][0]
   if (x.level === 0) {
     if (x.limpers === 0 && t <= openWidth('nit', x.behind, x.read.n)) return raiseTo(openSize(x))
-    if (x.limpers > 0 && t <= 0.06) return raiseTo((4 + x.limpers) * x.bb)
+    if (x.limpers > 0 && t <= 0.1) return raiseTo((4 + x.limpers) * x.bb)
     if (pair && x.toCall <= x.bb) return CALL
     return x.toCall === 0 ? CALL : FOLD
   }
   if (x.level === 1) {
-    if (t <= 0.014) return raiseTo(x.currentBet * 3)
-    if (t <= 0.045 || (isBigBlind(x) && t <= 0.1)) return CALL
+    if (t <= 0.05) return raiseTo(x.currentBet * 3)
+    if (t <= 0.065 || (isBigBlind(x) && t <= 0.08)) return CALL
     if (pair && x.toCall <= x.stack * 0.06) return CALL
     return FOLD
   }
@@ -292,9 +293,9 @@ function abcPre(x: Spot): Intent {
     return FOLD
   }
   if (x.level === 1) {
-    if (t <= 0.03) return raiseTo(x.currentBet * 3)
-    if (t <= 0.11) return CALL
-    if (isBigBlind(x) && t <= 0.28 && x.toCall <= 3 * x.bb) return CALL
+    if (t <= 0.045) return raiseTo(x.currentBet * 3)
+    if (t <= 0.13) return CALL
+    if (isBigBlind(x) && t <= 0.32 && x.toCall <= 3 * x.bb) return CALL
     if (pair && x.toCall <= x.stack * 0.07) return CALL
     return FOLD
   }
@@ -330,10 +331,12 @@ function strongPre(x: Spot, r: Random, lag: boolean): Intent {
   if (x.level === 1) {
     const callers = x.read.moves.filter((m) => m.street === 'preflop' && m.level === 1 && m.passive).length
     const v = Math.min(0.14, Math.max(0.025, wR * (lag ? 0.3 : 0.22))) * (callers > 0 ? 0.85 : 1)
-    let call = isBigBlind(x) ? Math.min(0.6, wR * 0.9 + 0.06) : ip ? wR * (lag ? 0.65 : 0.55) : wR * 0.3
+    let call = isBigBlind(x) ? Math.min(0.6, wR * 0.9 + 0.06) : ip ? wR * (lag ? 0.75 : 0.55) : wR * 0.3
     call *= Math.min(1.2, Math.max(0.5, (2.5 * x.bb) / Math.max(x.bb, x.currentBet)))
     if (callers > 0) call *= 0.85
-    const bluff = callers === 0 && t > v && blockerBluff(myCombo(x)) && r() < (lag ? 0.45 : 0.25) * (wR > 0.3 ? 1.3 : 1)
+    // Блеф-3-бет — чаще против тех, кто на него сдаётся
+    const foldsTo = raiser ? FOLDS[x.who(raiser.id)] : 1
+    const bluff = callers === 0 && t > v && blockerBluff(myCombo(x)) && r() < (lag ? 0.45 : 0.25) * (wR > 0.3 ? 1.3 : 1) * foldsTo
     if (t <= v || bluff) return commit(x, threeBetSize(x, ip))
     if (t <= call && x.toCall <= x.stack * 0.12) return CALL
     return FOLD
@@ -415,7 +418,7 @@ function nitPost(x: Spot, r: Random): Intent {
   if (x.toCall === 0) return s >= 0.78 ? raiseTo(potBet(x, 0.66)) : CALL
   if (s >= 0.93) return raiseTo(x.currentBet * 3)
   const b = x.toCall / Math.max(1, x.pot - x.toCall)
-  if (s >= (x.street === 'river' ? 0.8 : 0.72) + 0.1 * Math.min(1, b)) return CALL
+  if (s >= (x.street === 'river' ? 0.82 : 0.76) + 0.1 * Math.min(1, b)) return CALL
   return draw && x.street === 'flop' && x.price <= 0.25 ? CALL : FOLD
 }
 
@@ -426,13 +429,14 @@ function abcPost(x: Spot, r: Random): Intent {
   const aggressor = lastAggressorBefore(x) === x.me
   if (x.toCall === 0) {
     if (s >= 0.62) return raiseTo(potBet(x, 0.6))
-    if (x.street === 'flop' && aggressor && x.rivals.length === 1 && r() < 0.5) return raiseTo(potBet(x, 0.5))
+    if (x.street === 'flop' && aggressor && x.rivals.length === 1 && r() < 0.6) return raiseTo(potBet(x, 0.5))
     if (raw.draw && r() < 0.3) return raiseTo(potBet(x, 0.5))
     return r() < 0.04 ? raiseTo(potBet(x, 0.5)) : CALL
   }
   if (s >= 0.9) return raiseTo(x.currentBet * 3)
   const b = x.toCall / Math.max(1, x.pot - x.toCall)
-  const need = x.street === 'river' ? 0.55 + 0.35 * Math.min(1, b) : x.price + 0.12 + 0.08 * x.level
+  // Без пары или старшего туза — пас; крупнее ставка — нужна рука сильнее
+  const need = x.street === 'river' ? 0.5 + 0.3 * Math.min(1, b) : Math.max(0.55, x.price + 0.2) + 0.06 * x.level
   if (s >= need) return CALL
   return raw.draw && x.street !== 'river' && x.price <= 0.3 ? CALL : FOLD
 }
@@ -446,8 +450,12 @@ function lastAggressorBefore(x: Spot): string | null {
 }
 
 // Как соперник сдаётся на ставку (множитель частоты блефа) и как часто блефует сам (множитель защиты банка)
-const FOLDS: Record<Who, number> = { maniac: 0.5, station: 0.2, nit: 1.4, abc: 1.1, tag: 1, lag: 0.85, unknown: 0.9 }
-const DEFEND: Record<Who, number> = { maniac: 1.15, station: 0.6, nit: 0.3, abc: 0.6, tag: 1, lag: 1, unknown: 0.9 }
+const FOLDS: Record<Who, number> = { maniac: 0.5, station: 0.2, nit: 1.6, abc: 1.4, tag: 1, lag: 0.85, unknown: 0.9 }
+const DEFEND: Record<Who, number> = { maniac: 1.15, station: 0.4, nit: 0.15, abc: 0.35, tag: 1, lag: 1, unknown: 0.9 }
+// Вторая ставка без руки (тёрн): уравнявший флоп ABC или колл-станция держат пару — блефа почти не будет
+const BARREL: Record<Who, number> = { maniac: 0.4, station: 0.1, nit: 0.8, abc: 0.4, tag: 0.9, lag: 0.8, unknown: 0.7 }
+// Какая часть диапазона соперника уравняет ставку — по стилю
+const CALLS: Record<Who, number> = { maniac: 0.65, station: 0.85, nit: 0.3, abc: 0.4, tag: 0.5, lag: 0.55, unknown: 0.5 }
 
 // ТАГ и ЛАГ: сила — против диапазонов соперников по их ходам; размер ставки — от текстуры; блефы — дро и
 // руками без вскрытия, не дальше двух-трёх улиц; медленная игра и чек-рейз; защита банка по цене
@@ -465,45 +473,69 @@ function strongPost(x: Spot, r: Random, lag: boolean): Intent {
   const aggressor = lastAggressorBefore(x) === x.me
   const barrels = new Set(x.read.moves.filter((m) => m.street !== 'preflop' && m.id === x.me && m.aggressive).map((m) => m.street)).size
   const shallow = x.stack <= x.pot * 0.6
+  const ip = x.rivals.every((id) => postflopOrder(x.read, id) < postflopOrder(x.read, x.me))
+  // Доля банка против той части диапазонов, что продолжит против ставки (share — от стиля соперника)
+  const versus = (share: number) =>
+    equityVs(
+      x.own,
+      x.board,
+      ranges.map((w, i) => topOfRange(w, x.board, Math.min(1, CALLS[x.who(x.rivals[i])] * share))),
+      r,
+      BOT_SAMPLES * 2,
+    )
   if (x.toCall === 0) {
-    const value = 0.6 + multi
+    // Вэлью — когда впереди той части диапазона, что уравняет; колл-станция уравнивает шире — ставка тоньше
+    const thin = eq >= 0.3 ? versus(1) : 0
+    const value = 0.5 + multi
     if (eq >= 0.85 && x.street !== 'river' && heads && r() < (lag ? 0.15 : 0.2)) return CALL // медленная игра
-    if (eq >= value) {
+    if (thin >= value) {
       if (shallow) return ALLIN
       const f = x.street === 'river' ? (eq >= 0.8 ? 0.75 : 0.5) + (opp === 'station' ? 0.25 : 0) : x.street === 'flop' && !wet ? 0.33 : 0.66
       return raiseTo(potBet(x, f))
     }
     if (draw && r() < (lag ? 0.7 : 0.5) * Math.min(1, folds + 0.2)) return raiseTo(potBet(x, wet ? 0.66 : 0.5))
-    if (x.street === 'flop' && aggressor && x.rivals.length <= 2 && eq < value) {
+    if (x.street === 'flop' && aggressor && x.rivals.length <= 2) {
       const cbet = (wet ? (lag ? 0.55 : 0.4) : lag ? 0.8 : 0.65) * Math.min(1.2, folds) * (heads ? 1 : 0.6)
       if (r() < cbet) return raiseTo(potBet(x, wet ? 0.66 : 0.33))
     }
-    if (heads && eq < 0.4 && barrels >= 1 && x.street === 'turn' && aggressor && r() < (lag ? 0.45 : 0.3) * folds) {
+    if (heads && eq < 0.4 && barrels >= 1 && x.street === 'turn' && aggressor && r() < (lag ? 0.45 : 0.3) * BARREL[opp]) {
       return raiseTo(potBet(x, 0.66))
     }
     if (heads && eq < 0.25 && x.street === 'river' && barrels <= 2 && r() < (lag ? 0.4 : 0.3) * folds * (barrels >= 2 ? 0.5 : 1)) {
-      return raiseTo(potBet(x, 0.75))
+      // Против тех, кто сдаётся на крупное, — в банк
+      return raiseTo(potBet(x, folds >= 1.2 ? 1 : 0.75))
     }
     // Все прочекали до меня последним — забрать банк
     const checkedTo = x.read.moves.filter((m) => m.street === x.street).every((m) => m.type === 'check')
-    const last = x.rivals.every((id) => postflopOrder(x.read, id) < postflopOrder(x.read, x.me))
-    if (heads && checkedTo && last && barrels === 0 && eq < 0.35 && r() < (lag ? 0.4 : 0.25) * folds) return raiseTo(potBet(x, 0.5))
+    // Ставил прошлую улицу, а теперь прочекал — сдался: забрать банк
+    const gaveUp = heads && checkedTo && x.street !== 'flop' && lastAggressorBefore(x) === x.rivals[0]
+    if (gaveUp && ip && r() < (lag ? 0.65 : 0.5) * Math.min(1, folds)) return raiseTo(potBet(x, 0.6))
+    if (heads && checkedTo && ip && barrels === 0 && eq < 0.35 && r() < (lag ? 0.4 : 0.25) * folds) return raiseTo(potBet(x, 0.5))
     return CALL
   }
-  // Ставка против меня
+  // Ставка против меня: повышение на вэлью — когда впереди того, что продолжит против повышения
   const b = x.toCall / Math.max(1, x.pot - x.toCall)
-  const raiseAt = (x.street === 'river' ? 0.85 : 0.8) + multi
-  if (eq >= raiseAt) {
+  const strongEnough = eq >= 0.55 && versus(0.6) >= (x.street === 'river' ? 0.6 : 0.55) + multi
+  if (eq >= 0.85 + multi || strongEnough) {
     if (opp === 'maniac' && x.street !== 'river' && r() < 0.5) return CALL // пусть ставит дальше
     if (shallow) return ALLIN
     return commit(x, x.currentBet + 0.8 * (x.pot + x.toCall))
   }
   if (draw && heads && x.level === 1 && r() < (lag ? 0.25 : 0.15) * folds) return commit(x, x.currentBet + 0.8 * (x.pot + x.toCall))
-  const margin = (x.street === 'flop' && draw ? -0.04 : 0) + (heads ? 0 : 0.03)
+  // Продолжение ставкой соперника на флопе и одиночная ставка до ривера — иногда рейз без руки (без позиции —
+  // чек-рейз): чаще против тех, кто на повышение сдаётся
+  const cbet = x.street === 'flop' && heads && x.level === 1 && lastAggressorBefore(x) === x.rivals[0]
+  const single = heads && x.level === 1 && x.street !== 'river'
+  if (single && eq < 0.35 && r() < (lag ? 0.14 : 0.1) * folds) return commit(x, x.currentBet + 0.8 * (x.pot + x.toCall))
+  // В позиции против продолжения ставкой — уравнять с любой долей, чтобы забрать банк, когда он сдастся
+  if (cbet && ip && eq >= 0.25 && x.price <= 0.3 && FOLDS[opp] >= 1) return CALL
+  // Колл — по цене банка; до ривера без позиции долю банка добрать труднее
+  const margin = x.street === 'river' ? 0 : (draw ? -0.04 : 0) + (ip ? 0.02 : 0.06) + (heads ? 0 : 0.03)
   if (eq >= x.price + margin) return CALL
   // Защита банка: лучшая часть своего диапазона, что бьёт блефы, — с частотой 1 − ставка / (банк + ставка)
-  if (heads && eq >= (x.street === 'river' ? 0.08 : 0.2)) {
-    const defend = (1 / (1 + b)) * DEFEND[opp]
+  // Продолжение ставкой на флопе у любого стиля широкое — защита там не меньше 0,75 от равновесной
+  if (heads && eq >= (x.street === 'river' ? 0.08 : 0.28)) {
+    const defend = (1 / (1 + b)) * (cbet ? Math.max(0.75, DEFEND[opp]) : DEFEND[opp])
     if (ownRank(x) >= 1 - defend) return CALL
   }
   return FOLD

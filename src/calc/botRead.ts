@@ -295,6 +295,16 @@ function narrow(w: Float64Array, info: BoardInfo, m: Move, style: ReadStyle, who
   }
 }
 
+// Та часть диапазона, что продолжит против ставки: верхние share по силе на этом столе
+export function topOfRange(w: Float64Array, board: Card[], share: number): Float64Array {
+  const info = boardInfo(board)
+  const q = quantiles(w, info)
+  if (q === null) return w
+  const out = new Float64Array(w.length)
+  for (const c of info.order) out[c] = q[c] >= 1 - share ? w[c] : 0
+  return out
+}
+
 // Место каждой руки в диапазоне по силе v; диапазон пуст — null
 export function quantiles(w: Float64Array, info: BoardInfo): Float64Array | null {
   let total = 0
