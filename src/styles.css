@@ -1457,6 +1457,44 @@ button.seat.free {
   color: var(--muted);
 }
 
+/* Строка шансов — кнопка во всю ширину стола (#142): касание раскрывает список столбиком и сворачивает.
+   Вид — как у подписи стола; раскрытый список сдвигает столы ниже, карты и места те же */
+.casino-odds-toggle {
+  width: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.casino-odds-toggle:disabled {
+  opacity: 1;
+  cursor: default;
+}
+
+.casino-odds-toggle .odds-name {
+  text-decoration: underline dotted;
+  text-underline-offset: 0.15em;
+}
+
+.odds-list {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.3;
+}
+
+.odds-row {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 .casino-board .card-row {
   display: flex;
   gap: 0.2rem;

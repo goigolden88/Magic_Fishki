@@ -155,4 +155,11 @@ describe('wholePercents и topOdds — строка шансов стола', ()
     expect(got.more).toBe(2)
     expect(topOdds(['a', 'b'], [0, 1])).toEqual({ top: [{ id: 'b', percent: 100 }], more: 0 })
   })
+
+  it('раскрытая строка (#142): предел — число участников, все ненулевые по убыванию', () => {
+    const names = ids(6)
+    const got = topOdds(names, [0.1, 0.31, 0, 0.22, 0.18, 0.19], names.length)
+    expect(got.top.map((e) => e.id)).toEqual(['p1', 'p3', 'p5', 'p4', 'p0'])
+    expect(got.more).toBe(0)
+  })
 })
