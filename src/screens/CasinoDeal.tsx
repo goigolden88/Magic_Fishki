@@ -53,12 +53,13 @@ import { formatNumber, formatRub, parseChips, pluralForm } from '../calc/format'
 import { addCasino } from '../calc/gameMode'
 import { allPicked, toggleAll } from '../calc/pick'
 import { lookClass, type Look } from '../calc/pokerLook'
-import type { Game } from '../model'
+import { SAME_NAME, withGuest, type Game } from '../model'
 import type { Card } from '../poker/cards'
 import { getGame, getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 import { loadAutoOpen, loadLook, loadStake, saveAutoOpen, saveLook, saveStake } from './casinoStake'
 import { playFlights, useLandOnHide } from './cardFly'
+import { GuestField } from './GuestField'
 import { LookFields } from './LookFields'
 import { PlayingCard } from './PokerRoom'
 import { loadCardAnim } from './pokerStorage'
@@ -83,6 +84,7 @@ type Dealt = { deal: Deal; results: BoardResult[]; stake: number; fly: Flight[] 
 export function CasinoDealScreen({ id }: { id: string }) {
   const [game, setGame] = useState<Game | null | undefined>(undefined)
   const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [full, setFull] = useState(false) // гость добавлен в игру, но не отмечен: за столом уже предел
   const [stakeText, setStakeText] = useState(() => String((loadStake() ?? DEFAULT_STAKE) / 100))
   const [kind, setKind] = useState<DealKind>('holdem')
   const [tables, setTables] = useState(DEFAULT_TABLES)
@@ -260,6 +262,37 @@ export function CasinoDealScreen({ id }: { id: string }) {
     if (next.has(playerId)) next.delete(playerId)
     else next.add(playerId)
     setPicked(next)
+    setFull(false)
+  }
+
+  // Гость за столом (Р-44): сразу участник игры — игра перечитывается и сохраняется, как перед записью
+  // раунда; отмечен в раунд, если за столом есть место, иначе — прежняя подсказка о пределе
+  async function addGuest(guest: string) {
+    setBusy(true)
+    try {
+      const fresh = await getGame(id)
+      if (!fresh || fresh.closed) {
+        setError('Игра закрыта — гость не добавлен')
+        return
+      }
+      const { players: regulars } = await getSettings()
+      const added = withGuest(fresh.players, guest, regulars, ulid())
+      if (!added) {
+        setError(SAME_NAME)
+        return
+      }
+      const next = await saveGame({ ...fresh, players: added })
+      setGame(next)
+      const newId = added[added.length - 1].id
+      const room = fresh.players.filter((p) => picked.has(p.id)).length < MAX_CASINO_SEATS
+      if (room) setPicked(new Set([...picked, newId]))
+      setFull(!room)
+      setError(null)
+    } catch {
+      setError('Не удалось добавить гостя — попробуйте ещё раз')
+    } finally {
+      setBusy(false)
+    }
   }
 
   function changeLook(l: Partial<Look>) {
@@ -335,7 +368,10 @@ export function CasinoDealScreen({ id }: { id: string }) {
             <button
               type="button"
               className="big wide"
-              onClick={() => setPicked(toggleAll(game.players.map((p) => p.id), picked))}
+              onClick={() => {
+                setPicked(toggleAll(game.players.map((p) => p.id), picked))
+                setFull(false)
+              }}
             >
               {allPicked(game.players.map((p) => p.id), picked) ? 'Снять все' : 'Выбрать всех'}
             </button>
@@ -345,7 +381,11 @@ export function CasinoDealScreen({ id }: { id: string }) {
                 {p.name}
               </label>
             ))}
-            {!fits && <p className="warn">{TOO_MANY}</p>}
+            {(!fits || full) && <p className="warn">{TOO_MANY}</p>}
+            {/* Р-44: гость — сразу участник игры; во время незаписанного раунда — нет */}
+            {!pending && (
+              <GuestField taken={game.players.map((p) => p.name)} onAdd={(g) => void addGuest(g)} />
+            )}
           </fieldset>
 
           <label className="field">

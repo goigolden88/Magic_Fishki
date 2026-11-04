@@ -4,17 +4,19 @@ import { createGame, type Game, type Regular } from '../model'
 import { formatDate, today } from '../dates'
 import { getSettings, listGames, saveGame } from '../store/db'
 import { ulid } from '../ulid'
+import { GuestField, GuestList } from './GuestField'
 import { openGameYear } from './openYears'
 
 const dealHash = (id: string) => `#/game/${encodeURIComponent(id)}/deal`
 
 // «Играть» → «Казино» (#129): куда писать раунды — открытая игра или новая «только казино»
-// из отмеченных постоянных (Р-29; гости — именами в раунде, Р-13). Дальше — казино-стол игры
+// из отмеченных постоянных и гостей по имени (Р-29, Р-44). Дальше — казино-стол игры
 export function CasinoPickCard({ onCancel }: { onCancel: () => void }) {
   const [games, setGames] = useState<Game[] | null>(null)
   const [regulars, setRegulars] = useState<Regular[]>([])
   const [rate, setRate] = useState(0)
   const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [guests, setGuests] = useState<string[]>([]) // гости по имени (Р-44)
   const [creating, setCreating] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -34,6 +36,8 @@ export function CasinoPickCard({ onCancel }: { onCancel: () => void }) {
     setPicked(next)
   }
 
+  const pickedRegulars = regulars.filter((r) => picked.has(r.id))
+
   async function start() {
     setBusy(true)
     try {
@@ -43,7 +47,9 @@ export function CasinoPickCard({ onCancel }: { onCancel: () => void }) {
           name: formatDate(date),
           date,
           rate,
-          players: regulars.filter((r) => picked.has(r.id)),
+          players: pickedRegulars,
+          guests,
+          regulars,
           buyin: null,
           mode: 'casino',
           now: new Date().toISOString(),
@@ -66,8 +72,8 @@ export function CasinoPickCard({ onCancel }: { onCancel: () => void }) {
     return (
       <section className="card">
         <h2>Новая игра — только казино</h2>
-        <p className="muted">Сегодняшняя дата, без курса и закупа. Гостя можно добавить на экране игры.</p>
-        {regulars.length > 0 ? (
+        <p className="muted">Сегодняшняя дата, без курса и закупа.</p>
+        {regulars.length > 0 && (
           <fieldset className="players-pick">
             <legend className="muted">
               Участники: {picked.size} из {regulars.length}
@@ -82,9 +88,13 @@ export function CasinoPickCard({ onCancel }: { onCancel: () => void }) {
               </label>
             ))}
           </fieldset>
-        ) : (
-          <p className="muted">Постоянных игроков нет — добавьте их в «Настройках» или участников на экране игры.</p>
         )}
+        {/* Р-44: гости — прямо здесь, и когда постоянных нет совсем */}
+        <GuestList guests={guests} onRemove={(i) => setGuests(guests.filter((_, k) => k !== i))} />
+        <GuestField
+          taken={[...pickedRegulars.map((r) => r.name), ...guests]}
+          onAdd={(name) => setGuests([...guests, name])}
+        />
         {error && <p className="warn">{error}</p>}
         <div className="row">
           <button type="button" className="big primary grow" disabled={busy} onClick={() => void start()}>

@@ -1,7 +1,7 @@
 import 'fake-indexeddb/auto'
 import { describe, expect, it } from 'vitest'
 import { demoGames } from '../calc/demo'
-import { createGame, playerByName, type NewGame, type Regular, type Settings } from '../model'
+import { createGame, playerByName, withGuest, type NewGame, type Regular, type Settings } from '../model'
 import { ulid } from '../ulid'
 import {
   deleteDemoGames,
@@ -83,6 +83,47 @@ describe('участник и постоянный игрок (Р-12)', () => {
     expect(playerByName('Ира', list, 'p2')).toEqual({ id: 'p2', name: 'Ира' })
     expect(playerByName('боря', list, 'p3')).toEqual({ id: 'p3', name: 'боря' })
     expect(playerByName('Аня', [], 'p4')).toEqual({ id: 'p4', name: 'Аня' })
+  })
+})
+
+describe('новая игра из постоянных и гостей (Р-44)', () => {
+  const all = regulars(['Аня', 'Боря', 'Вера'])
+
+  it('гости — за отмеченными постоянными, без связи; совпавшее имя постоянного — со связью', () => {
+    const game = createGame(
+      input({ players: [all[0]], guests: ['Ира', 'Вера'], regulars: all }),
+      counter(),
+    )
+    expect(game.players).toEqual([
+      { id: 'id2', name: 'Аня', regularId: 'r-Аня' },
+      { id: 'id3', name: 'Ира' },
+      { id: 'id4', name: 'Вера', regularId: 'r-Вера' },
+    ])
+  })
+
+  it('повтор имени — отказ: гость с именем отмеченного или другого гостя не добавляется', () => {
+    const game = createGame(input({ players: [all[0]], guests: ['Аня', 'Ира', 'Ира'], regulars: all }), counter())
+    expect(game.players.map((p) => p.name)).toEqual(['Аня', 'Ира'])
+  })
+
+  it('постоянных нет — игра только из гостей; закуп пишется и гостям', () => {
+    const game = createGame(input({ guests: ['Ира', 'Олег'], buyin: 1000 }), counter())
+    expect(game.players).toEqual([
+      { id: 'id2', name: 'Ира' },
+      { id: 'id3', name: 'Олег' },
+    ])
+    expect(game.entries.map((e) => [e.playerId, e.chips])).toEqual([
+      ['id2', 1000],
+      ['id3', 1000],
+    ])
+  })
+
+  it('гость к участникам игры: пустое имя и повтор — отказ, имя обрезается', () => {
+    const players = [{ id: 'p1', name: 'Аня', regularId: 'r-Аня' }]
+    expect(withGuest(players, '  Ира ', all, 'p2')).toEqual([...players, { id: 'p2', name: 'Ира' }])
+    expect(withGuest(players, 'Боря', all, 'p2')).toEqual([...players, { id: 'p2', name: 'Боря', regularId: 'r-Боря' }])
+    expect(withGuest(players, 'Аня', all, 'p2')).toBeNull()
+    expect(withGuest(players, '   ', all, 'p2')).toBeNull()
   })
 })
 
