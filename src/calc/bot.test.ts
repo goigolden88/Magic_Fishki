@@ -5,7 +5,9 @@ import { handScore } from './allInOdds'
 import { PROTOCOL_VERSION } from '../poker/protocol'
 import { createTable, handle, viewFor, type Result, type TableState } from '../poker/table'
 import type { RandomBytes } from '../poker/tokens'
-import { botMove, LEVEL_STYLES, pickStyles, preflopStrength, seededRandom, type BotStyle, type Random } from './bot'
+import { botMove, LEVEL_STYLES, pickStyles, preflopStrength, PUSH_FOLD_BB, seededRandom, type BotStyle, type Random } from './bot'
+import { COMBOS } from './botRanges'
+import { bluffShare, boardInfo, quantiles, rangeOf, readHand } from './botRead'
 import { toActId } from './localTable'
 
 const LEVELS: BotStyle[] = LEVEL_STYLES.mixed
@@ -33,14 +35,15 @@ function table(n: number, stack = 1000): TableState {
 
 const start = (t: TableState, deck: Card[]) => ok(handle(t, 'p0', { v: PROTOCOL_VERSION, type: 'start' }, 0, deck))
 
-// Колода, где у мест заданные карты (первая раздача: кнопка — место 0, сдача по кругу с места 1)
-function riggedDeck(n: number, holes: Record<number, [Card, Card]>): Card[] {
+// Колода, где у мест заданные карты (первая раздача: кнопка — место 0, сдача по кругу с места 1) и общие
+function riggedDeck(n: number, holes: Record<number, [Card, Card]>, board: Card[] = []): Card[] {
   const deck: (Card | null)[] = Array(52).fill(null)
   for (const [seat, cards] of Object.entries(holes)) {
     const p = (Number(seat) - 1 + n) % n
     deck[p] = cards[0]
     deck[n + p] = cards[1]
   }
+  board.forEach((c, i) => (deck[2 * n + i] = c))
   const used = new Set(deck.filter((c) => c !== null))
   const rest = buildDeck(HOLDEM).filter((c) => !used.has(c))
   return deck.map((c) => c ?? (rest.shift() as Card))
@@ -154,6 +157,133 @@ describe('бот покера', () => {
       Array.from({ length: 100 }, (_, i) => botMove(viewFor(j8, 'p3'), 'p3', style, seededRandom(i))).filter((m) => m?.type !== 'fold').length
     expect(enters('maniac')).toBeGreaterThan(90)
     expect(enters('tag')).toBe(0)
+  })
+
+  // Хедз-ап: p0 — кнопка и малый блайнд (ходит первым до флопа), p1 — большой. p0 открывает до 25, p1 уравнивает,
+  // флоп и тёрн — чек-чек, на ривере p1 чек, p0 ставит банк (50 в 50). Ход p1: колл или пас
+  const BOARD: Card[] = ['Kd', '8s', '4c', '2h', 'Jd']
+  const OPP: [Card, Card] = ['Ah', 'Qc']
+  function riverSpot(hole: [Card, Card]): TableState {
+    const deck = riggedDeck(2, { 0: OPP, 1: hole }, BOARD)
+    let t = start(table(2), deck)
+    const act = (id: string, action: { type: 'check' | 'call' } | { type: 'raise'; to: number }) => {
+      t = ok(handle(t, id, { v: PROTOCOL_VERSION, type: 'act', action }, 0))
+    }
+    act('p0', { type: 'raise', to: 25 })
+    act('p1', { type: 'call' })
+    for (let k = 0; k < 2; k++) {
+      act('p1', { type: 'check' })
+      act('p0', { type: 'check' })
+    }
+    act('p1', { type: 'check' })
+    act('p0', { type: 'raise', to: 50 })
+    return t
+  }
+
+  it('ривер, ставка в банк: сильный уравнивает лучшей частью диапазона с частотой защиты банка, ABC пасует среднюю пару', () => {
+    const base = riverSpot(['7c', '7s'])
+    expect(toActId(base)).toBe('p1')
+    const hand = base.hand!
+    // Защита банка: 1 − ставка / (банк + ставка) = 1 − 50 / 100
+    const mdf = 1 - 50 / (50 + 50)
+    // Диапазон p1 — каким его видит соперник: защита большого блайнда, чеки на флопе, тёрне и ривере
+    const own = rangeOf(readHand(hand), 'p1', 'tag', BOARD, [...BOARD, ...OPP])
+    let total = 0
+    let called = 0
+    let checked = 0
+    for (let c = 0; c < COMBOS.length; c++) {
+      if (own[c] < 0.05) continue
+      const hole: [Card, Card] = [COMBOS[c].a, COMBOS[c].b]
+      const t = riverSpot(hole)
+      const move = botMove(viewFor(t, 'p1'), 'p1', 'tag', seededRandom(c), { p0: 'tag' })
+      total += own[c]
+      if (move?.type === 'call' || move?.type === 'raise' || move?.type === 'allin') called += own[c]
+      checked++
+    }
+    console.log(`Ривер, ставка в банк: рук в диапазоне ${checked}, уравнивает ${((100 * called) / total).toFixed(0)} % (защита банка — ${mdf * 100} %)`)
+    expect(checked).toBeGreaterThan(200)
+    // Не «пасует всё, кроме натсов»: уравнивает около половины диапазона
+    expect(called / total).toBeGreaterThan(mdf - 0.15)
+    expect(called / total).toBeLessThan(mdf + 0.2)
+
+    // Средняя пара (восьмёрки на K-8-4-2-J): ABC пасует всегда, сильный — уравнивает хоть иногда
+    const eights = riverSpot(['8h', '7h'])
+    for (let seed = 0; seed < 30; seed++) {
+      expect(botMove(viewFor(eights, 'p1'), 'p1', 'abc', seededRandom(seed), { p0: 'tag' })?.type).toBe('fold')
+    }
+    const strongCalls = Array.from({ length: 30 }, (_, seed) =>
+      botMove(viewFor(eights, 'p1'), 'p1', 'tag', seededRandom(seed), { p0: 'tag' }),
+    ).filter((m) => m?.type === 'call').length
+    expect(strongCalls).toBeGreaterThan(0)
+  })
+
+  it('чтение соперника: крупная ставка — поляризованный диапазон с долей блефов от размера, мелкая — широкий, чек — без части сильнейших', () => {
+    const t = riverSpot(['7c', '7s'])
+    const read = readHand(t.hand!)
+    const known = [...BOARD, '7c', '7s']
+    const info = boardInfo(BOARD)
+    // До ставки на ривере (ходы без последнего) и после
+    const before = rangeOf({ ...read, moves: read.moves.slice(0, -1) }, 'p0', 'tag', BOARD, known)
+    const big = rangeOf(read, 'p0', 'tag', BOARD, known)
+    const small = rangeOf({ ...read, moves: read.moves.map((m, i) => (i === read.moves.length - 1 ? { ...m, size: 0.33 } : m)) }, 'p0', 'tag', BOARD, known)
+    const parts = (w: Float64Array) => {
+      const q = quantiles(before, info)!
+      const sum = { low: 0, mid: 0, top: 0 }
+      for (const c of info.order) {
+        if (q[c] < 0.4) sum.low += w[c]
+        else if (q[c] < 0.6) sum.mid += w[c]
+        else sum.top += w[c]
+      }
+      const all = sum.low + sum.mid + sum.top
+      return { low: sum.low / all, mid: sum.mid / all, top: sum.top / all }
+    }
+    const b = parts(big)
+    const s = parts(small)
+    // Крупная: середины почти нет, блефы снизу — около доли равновесия банк / (1 + 2 банка) = 1/3
+    expect(b.mid).toBeLessThan(0.08)
+    expect(b.low).toBeGreaterThan(0.2)
+    expect(b.low).toBeLessThan(0.45)
+    expect(Math.abs(b.low - bluffShare(1, 'tag'))).toBeLessThan(0.1)
+    // Мелкая — середина остаётся
+    expect(s.mid).toBeGreaterThan(b.mid * 2)
+    // Чек: сильнейшие руки не вычеркнуты целиком
+    const flopRead = { ...read, moves: read.moves.filter((m) => m.street === 'preflop' || (m.street === 'flop' && m.type === 'check')) }
+    const pre = rangeOf({ ...read, moves: read.moves.filter((m) => m.street === 'preflop') }, 'p0', 'tag', BOARD.slice(0, 3), known)
+    const checked = rangeOf(flopRead, 'p0', 'tag', BOARD.slice(0, 3), known)
+    const flopInfo = boardInfo(BOARD.slice(0, 3))
+    const q = quantiles(pre, flopInfo)!
+    let topBefore = 0
+    let topAfter = 0
+    for (const c of flopInfo.order) {
+      if (q[c] < 0.9) continue
+      topBefore += pre[c]
+      topAfter += checked[c]
+    }
+    expect(topAfter).toBeGreaterThan(0.2 * topBefore)
+    expect(topAfter).toBeLessThan(0.7 * topBefore)
+  })
+
+  it(`короткий стек (≤ ${PUSH_FOLD_BB} ББ) — сильный играет пуш/фолд; хедз-ап — открывает шире`, () => {
+    const random = seededRandom(15)
+    for (let k = 0; k < 200; k++) {
+      let t = start(table(2 + (k % 5), 120), shuffle(deckFor(HOLDEM_GAME), bytesOf(random)))
+      const id = toActId(t) as string
+      for (const style of ['tag', 'lag'] as const) {
+        const move = botMove(viewFor(t, id), id, style, random)
+        expect(['allin', 'fold', 'check']).toContain(move?.type)
+      }
+      t = ok(handle(t, id, { v: PROTOCOL_VERSION, type: 'act', action: { type: 'allin' } }, 0))
+      const next = toActId(t)
+      if (!next) continue
+      for (const style of ['tag', 'lag'] as const) expect(['allin', 'fold', 'call']).toContain(botMove(viewFor(t, next), next, style, random)?.type)
+    }
+    // K7 разной масти: хедз-ап на кнопке — повышение, на шестерых с первой позиции — пас
+    const hu = start(table(2), riggedDeck(2, { 0: ['Kh', '7c'] }))
+    const six = start(table(6), riggedDeck(6, { 3: ['Kh', '7c'] }))
+    for (let seed = 0; seed < 20; seed++) {
+      expect(botMove(viewFor(hu, 'p0'), 'p0', 'tag', seededRandom(seed))?.type).toBe('raise')
+      expect(botMove(viewFor(six, 'p3'), 'p3', 'tag', seededRandom(seed))?.type).toBe('fold')
+    }
   })
 
   it('стили по уровню: без повтора, пока хватает, затем новый круг', () => {
