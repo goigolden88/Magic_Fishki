@@ -717,7 +717,7 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
             </button>
           ))}
         </div>
-        <p className="muted">{BOT_LEVEL_TEXT[level]}</p>
+        <p className="muted">{BOT_LEVEL_TEXT[level]} Стиль виден под именем бота.</p>
       </fieldset>
 
       <TableFields sb={[sbText, setSbText]} bb={[bbText, setBbText]} stack={[stackText, setStackText]} tournament={false} />
@@ -743,9 +743,10 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
 }
 
 const BOT_LEVEL_TEXT: Record<BotLevel, string> = {
-  novice: 'Часто уравнивает и редко пасует.',
-  amateur: 'Играет руки получше, позицию учитывает немного.',
-  strong: 'Руки — по позиции, ставки — от банка, иногда блефует.',
+  novice: 'Маньяк, колл-станция и нит вперемешку — каждый плох по-своему.',
+  amateur: 'ABC: нормальные руки по позиции, ставит с силой, на повышение без руки пасует.',
+  strong: 'ТАГ и ЛАГ: диапазоны по позиции, давят и блефуют в меру, читают ваши ставки.',
+  mixed: 'Все стили за одним столом: маньяк, колл-станция, нит, ABC, ТАГ, ЛАГ.',
 }
 
 // Стол на этом телефоне (Р-21): кто играет — постоянные и гости по имени; без пароля и сервера

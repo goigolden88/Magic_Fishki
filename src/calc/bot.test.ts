@@ -5,10 +5,11 @@ import { handScore } from './allInOdds'
 import { PROTOCOL_VERSION } from '../poker/protocol'
 import { createTable, handle, viewFor, type Result, type TableState } from '../poker/table'
 import type { RandomBytes } from '../poker/tokens'
-import { botMove, preflopStrength, seededRandom, type BotLevel, type Random } from './bot'
+import { botMove, LEVEL_STYLES, pickStyles, preflopStrength, seededRandom, type BotStyle, type Random } from './bot'
 import { toActId } from './localTable'
 
-const LEVELS: BotLevel[] = ['novice', 'amateur', 'strong']
+const LEVELS: BotStyle[] = LEVEL_STYLES.mixed
+type BotLevel = BotStyle
 
 function ok(r: Result): TableState {
   if (!r.ok) throw new Error(r.error)
@@ -109,48 +110,61 @@ describe('бот покера', () => {
       expect(a).toEqual(b)
     }
     const moves = new Set(
-      Array.from({ length: 50 }, (_, i) => JSON.stringify(botMove(viewFor(t, 'p3'), 'p3', 'novice', seededRandom(i)))),
+      Array.from({ length: 50 }, (_, i) => JSON.stringify(botMove(viewFor(t, 'p3'), 'p3', 'maniac', seededRandom(i)))),
     )
     expect(moves.size).toBeGreaterThan(1)
   })
 
   it('не его ход — null', () => {
     const t = start(table(6), riggedDeck(6, {}))
-    expect(botMove(viewFor(t, 'p4'), 'p4', 'strong', seededRandom(1))).toBeNull()
+    expect(botMove(viewFor(t, 'p4'), 'p4', 'tag', seededRandom(1))).toBeNull()
   })
 
-  it('«Сильный» с AA до флопа не пасует — первым и после повышения', () => {
-    for (let seed = 0; seed < 100; seed++) {
-      const first = start(table(6), riggedDeck(6, { 3: ['Ah', 'As'] }))
-      const move = botMove(viewFor(first, 'p3'), 'p3', 'strong', seededRandom(seed))
-      expect(move?.type).not.toBe('fold')
+  for (const style of ['tag', 'lag', 'abc', 'nit'] as const) {
+    it(`${style} с AA до флопа не пасует — первым и после повышения`, () => {
+      for (let seed = 0; seed < 100; seed++) {
+        const first = start(table(6), riggedDeck(6, { 3: ['Ah', 'As'] }))
+        const move = botMove(viewFor(first, 'p3'), 'p3', style, seededRandom(seed))
+        expect(move?.type).not.toBe('fold')
 
-      // UTG повысил до 30, CO с тузами отвечает
-      const raised = ok(
-        handle(start(table(6), riggedDeck(6, { 5: ['Ad', 'Ac'] })), 'p3', { v: PROTOCOL_VERSION, type: 'act', action: { type: 'raise', to: 30 } }, 0),
-      )
-      const r1 = ok(handle(raised, 'p4', { v: PROTOCOL_VERSION, type: 'act', action: { type: 'fold' } }, 0))
-      expect(botMove(viewFor(r1, 'p5'), 'p5', 'strong', seededRandom(seed))?.type).not.toBe('fold')
+        // UTG повысил до 30, CO с тузами отвечает
+        const raised = ok(
+          handle(start(table(6), riggedDeck(6, { 5: ['Ad', 'Ac'] })), 'p3', { v: PROTOCOL_VERSION, type: 'act', action: { type: 'raise', to: 30 } }, 0),
+        )
+        const r1 = ok(handle(raised, 'p4', { v: PROTOCOL_VERSION, type: 'act', action: { type: 'fold' } }, 0))
+        expect(botMove(viewFor(r1, 'p5'), 'p5', style, seededRandom(seed))?.type).not.toBe('fold')
 
-      // Олл-ин перед ним больше его стека — колл
-      const shove = ok(
-        handle(start(table(6), riggedDeck(6, { 5: ['Ad', 'Ac'] })), 'p3', { v: PROTOCOL_VERSION, type: 'act', action: { type: 'allin' } }, 0),
-      )
-      const r2 = ok(handle(shove, 'p4', { v: PROTOCOL_VERSION, type: 'act', action: { type: 'fold' } }, 0))
-      expect(botMove(viewFor(r2, 'p5'), 'p5', 'strong', seededRandom(seed))?.type).not.toBe('fold')
+        // Олл-ин перед ним больше его стека — колл
+        const shove = ok(
+          handle(start(table(6), riggedDeck(6, { 5: ['Ad', 'Ac'] })), 'p3', { v: PROTOCOL_VERSION, type: 'act', action: { type: 'allin' } }, 0),
+        )
+        const r2 = ok(handle(shove, 'p4', { v: PROTOCOL_VERSION, type: 'act', action: { type: 'fold' } }, 0))
+        expect(botMove(viewFor(r2, 'p5'), 'p5', style, seededRandom(seed))?.type).not.toBe('fold')
+      }
+    })
+  }
+
+  it('с 72 разной масти на ранней позиции ТАГ, ЛАГ, нит и ABC пасуют всегда; с J8 разной масти маньяк входит, ТАГ — нет', () => {
+    const fold72 = start(table(6), riggedDeck(6, { 3: ['7h', '2c'] }))
+    for (const style of ['tag', 'lag', 'nit', 'abc'] as const) {
+      for (let i = 0; i < 50; i++) expect(botMove(viewFor(fold72, 'p3'), 'p3', style, seededRandom(i))?.type).toBe('fold')
     }
+    const j8 = start(table(6), riggedDeck(6, { 3: ['Jh', '8c'] }))
+    const enters = (style: BotStyle) =>
+      Array.from({ length: 100 }, (_, i) => botMove(viewFor(j8, 'p3'), 'p3', style, seededRandom(i))).filter((m) => m?.type !== 'fold').length
+    expect(enters('maniac')).toBeGreaterThan(90)
+    expect(enters('tag')).toBe(0)
   })
 
-  it('с 72 разной масти на ранней позиции «Сильный» пасует чаще «Новичка»', () => {
-    const t = start(table(6), riggedDeck(6, { 3: ['7h', '2c'] }))
-    const folds = (level: BotLevel) =>
-      Array.from({ length: 200 }, (_, i) => botMove(viewFor(t, 'p3'), 'p3', level, seededRandom(i))).filter((m) => m?.type === 'fold')
-        .length
-    const strong = folds('strong')
-    const novice = folds('novice')
-    expect(strong).toBeGreaterThan(novice)
-    expect(strong).toBeGreaterThan(180) // почти всегда
-    expect(novice).toBeLessThan(100) // редко
+  it('стили по уровню: без повтора, пока хватает, затем новый круг', () => {
+    const random = seededRandom(4)
+    expect(new Set(pickStyles('mixed', 5, random)).size).toBe(5)
+    expect(new Set(pickStyles('mixed', 6, random)).size).toBe(6)
+    const novice = pickStyles('novice', 5, random)
+    expect(new Set(novice.slice(0, 3)).size).toBe(3)
+    expect(novice.every((s) => LEVEL_STYLES.novice.includes(s))).toBe(true)
+    expect(pickStyles('amateur', 3, random)).toEqual(['abc', 'abc', 'abc'])
+    expect(pickStyles('strong', 2, random).sort()).toEqual(['lag', 'tag'])
   })
 
   it('быстрый счёт руки для досдач — тот же порядок, что у bestHand (холдем, омаха, шорт-дек)', () => {

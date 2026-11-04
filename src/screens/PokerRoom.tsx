@@ -992,6 +992,7 @@ function SeatSpot(props: {
         {s.name}
         {s.isMe && <span className="visually-hidden"> (вы)</span>}
       </span>
+      {s.tag && <span className="seat-tag">{s.tag}</span>}
       <span className="seat-chips">{formatNumber(s.chips)}</span>
       {s.hud && <HudLine hud={s.hud} onOpen={onHud} />}
       {myCards ? (

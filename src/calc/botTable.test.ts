@@ -45,7 +45,7 @@ const start = (form: Partial<BotForm> = {}) => ok(startBotTable({ ...FORM, ...fo
 // Мой ход — тоже решением бота «Любитель», по моему виду стола
 function play(bt: BotTable, random: Random): BotTable {
   if (botToAct(bt)) return ok(botStep(bt, 0, random))
-  const move = botMove(viewFor(bt.table, bt.meId), bt.meId, 'amateur', random)
+  const move = botMove(viewFor(bt.table, bt.meId), bt.meId, 'abc', random)
   if (!move) throw new Error('нет хода')
   return ok(myMove(bt, move, 0))
 }
@@ -68,6 +68,44 @@ describe('стол против ботов', () => {
     expect(t.settings.format ?? 'cash').toBe('cash')
     expect([bt.level, bt.open, bt.history]).toEqual(['amateur', false, []])
     expect(bt.id).not.toBe(bt.meId)
+    expect(Object.values(bt.styles)).toEqual(['abc', 'abc', 'abc'])
+  })
+
+  it('стиль у каждого бота — по уровню, «Вперемешку» — без повтора; виден подписью под именем', () => {
+    const counts = { novice: ['maniac', 'station', 'nit'], strong: ['tag', 'lag'], mixed: ['maniac', 'station', 'nit', 'abc', 'tag', 'lag'] }
+    for (const [level, allowed] of Object.entries(counts)) {
+      const bt = ok(startBotTable({ ...FORM, level: level as BotForm['level'], bots: BOTS_MAX }, 0, counter(), seededRandom(7)))
+      const bots = bt.table.players.filter((p) => p.id !== bt.meId)
+      const styles = bots.map((p) => bt.styles[p.id])
+      expect(styles.every((s) => allowed.includes(s))).toBe(true)
+      // Без повтора, пока стилей хватает
+      expect(new Set(styles).size).toBe(Math.min(allowed.length, BOTS_MAX))
+    }
+    const bt = ok(startBotTable({ ...FORM, level: 'strong', bots: 2 }, 0, counter(), seededRandom(1)))
+    const v = botTableView(bt, 0)
+    expect(v.seats.find((s) => s.isMe)?.tag).toBeUndefined()
+    expect(v.seats.filter((s) => !s.isMe).map((s) => s.tag).sort()).toEqual(['ЛАГ', 'ТАГ'])
+    expect(v.seats[1].name).toBe('Бот Север')
+  })
+
+  it('старый стол против ботов, сохранённый до стилей, открывается: стили — по его уровню, всякий раз те же', () => {
+    const bt = ok(dealBotHand(start({ level: 'novice', bots: BOTS_MAX }), 0, bytesOf(seededRandom(5))))
+    const { styles: _, ...old } = bt
+    const text = JSON.stringify(old)
+    const a = parseBotTable(text)!
+    expect(a).not.toBeNull()
+    expect(a.table).toEqual(bt.table)
+    const styles = bt.table.players.filter((p) => p.id !== bt.meId).map((p) => a.styles[p.id])
+    expect(styles.every((s) => ['maniac', 'station', 'nit'].includes(s))).toBe(true)
+    expect(new Set(styles.slice(0, 3)).size).toBe(3)
+    expect(parseBotTable(text)!.styles).toEqual(a.styles)
+    // Стиль не из списка — тоже по уровню
+    const odd = parseBotTable(JSON.stringify({ ...bt, styles: { [bt.table.players[1].id]: 'гуру' } }))!
+    expect(Object.keys(odd.styles)).toHaveLength(BOTS_MAX)
+    // И играет дальше
+    let t = a
+    while (t.table.hand) t = play(t, seededRandom(9))
+    expect(t.history).toHaveLength(1)
   })
 
   it(`ботов — от ${BOTS_MIN} до ${BOTS_MAX}`, () => {
@@ -123,7 +161,7 @@ describe('стол против ботов', () => {
 
   it('сотня раздач до конца без ошибок: фишки сходятся, история — каждая раздача', () => {
     const random = seededRandom(117)
-    for (const level of ['novice', 'amateur', 'strong'] as const) {
+    for (const level of ['novice', 'amateur', 'strong', 'mixed'] as const) {
       let bt = start({ level, bots: BOTS_MAX })
       for (let k = 0; k < 100; k++) {
         if (iAmBroke(bt)) bt = ok(myRebuy(bt, 0))
