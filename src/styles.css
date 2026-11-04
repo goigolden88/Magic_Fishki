@@ -1343,6 +1343,20 @@ button.seat.free {
   width: 100%;
 }
 
+/* Ожидаемый итог раунда у места (#137) — на строке подписи руки, место того же размера */
+.casino-seat .seat-net {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.casino-seat .seat-net.plus {
+  color: var(--green);
+}
+
+.casino-seat .seat-net.minus {
+  color: var(--red);
+}
+
 .casino-seat.winner {
   border-color: var(--gold);
   box-shadow: 0 0 0 3px rgba(231, 184, 74, 0.35);
@@ -1395,6 +1409,42 @@ button.seat.free {
   text-overflow: ellipsis;
   white-space: nowrap;
   line-height: 1.2;
+}
+
+/* Шансы стола (#137): та же одна строка подписи — высота стола та же. Не входит — сжимаются имена
+   (многоточием), проценты и «ещё N» видны всегда */
+.casino-board-line.casino-odds {
+  display: flex;
+  justify-content: center;
+  gap: 0.4em;
+  font-size: 0.72rem;
+  line-height: 0.96rem; /* как у подписи стола: 1,2 × 0,8rem */
+}
+
+.odds-item {
+  display: flex;
+  gap: 0.2em;
+  min-width: 0;
+}
+
+.odds-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.odds-pct,
+.odds-more {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.odds-pct {
+  color: var(--gold);
+}
+
+.odds-more {
+  color: var(--muted);
 }
 
 .casino-board .card-row {

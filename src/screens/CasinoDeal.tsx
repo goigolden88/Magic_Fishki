@@ -49,6 +49,7 @@ import {
   type DealKind,
 } from '../calc/casinoDeal'
 import { casinoLayout, MAX_CASINO_SEATS, type CasinoLayout } from '../calc/casinoLayout'
+import { topOdds, type CasinoOdds } from '../calc/casinoOdds'
 import { formatNumber, formatRub, parseChips, pluralForm } from '../calc/format'
 import { addCasino } from '../calc/gameMode'
 import { allPicked, toggleAll } from '../calc/pick'
@@ -57,7 +58,8 @@ import { SAME_NAME, withGuest, type Game } from '../model'
 import type { Card } from '../poker/cards'
 import { getGame, getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
-import { loadAutoOpen, loadLook, loadStake, saveAutoOpen, saveLook, saveStake } from './casinoStake'
+import { useCasinoOdds } from './casinoOddsClient'
+import { loadAutoOpen, loadLook, loadOdds, loadStake, saveAutoOpen, saveLook, saveOdds, saveStake } from './casinoStake'
 import { playFlights, useLandOnHide } from './cardFly'
 import { GuestField } from './GuestField'
 import { LookFields } from './LookFields'
@@ -91,6 +93,7 @@ export function CasinoDealScreen({ id }: { id: string }) {
   const [look, setLook] = useState<Look>(loadLook)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [autoOpen, setAutoOpen] = useState(loadAutoOpen) // «Открывать столы сами», секунд; 0 — «Нет» (#134)
+  const [showOdds, setShowOdds] = useState(loadOdds) // «Шансы» (#137)
   const [dealt, setDealt] = useState<Dealt | null>(null)
   const [reveal, setReveal] = useState<Reveal | null>(null) // сколько столов открыто и отсчёт до следующего
   const [now, setNow] = useState(() => Date.now()) // часы экрана: по ним переворот карт и отсчёт
@@ -141,6 +144,14 @@ export function CasinoDealScreen({ id }: { id: string }) {
   // Раунд кончен: записан или все при своих — писать нечего, уйти можно без вопроса
   const finished = recorded || (allOpen && even)
   const pending = dealt !== null && !finished
+
+  // Открытие столов: сколько открыто, сколько карт лицом у последнего, переворачивается ли он
+  const opened = reveal?.opened ?? 0
+  const shown = reveal ? cardsShown(reveal, now) : 0
+  const flipping = reveal !== null && turning(reveal, now)
+  // Шансы (#137): видимые карты столов — открытые целиком, открывающийся — сколько лицом, остальные рубашкой
+  const visible = dealt ? dealt.deal.boards.map((_, i) => (i < opened - 1 ? BOARD_CARDS : i === opened - 1 ? shown : 0)) : []
+  const odds = useCasinoOdds(showOdds && dealt ? dealt.deal : null, dealt?.stake ?? 0, visible)
 
   // «Бросить раунд?» — пока вопрос, отсчёт стоит; остались — идёт с того же места
   function abandon(): boolean {
@@ -308,6 +319,11 @@ export function CasinoDealScreen({ id }: { id: string }) {
     act((r, t) => revealEvery(r, seconds > 0 ? seconds * 1000 : null, t))
   }
 
+  function changeOdds(on: boolean) {
+    setShowOdds(on)
+    saveOdds(on)
+  }
+
   // «Раздать» из настроек или снизу: идёт незаписанный раунд — сначала вопрос
   function deal(e?: FormEvent) {
     e?.preventDefault()
@@ -332,10 +348,6 @@ export function CasinoDealScreen({ id }: { id: string }) {
     .filter(Boolean)
     .join(' · ')
 
-  // Открытие столов: сколько открыто, сколько карт лицом у последнего, переворачивается ли он
-  const opened = reveal?.opened ?? 0
-  const shown = reveal ? cardsShown(reveal, now) : 0
-  const flipping = reveal !== null && turning(reveal, now)
   const counting = reveal !== null && reveal.every !== null && reveal.opened < reveal.total
   const autoLine = !reveal
     ? ''
@@ -483,6 +495,29 @@ export function CasinoDealScreen({ id }: { id: string }) {
             </p>
           </fieldset>
 
+          {/* Шансы победы (#137): помнится на этом устройстве */}
+          <fieldset className="players-pick">
+            <legend className="muted">Шансы</legend>
+            <div className="row">
+              {[true, false].map((on) => (
+                <button
+                  key={String(on)}
+                  type="button"
+                  className={showOdds === on ? 'big primary grow' : 'big grow'}
+                  aria-pressed={showOdds === on}
+                  onClick={() => changeOdds(on)}
+                >
+                  {on ? 'Да' : 'Нет'}
+                </button>
+              ))}
+            </div>
+            <p className="muted">
+              {showOdds
+                ? 'Под каждым столом — шансы победы, у мест — ожидаемый итог раунда; пересчёт после каждой открытой карты'
+                : 'Только карты и победители столов'}
+            </p>
+          </fieldset>
+
           {/* Вид стола — как у покерного (#77): помнится на этом устройстве */}
           <LookFields look={look} backs onChange={changeLook} />
 
@@ -499,7 +534,15 @@ export function CasinoDealScreen({ id }: { id: string }) {
       )}
 
       {dealt ? (
-        <CasinoTable dealt={dealt} opened={opened} shown={shown} flipping={flipping} nameById={nameById} look={look} />
+        <CasinoTable
+          dealt={dealt}
+          opened={opened}
+          shown={shown}
+          flipping={flipping}
+          odds={odds}
+          nameById={nameById}
+          look={look}
+        />
       ) : (
         ready &&
         stake !== null && <EmptyTable kind={kind} ids={ids} tables={count} stake={stake} nameById={nameById} look={look} />
@@ -590,8 +633,11 @@ function layoutStyle(l: CasinoLayout): CSSProperties {
   } as CSSProperties
 }
 
-type SeatData = { id: string; name: string; cards: (Card | null)[]; win: string | null }
-// turn — стол открывается: карты лицом по одной (#134), победителя ещё не видно
+// net — шансы включены (#137): ожидаемый итог раунда, копеек; exact — все столы открыты, итог точный
+type SeatData = { id: string; name: string; cards: (Card | null)[]; win: string | null; net?: number; exact?: boolean }
+type Chance = { name: string; percent: number }
+// turn — стол открывается: карты лицом по одной (#134), победителя ещё не видно.
+// chances — шансы стола вместо подписи под картами, пока он не открыт целиком (#137); more — «ещё N»
 type BoardData = {
   cards: (Card | null)[]
   part: number
@@ -600,6 +646,7 @@ type BoardData = {
   last: boolean
   foot: string
   win: Card[]
+  chances?: { top: Chance[]; more: number }
 }
 
 // Сукно с рядами мест над и под колонкой столов (casinoLayout): места по часовой от верхнего левого.
@@ -638,7 +685,7 @@ function Felt(props: { layout: CasinoLayout; seats: SeatData[]; boards: BoardDat
                 <PlayingCard key={k} card={c} mark={b.open && c ? (b.win.includes(c) ? 'win' : 'dim') : undefined} />
               ))}
             </div>
-            <div className="casino-board-line">{b.foot}</div>
+            {b.chances ? <ChanceLine {...b.chances} /> : <div className="casino-board-line">{b.foot}</div>}
           </section>
         ))}
       </div>
@@ -647,9 +694,28 @@ function Felt(props: { layout: CasinoLayout; seats: SeatData[]; boards: BoardDat
   )
 }
 
+// Строка шансов стола (#137): одна строка подписи — имена сжимаются многоточием, проценты и «ещё N» — нет
+function ChanceLine({ top, more }: { top: Chance[]; more: number }) {
+  return (
+    <div className="casino-board-line casino-odds" aria-label="Шансы стола">
+      {top.map((c, i) => (
+        <span key={i} className="odds-item">
+          <span className="odds-name">{c.name}</span>
+          <span className="odds-pct">{`${c.percent} %`}</span>
+        </span>
+      ))}
+      {more > 0 && <span className="odds-more">ещё {more}</span>}
+      {top.length === 0 && ' '}
+    </div>
+  )
+}
+
 // Место: имя, карты лицом; победитель последнего открытого стола — рамка и подпись руки.
-// index — номер места по часовой: по нему карты места в анимации раздачи
+// С шансами (#137) вместо подписи руки — ожидаемый итог раунда («≈ +45 ₽»), рука — в подсказке; все столы
+// открыты — итог точный, как в «Итоге раунда». index — номер места по часовой: по нему карты места в анимации раздачи
 function Seat({ seat, index }: { seat: SeatData; index: number }) {
+  const net = seat.net
+  const estimate = net === undefined ? 0 : seat.exact ? net : Math.round(net / 100) * 100
   return (
     <div className={seat.win ? 'casino-seat winner' : 'casino-seat'}>
       <span className="seat-name">{seat.name}</span>
@@ -658,9 +724,18 @@ function Seat({ seat, index }: { seat: SeatData; index: number }) {
           <PlayingCard key={i} card={c} fly={flyKey(seatGroup(index), i)} />
         ))}
       </span>
-      <span className="seat-mark" title={seat.win ?? undefined}>
-        {seat.win ?? ' '}
-      </span>
+      {net === undefined ? (
+        <span className="seat-mark" title={seat.win ?? undefined}>
+          {seat.win ?? ' '}
+        </span>
+      ) : (
+        <span
+          className={'seat-mark seat-net ' + (estimate > 0 ? 'plus' : estimate < 0 ? 'minus' : '')}
+          title={seat.win ?? undefined}
+        >
+          {(seat.exact ? '' : '≈ ') + formatRub(estimate, true)}
+        </span>
+      )}
     </div>
   )
 }
@@ -701,24 +776,31 @@ function CasinoTable(props: {
   opened: number
   shown: number
   flipping: boolean
+  odds: CasinoOdds | null // шансы выключены или ещё не посчитаны — null (#137)
   nameById: Map<string, string>
   look: Look
 }) {
-  const { dealt, opened, shown, flipping, nameById, look } = props
+  const { dealt, opened, shown, flipping, odds, nameById, look } = props
   const { deal, results, stake, fly } = dealt
   const name = (pid: string) => nameById.get(pid) ?? '?'
   const parts = tableParts(stake * deal.ids.length, deal.boards.length)
   const current = opened > 0 && !flipping ? results[opened - 1] : null
+  const exact = opened >= deal.boards.length && !flipping
+  const chancesOf = (t: number) => {
+    const { top, more } = topOdds(deal.ids, odds?.boards[t] ?? [])
+    return { top: top.map((c) => ({ name: name(c.id), percent: c.percent })), more }
+  }
   return (
     <Felt
       layout={casinoLayout(deal.kind, deal.ids.length, deal.boards.length)}
       look={look}
       fly={fly}
-      seats={deal.ids.map((pid) => ({
+      seats={deal.ids.map((pid, p) => ({
         id: pid,
         name: name(pid),
         cards: deal.hands[pid],
         win: current?.winners.includes(pid) ? current.hand : null,
+        ...(odds && { net: odds.net[p], exact }),
       }))}
       boards={deal.boards.map((board, i) => {
         const turn = flipping && i === opened - 1
@@ -732,6 +814,7 @@ function CasinoTable(props: {
           last: open && i === opened - 1,
           foot: !open ? ' ' : r.winners.length > 1 ? 'Ничья, поровну' : `${name(r.winners[0])} · ${r.hand}`,
           win: open ? r.winners.flatMap((pid) => r.best[pid]) : [],
+          ...(odds && !open && { chances: chancesOf(i) }),
         }
       })}
     />

@@ -157,8 +157,16 @@ export function handScore(variant: Variant, hand: Card[], board: Card[]): number
 }
 
 // Доли основного банка при досдаче стола до boardSize карт: у каждой руки, сумма — 1.
-// dead — известные карты вне игры (открытые у сбросивших). Карты неверные или повторяются — null
-export function equity(variant: Variant, hands: Card[][], board: Card[], boardSize: number, dead: Card[] = []): number[] | null {
+// dead — известные карты вне игры (открытые у сбросивших). Карты неверные или повторяются — null.
+// samples — досдач не больше — полный перебор, больше — выборка этого размера (казино-стол — своя, #137)
+export function equity(
+  variant: Variant,
+  hands: Card[][],
+  board: Card[],
+  boardSize: number,
+  dead: Card[] = [],
+  samples = SAMPLES,
+): number[] | null {
   const deck = buildDeck(variant)
   const known = [...board, ...hands.flat(), ...dead]
   if (new Set(known).size !== known.length || !known.every((c) => deck.includes(c))) return null
@@ -212,7 +220,7 @@ export function equity(variant: Variant, hands: Card[][], board: Card[], boardSi
   if (need > rest.length) return null
   const total = binomial(rest.length, need)
   let runs = 0
-  if (total <= SAMPLES) {
+  if (total <= samples) {
     // Полный перебор досдач: номера карт остатка по возрастанию
     const idx = range(0, need)
     for (;;) {
@@ -228,7 +236,7 @@ export function equity(variant: Variant, hands: Card[][], board: Card[], boardSi
   } else {
     // Выборка: частичное тасование остатка на каждую досдачу
     const next = random(hash(`${variant.deck}|${variant.fromHand}|${board.join('')}|${hands.map((h) => h.join('')).join('|')}`))
-    for (; runs < SAMPLES; runs++) {
+    for (; runs < samples; runs++) {
       for (let k = 0; k < need; k++) {
         const j = k + Math.floor(next() * (rest.length - k))
         const t = rest[k]
