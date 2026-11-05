@@ -28,6 +28,7 @@ export type BotTable = {
   level: BotLevel
   styles: Record<string, BotStyle> // стиль каждого бота по его id (#139); виден подписью под именем
   open: boolean // «Карты ботов открыты» — только на экране человека; ботам не виднее
+  showStyles: boolean // «Стиль ботов виден» (#145, Р-48) — подпись стиля под именем; только для экрана человека
   history: HistoryHand[] // раздачи по номерам — «История раздач»; стирается со столом
 }
 
@@ -41,7 +42,17 @@ export const BOT_GAMES: [BotGame, string][] = [
 
 export const BOT_GAME_DEFAULT: BotGame = 'holdem'
 
-export type BotForm = { bots: number; level: BotLevel; open: boolean; sb: number; bb: number; startingStack: number; game?: BotGame }
+// showStyles — «Стиль ботов виден»; не задано — виден
+export type BotForm = {
+  bots: number
+  level: BotLevel
+  open: boolean
+  showStyles?: boolean
+  sb: number
+  bb: number
+  startingStack: number
+  game?: BotGame
+}
 
 export type BotStep = { ok: true; bots: BotTable } | { ok: false; error: string }
 
@@ -62,7 +73,8 @@ export function startBotTable(form: BotForm, now: number, makeId: () => string, 
   for (let i = 0; r.ok && i < form.bots; i++) r = seatPlayer(r.state, makeId(), { name: BOT_NAMES[i], regularId: null }, now)
   if (!r.ok) return r
   const styles = stylesFor(r.state, meId, form.level, random)
-  return { ok: true, bots: { id: makeId(), table: r.state, meId, level: form.level, styles, open: form.open, history: [] } }
+  const showStyles = form.showStyles !== false
+  return { ok: true, bots: { id: makeId(), table: r.state, meId, level: form.level, styles, open: form.open, showStyles, history: [] } }
 }
 
 // Игра стола ботов — по его настройкам; стол до #147 без поля — холдем
@@ -145,17 +157,19 @@ function rebuyBots(table: TableState, meId: string, now: number): TableState {
 }
 
 // Вид стола мне: как у игрока комнаты — свои карты, у ботов рубашки. «Карты ботов открыты» — у ботов
-// в раздаче карты лицом; только для глаз, в ход бота это не идёт. Под именем бота — его стиль (tag): «ЛАГ»
+// в раздаче карты лицом; только для глаз, в ход бота это не идёт. Под именем бота — его стиль (tag): «ЛАГ»;
+// «Стиль ботов виден» снят — подписи нет (#145)
 export function botTableView(bt: BotTable, now: number): TableView {
   const base = tableView(viewFor(bt.table, bt.meId), bt.meId, now)
-  const v = { ...base, seats: base.seats.map((s) => (s.isMe ? s : { ...s, tag: styleLabel(botStyleOf(bt, s.id)) })) }
+  const tagged = (s: TableView['seats'][number]) => (s.isMe ? s : { ...s, tag: styleLabel(botStyleOf(bt, s.id)) })
+  const v = bt.showStyles ? { ...base, seats: base.seats.map(tagged) } : base
   const cards = bt.table.hand?.cards
   if (!bt.open || !cards) return v
   return { ...v, seats: v.seats.map((s) => (s.isMe || s.cards === null ? s : { ...s, cards: cards.hole[s.id] ?? s.cards })) }
 }
 
 // Стол из памяти устройства; не похоже на стол с ботами — null. Стол до #139 — без стилей (или стиль у бота
-// не из списка): стили по его уровню, всякий раз те же — случай от id стола
+// не из списка): стили по его уровню, всякий раз те же — случай от id стола. Стол до #145 — со стилем на виду
 export function parseBotTable(text: string): BotTable | null {
   const base = parseLocalTable(text)
   if (!base) return null
@@ -173,7 +187,7 @@ export function parseBotTable(text: string): BotTable | null {
   const styles = bots.every((p) => known.has(saved[p.id]))
     ? Object.fromEntries(bots.map((p) => [p.id, saved[p.id] as BotStyle]))
     : stylesFor(base.table, meId, level, seededRandom(hashOf(base.id)))
-  return { id: base.id, table: base.table, meId, level, styles, open: x.open === true, history: base.history }
+  return { id: base.id, table: base.table, meId, level, styles, open: x.open === true, showStyles: x.showStyles !== false, history: base.history }
 }
 
 function hashOf(text: string): number {
