@@ -149,9 +149,12 @@ describe('стол против ботов', () => {
     let bt = start({ bots: 1 })
     const [me, bot] = bt.table.players
     // Бот без фишек между раздачами — докуп в следующем же шаге стола
-    bt = { ...bt, table: { ...bt.table, players: [me, { ...bot, chips: 0 }] } }
+    // HUD вечера у бота после докупа — тот же (#146): соперники читают его дальше
+    const hud = { hands: 40, vpip: 10, pfr: 8, stealChances: 12, steals: 4, cbChances: 6, cbs: 4, raises: 20, calls: 10 }
+    bt = { ...bt, table: { ...bt.table, players: [me, { ...bot, chips: 0 }], hud: { [bot.id]: hud } } }
     bt = ok(myRebuy(bt, 0))
     expect(bt.table.players.map((p) => p.chips)).toEqual([2000, 1000])
+    expect(bt.table.hud?.[bot.id]).toEqual(hud)
 
     const broke = { ...bt, table: { ...bt.table, players: [{ ...bt.table.players[0], chips: 0 }, bt.table.players[1]] } }
     expect(iAmBroke(broke)).toBe(true)
