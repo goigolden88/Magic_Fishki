@@ -1,6 +1,16 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { BOT_LEVELS, type BotLevel } from '../calc/bot'
-import { BOT_GAME_DEFAULT, BOT_GAMES, BOT_LEVEL_DEFAULT, BOTS_DEFAULT, BOTS_MAX, BOTS_MIN, startBotTable, type BotGame } from '../calc/botTable'
+import {
+  BOT_AUTO_START_DEFAULT,
+  BOT_GAME_DEFAULT,
+  BOT_GAMES,
+  BOT_LEVEL_DEFAULT,
+  BOTS_DEFAULT,
+  BOTS_MAX,
+  BOTS_MIN,
+  startBotTable,
+  type BotGame,
+} from '../calc/botTable'
 import { eveningDay, eveningLine, type EveningSummary } from '../calc/evenings'
 import { parseChips } from '../calc/format'
 import { localStartError, startLocalTable } from '../calc/localTable'
@@ -23,7 +33,7 @@ import { formSettings, tournamentForm, type TournamentForm } from '../calc/tourn
 import type { Regular } from '../model'
 import type { CardsMode, Limit } from '../poker/game'
 import { PROTOCOL_VERSION, type CreateRoomRequest, type CreateRoomResponse } from '../poker/protocol'
-import { DEFAULT_SETTINGS, type Felt } from '../poker/table'
+import { DEFAULT_SETTINGS, type AutoStart, type Felt } from '../poker/table'
 import { formatDate } from '../dates'
 import type { HistoryHand } from '../poker/history'
 import { deleteEvening, eveningHands, getSettings, listEvenings } from '../store/db'
@@ -50,7 +60,7 @@ import {
   saveSeat,
   storageWorks,
 } from './pokerStorage'
-import { TimerFields, timerForm, type TimerForm } from './TimerFields'
+import { AutoStartField, TimerFields, timerForm, type TimerForm } from './TimerFields'
 import { FormatFields } from './Tournament'
 
 const GUEST = '' // «Вы за столом» — не из постоянных
@@ -655,6 +665,7 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
   const [stackText, setStackText] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [showStyles, setShowStyles] = useState(true)
+  const [autoStart, setAutoStart] = useState<AutoStart>(BOT_AUTO_START_DEFAULT)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -672,7 +683,8 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
       setError('Игра против ботов уже идёт — продолжите или закончите её')
       return
     }
-    const r = startBotTable({ bots: count, level, open, showStyles, sb, bb, startingStack: stack, game }, Date.now(), () => ulid())
+    const form = { bots: count, level, open, showStyles, sb, bb, startingStack: stack, game, autoStart }
+    const r = startBotTable(form, Date.now(), () => ulid())
     if (!r.ok) {
       setError(r.error)
       return
@@ -746,6 +758,9 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
 
       <TableFields sb={[sbText, setSbText]} bb={[bbText, setBbText]} stack={[stackText, setStackText]} tournament={false} />
       <p className="muted">Игра — {game === 'omaha' ? 'омаха, пот-лимит' : 'холдем'}, кэш. Кончились фишки у бота — он докупается сам.</p>
+
+      {/* Раздача «сама» (#156, Р-51): первая — кнопкой, дальше — через паузу */}
+      <AutoStartField value={autoStart} onChange={setAutoStart} />
 
       <label className="check">
         <input type="checkbox" checked={open} onChange={(e) => setOpen(e.target.checked)} />

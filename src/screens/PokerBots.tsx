@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { BOT_LEVELS } from '../calc/bot'
 import {
+  autoDealBotHand,
   BOT_PAUSE_MS,
+  botAutoStart,
   botGameLine,
   botGameOf,
+  botNextHandAt,
+  botPause,
   botStep,
   botTableView,
   botToAct,
@@ -11,6 +15,7 @@ import {
   iAmBroke,
   myMove,
   myRebuy,
+  resumeBotTable,
   type BotStep,
   type BotTable,
 } from '../calc/botTable'
@@ -27,10 +32,17 @@ export const BOTS_HASH = '#/poker/bots'
 
 type Apply = (make: (bots: BotTable, now: number) => BotStep) => boolean
 
+// Будильник раздачи «сама» — чуть позже срока: часы телефона не успеют раньше
+const AUTO_DEAL_SLACK_MS = 50
+
 // Против ботов (#117, Р-38): я и боты за одним столом на этом телефоне. Карты раздаёт программа, боты ходят
 // сами через паузу; правила src/poker/ — прямо здесь, стол — в памяти устройства после каждого хода
 export function PokerBotsScreen() {
-  const [bots, setBots] = useState<BotTable | null>(() => loadBotTable())
+  // Стол снова на экране — ждавшая раздача «сама» отсчитывает паузу заново (#156)
+  const [bots, setBots] = useState<BotTable | null>(() => {
+    const bt = loadBotTable()
+    return bt && resumeBotTable(bt, Date.now())
+  })
   const [volatile, setVolatile] = useState(() => !storageWorks())
   const [error, setError] = useState<string | null>(null)
   // Последний стол — для хода бота по таймеру: замыкание эффекта могло устареть
@@ -61,6 +73,39 @@ export function PokerBotsScreen() {
     const id = setTimeout(() => apply((bt, now) => botStep(bt, now, Math.random)), BOT_PAUSE_MS)
     return () => clearTimeout(id)
   }, [mark])
+
+  // Раздача «сама» (#156, Р-51): в срок — новая раздача, до неё раз в секунду — отсчёт на столе.
+  // Приложение свёрнуто — будильник стоит; вернулись — отсчёт заново с полной паузы
+  const [visible, setVisible] = useState(() => document.visibilityState === 'visible')
+  const [, setTick] = useState(0)
+  const nextAt = bots ? botNextHandAt(bots) : null
+  useEffect(() => {
+    const onVisibility = () => {
+      const shown = document.visibilityState === 'visible'
+      setVisible(shown)
+      const bt = latest.current
+      if (!shown || !bt) return
+      const resumed = resumeBotTable(bt, Date.now())
+      latest.current = resumed
+      setBots(resumed)
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
+  useEffect(() => {
+    if (nextAt === null || !visible) return
+    // Не вышло (стол уже сменился) — без ошибки на экране: новый срок взведёт стол сам
+    const deal = setTimeout(() => {
+      const bt = latest.current
+      const r = bt && autoDealBotHand(bt, Date.now())
+      if (r?.ok) apply(() => r)
+    }, Math.max(0, nextAt - Date.now()) + AUTO_DEAL_SLACK_MS)
+    const tick = setInterval(() => setTick((n) => n + 1), 1000)
+    return () => {
+      clearTimeout(deal)
+      clearInterval(tick)
+    }
+  }, [nextAt, visible])
 
   // «Закончить»: стол удаляется; в историю, учёт и «Прошлые вечера» ничего не идёт
   function finish() {
@@ -111,6 +156,9 @@ function BotTableCard(props: {
   const dock = broke ? 'none' : dockOf(v)
   const level = BOT_LEVELS.find(([l]) => l === bots.level)?.[1] ?? ''
   const botCount = table.players.length - 1
+  // «Перерыв» / «Продолжить» — у стола с раздачей «сама» (#156); кнопкой — как раньше, без него
+  const auto = botAutoStart(bots) !== 'off'
+  const pause = () => apply((bt, now) => botPause(bt, !v.paused, now))
 
   // Колонка (#97): стол — на весь первый экран, под ним листается остальное, панель хода — внизу
   return (
@@ -154,7 +202,14 @@ function BotTableCard(props: {
           <p className="muted">
             Ботов: {botCount} · уровень «{level}» · карты ботов {bots.open ? 'открыты' : 'закрыты'}. {botGameLine(botGameOf(bots))}.
             Кончились фишки у бота — он докупается сам.
+            {auto && ' Следующая раздача начинается сама.'}
           </p>
+          {/* В раздаче «Перерыв» — здесь: она доигрывается, новая сама не начнётся; между раздачами — внизу экрана */}
+          {auto && table.hand && (
+            <button type="button" className={v.paused ? 'big primary wide' : 'big wide'} onClick={pause}>
+              {v.paused ? 'Продолжить' : 'Перерыв'}
+            </button>
+          )}
           <button type="button" className="big wide danger-text" onClick={onFinish}>
             Закончить игру
           </button>
@@ -180,7 +235,7 @@ function BotTableCard(props: {
       )}
       {dock === 'wait' && <p className="dock wait-strip">{waitLine(v)}</p>}
       {dock === 'host' && (
-        <HostDock view={v} pause={false} onStart={() => apply((bt, now) => dealBotHand(bt, now))} onPause={() => undefined} />
+        <HostDock view={v} pause={auto} onStart={() => apply((bt, now) => dealBotHand(bt, now))} onPause={pause} />
       )}
     </div>
   )

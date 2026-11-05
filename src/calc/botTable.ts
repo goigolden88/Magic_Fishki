@@ -5,10 +5,10 @@
 import { deckFor, shuffle } from '../poker/game'
 import { finishedHand, keepHand, type HistoryHand } from '../poker/history'
 import { PROTOCOL_VERSION, type BetAction } from '../poker/protocol'
-import { createTable, gameFor, handle, viewFor, type Result, type TableState } from '../poker/table'
+import { AUTO_START_MS, createTable, gameFor, handle, onTime, viewFor, type AutoStart, type Result, type TableState } from '../poker/table'
 import type { RandomBytes } from '../poker/tokens'
 import { BOT_LEVELS, BOT_STYLES, botMove, pickStyles, seededRandom, styleLabel, type BotLevel, type BotStyle, type Random } from './bot'
-import { actFor, parseLocalTable, rebuyNow, seatPlayer, toActId } from './localTable'
+import { actFor, hostDo, parseLocalTable, rebuyNow, seatPlayer, toActId } from './localTable'
 import { tableView, type TableView } from './pokerView'
 
 export const BOTS_MIN = 1
@@ -42,7 +42,10 @@ export const BOT_GAMES: [BotGame, string][] = [
 
 export const BOT_GAME_DEFAULT: BotGame = 'holdem'
 
-// showStyles — «Стиль ботов виден»; не задано — виден
+// «Следующая раздача сама» у нового стола ботов (#156, Р-51) — сначала самая короткая пауза
+export const BOT_AUTO_START_DEFAULT: AutoStart = 'fast'
+
+// showStyles — «Стиль ботов виден»; не задано — виден. autoStart — «Следующая раздача сама»; не задано — нет
 export type BotForm = {
   bots: number
   level: BotLevel
@@ -52,6 +55,7 @@ export type BotForm = {
   bb: number
   startingStack: number
   game?: BotGame
+  autoStart?: AutoStart
 }
 
 export type BotStep = { ok: true; bots: BotTable } | { ok: false; error: string }
@@ -61,15 +65,17 @@ export function botCountError(n: number): string | null {
 }
 
 // Новый стол: я на первом месте и веду стол, боты — по порядку; холдем или омаха пот-лимит, кэш, карты
-// раздаёт программа. Игра — в настройках стола (у стола до #147 — холдем).
+// раздаёт программа. Игра и раздача «сама» — в настройках стола (у стола до #147 — холдем, до #156 — кнопкой).
 // Стили ботов — по уровню (pickStyles): без повтора, пока хватает; random — для тестов
 export function startBotTable(form: BotForm, now: number, makeId: () => string, random: Random = Math.random): BotStep {
   const error = botCountError(form.bots)
   if (error) return { ok: false, error }
   const meId = makeId()
   const { sb, bb, startingStack } = form
+  const autoStart = form.autoStart ?? 'off'
   const game = form.game === 'omaha' ? ({ game: 'omaha', limit: 'pot' } as const) : ({ game: 'holdem' } as const)
-  let r = createTable(meId, ME_NAME, { sb, bb, startingStack, maxSeats: form.bots + 1, cards: 'phones', ...game }, now)
+  const settings = { sb, bb, startingStack, maxSeats: form.bots + 1, cards: 'phones', autoStart, ...game } as const
+  let r = createTable(meId, ME_NAME, settings, now)
   for (let i = 0; r.ok && i < form.bots; i++) r = seatPlayer(r.state, makeId(), { name: BOT_NAMES[i], regularId: null }, now)
   if (!r.ok) return r
   const styles = stylesFor(r.state, meId, form.level, random)
@@ -100,7 +106,7 @@ export function botStyleOf(bt: BotTable, id: string): BotStyle {
 
 // Мои фишки кончились (между раздачами) — «Докупиться» или «Закончить»
 export function iAmBroke(bt: BotTable): boolean {
-  return !bt.table.hand && (bt.table.players.find((p) => p.id === bt.meId)?.chips ?? 0) === 0
+  return !bt.table.hand && myChips(bt.table, bt.meId) === 0
 }
 
 // «Начать раздачу»: колода перемешана здесь, как на сервере комнаты; random — для тестов
@@ -109,6 +115,42 @@ export function dealBotHand(bt: BotTable, now: number, random?: RandomBytes): Bo
   const game = gameFor(bt.table.settings)
   const deck = game ? shuffle(deckFor(game), random) : undefined
   return after(bt, handle(bt.table, bt.meId, { v: PROTOCOL_VERSION, type: 'start' }, now, deck), now)
+}
+
+// Раздача «сама» у стола ботов (#156, Р-51) — тот же взвод, что у комнаты (settings.autoStart, nextHandAt):
+// первая — кнопкой, дальше — через паузу после раздачи банков; «Перерыв» и мои кончившиеся фишки её снимают
+export function botAutoStart(bt: BotTable): AutoStart {
+  return bt.table.settings.autoStart ?? 'off'
+}
+
+// Когда начнётся раздача «сама»; null — не начнётся. Мои фишки кончились — боты без меня не играют
+export function botNextHandAt(bt: BotTable): number | null {
+  const at = bt.table.nextHandAt
+  return typeof at === 'number' && !bt.table.hand && !iAmBroke(bt) ? at : null
+}
+
+// Срок вышел — раздача начинается сама, колода — как у «Начать раздачу»; рано или некому — ошибка, стол как был
+export function autoDealBotHand(bt: BotTable, now: number, random?: RandomBytes): BotStep {
+  if (botNextHandAt(bt) === null) return { ok: false, error: 'Раздача сама не начнётся' }
+  const game = gameFor(bt.table.settings)
+  const deck = game ? shuffle(deckFor(game), random) : undefined
+  const next = onTime(bt.table, now, deck)
+  if (!next) return { ok: false, error: 'Раздача сама начнётся позже' }
+  return after(bt, { ok: true, state: next }, now)
+}
+
+// «Перерыв» / «Продолжить»: в перерыв раздача сама не начинается, идущая доигрывается; «Продолжить» —
+// снова через полную паузу
+export function botPause(bt: BotTable, paused: boolean, now: number): BotStep {
+  return after(bt, hostDo(bt.table, { type: 'pause', paused }, now), now)
+}
+
+// Стол снова на экране (приложение открыли заново или вернулись к нему): ждавшая раздача «сама» не начинается
+// мгновенно — отсчёт заново с полной паузы
+export function resumeBotTable(bt: BotTable, now: number): BotTable {
+  const mode = botAutoStart(bt)
+  if (typeof bt.table.nextHandAt !== 'number' || bt.table.hand || mode === 'off') return bt
+  return { ...bt, table: { ...bt.table, nextHandAt: now + AUTO_START_MS[mode] } }
 }
 
 // Чей ход — бота: его id; мой ход или торгов нет — null
@@ -138,12 +180,18 @@ export function myRebuy(bt: BotTable, now: number): BotStep {
   return after(bt, rebuyNow(bt.table, bt.meId, bt.table.settings.startingStack, now), now)
 }
 
-// После хода: между раздачами боты без фишек докупаются сами на стартовый стек; окончилась раздача — она и в историю
+// После хода: между раздачами боты без фишек докупаются сами на стартовый стек; окончилась раздача — она и в историю.
+// Мои фишки кончились — раздача «сама» снята (#156): боты без меня не играют; докуп взводит её заново с полной паузы
 function after(bt: BotTable, r: Result, now: number): BotStep {
   if (!r.ok) return r
   let table = r.state
   if (!table.hand) table = rebuyBots(table, bt.meId, now)
+  if (!table.hand && myChips(table, bt.meId) === 0 && table.nextHandAt != null) table = { ...table, nextHandAt: null }
   return { ok: true, bots: { ...bt, table, history: keepHand(bt.history, finishedHand(bt.table, table)) } }
+}
+
+function myChips(table: TableState, meId: string): number {
+  return table.players.find((p) => p.id === meId)?.chips ?? 0
 }
 
 function rebuyBots(table: TableState, meId: string, now: number): TableState {
