@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { deckFor, HOLDEM_GAME, OMAHA_GAME, shuffle } from '../poker/game'
+import type { Hud, HudCounts } from '../poker/hud'
 import { PROTOCOL_VERSION } from '../poker/protocol'
 import { createTable, handle, viewFor, type Result, type TableState } from '../poker/table'
 import type { RandomBytes } from '../poker/tokens'
@@ -32,23 +33,53 @@ type Stat = {
   tb: number
   aggr: number
   calls: number
+  late: number // ставки и повышения на тёрне и ривере
+  air: number // из них — с рукой слабее пары (ни пары на столе и в руке, ни готового флеша и стрита)
   chips: number
   vs: Record<string, number> // фишек выиграно у каждого соперника (минус — проиграно)
 }
 
 type Game = 'holdem' | 'omaha'
 
+// Как гонять: hud — подавать ботам HUD вечера (#146), копится через раздачи; unsigned — эти игроки без
+// подписи стиля (соперники читают их только по HUD)
+type SimOptions = { hud?: boolean; unsigned?: (id: string) => boolean }
+
+// Рука слабее пары: среди своих и общих карт нет двух одного ранга, пяти одной масти и пяти рангов подряд
+function air(cards: string[]): boolean {
+  const ranks = cards.map((c) => '23456789TJQKA'.indexOf(c[0]))
+  if (new Set(ranks).size < ranks.length) return false
+  const suits = new Map<string, number>()
+  for (const c of cards) suits.set(c[1], (suits.get(c[1]) ?? 0) + 1)
+  if ([...suits.values()].some((k) => k >= 5)) return false
+  const has = new Set(ranks.includes(12) ? [...ranks, -1] : ranks)
+  for (let lo = -1; lo <= 8; lo++) if ([0, 1, 2, 3, 4].every((d) => has.has(lo + d))) return false
+  return true
+}
+
+const sumHud = (a: HudCounts | undefined, b: HudCounts): HudCounts =>
+  a ? (Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v + a[k as keyof HudCounts]])) as HudCounts) : { ...b }
+
 // Колоды — своим случаем от seed: при тех же seed и числе раздач колоды те же, как бы ни ходили боты.
 // Омаха (#147) — пот-лимит, как у стола ботов
-function simulate(players: { id: string; style: BotStyle }[], hands: number, seed: number, game: Game = 'holdem'): Map<string, Stat> {
+function simulate(
+  players: { id: string; style: BotStyle }[],
+  hands: number,
+  seed: number,
+  game: Game = 'holdem',
+  opts: SimOptions = { hud: true },
+): Map<string, Stat> {
   const settings = game === 'omaha' ? ({ game: 'omaha', limit: 'pot' } as const) : ({ game: 'holdem' } as const)
   const def = game === 'omaha' ? OMAHA_GAME : HOLDEM_GAME
   const random = seededRandom(seed + 1)
   const decks = seededRandom(seed)
   const stats = new Map<string, Stat>(
-    players.map((p) => [p.id, { hands: 0, vpip: 0, pfr: 0, tbChances: 0, tb: 0, aggr: 0, calls: 0, chips: 0, vs: {} }]),
+    players.map((p) => [p.id, { hands: 0, vpip: 0, pfr: 0, tbChances: 0, tb: 0, aggr: 0, calls: 0, late: 0, air: 0, chips: 0, vs: {} }]),
   )
-  const styles = Object.fromEntries(players.map((p) => [p.id, p.style]))
+  const own = Object.fromEntries(players.map((p) => [p.id, p.style]))
+  const styles = Object.fromEntries(players.filter((p) => !opts.unsigned?.(p.id)).map((p) => [p.id, p.style]))
+  // HUD вечера: стол здесь новый на каждую раздачу — счётчики складываются сами
+  const hud: Hud = {}
   const n = players.length
   for (let k = 0; k < hands; k++) {
     // Места по кругу: кнопка — всегда место 0, игроки сдвигаются на одно каждую раздачу
@@ -61,13 +92,27 @@ function simulate(players: { id: string; style: BotStyle }[], hands: number, see
       const id = toActId(t) as string
       const view = viewFor(t, id)
       const at = performance.now()
-      const move = botMove(view, id, styles[id], random, styles)
+      const move = botMove(view, id, own[id], random, styles, opts.hud ? hud : undefined)
       slowest = Math.max(slowest, performance.now() - at)
       if (!move) throw new Error('нет хода')
+      const h = t.hand
+      const seat = h.seats.find((s) => s.id === id)!
+      const aggressive = move.type === 'raise' || (move.type === 'allin' && seat.chips + seat.bet > h.currentBet)
+      if (own[id] === 'tag' && h.stage !== 'preflop') {
+        const last = [...h.log].reverse().find((e) => e.street === h.stage && (e.type === 'raise' || e.type === 'allin'))
+        const key = `${h.stage}:${move.type}:${last ? own[last.playerId] : '-'}`
+        TRACE[key] = (TRACE[key] ?? 0) + 1
+      }
+      if ((h.stage === 'turn' || h.stage === 'river') && aggressive) {
+        const s = stats.get(id)!
+        s.late++
+        if (air([...((h.cards?.hole[id] ?? []) as string[]), ...(h.cards?.board ?? [])])) s.air++
+      }
       t = ok(handle(t, id, { v: PROTOCOL_VERSION, type: 'act', action: move }, 0))
       if (++moves > 300) throw new Error('раздача не кончается')
     }
     const log = t.lastHand?.record?.log ?? []
+    for (const [id, c] of Object.entries(t.hud ?? {})) hud[id] = sumHud(hud[id], c)
     for (const p of t.players) {
       const s = stats.get(p.id)!
       const hud = t.hud?.[p.id]
@@ -119,6 +164,7 @@ function simulate(players: { id: string; style: BotStyle }[], hands: number, see
 
 // Самый долгий ход бота за прогон, мс
 let slowest = 0
+const TRACE: Record<string, number> = {}
 
 const pct = (a: number, b: number) => (b > 0 ? (100 * a) / b : 0)
 const bb100 = (s: Stat) => (s.chips / BB / s.hands) * 100
@@ -134,11 +180,12 @@ function table(stats: Map<string, Stat>, styles: Record<string, BotStyle>): stri
       pct(s.pfr, s.hands).toFixed(1),
       pct(s.tb, s.tbChances).toFixed(1),
       (s.calls > 0 ? s.aggr / s.calls : s.aggr).toFixed(2),
+      pct(s.air, s.late).toFixed(1),
       bb100(s).toFixed(1),
       ...ids.map((r) => (r === id ? '—' : vs100(s, r).toFixed(1))),
     ].join(' | '),
   )
-  return [`Стиль | VPIP | PFR | 3-бет | Агрессия | bb/100 | ${ids.map((r) => `против ${styleLabel(styles[r])}`).join(' | ')}`, ...rows].join('\n')
+  return [`Стиль | VPIP | PFR | 3-бет | Агрессия | Блефы тёрн/ривер, % | bb/100 | ${ids.map((r) => `против ${styleLabel(styles[r])}`).join(' | ')}`, ...rows].join('\n')
 }
 
 // Раздач в прогоне; отчёт PR — на 6000 раздач тем же тестом
@@ -155,6 +202,7 @@ function holdemRun(): Map<string, Stat> {
   if (!holdemStats) {
     const started = Date.now()
     holdemStats = simulate(PLAYERS, HANDS, 139)
+    console.log(JSON.stringify(Object.entries(TRACE).sort()))
     console.log(
       `Холдем: ${HANDS} раздач за ${((Date.now() - started) / 1000).toFixed(1)} с, самый долгий ход — ${slowest.toFixed(1)} мс\n${table(holdemStats, STYLES)}`,
     )
