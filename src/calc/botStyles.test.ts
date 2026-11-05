@@ -98,11 +98,6 @@ function simulate(
       const h = t.hand
       const seat = h.seats.find((s) => s.id === id)!
       const aggressive = move.type === 'raise' || (move.type === 'allin' && seat.chips + seat.bet > h.currentBet)
-      if (own[id] === 'tag' && h.stage !== 'preflop') {
-        const last = [...h.log].reverse().find((e) => e.street === h.stage && (e.type === 'raise' || e.type === 'allin'))
-        const key = `${h.stage}:${move.type}:${last ? own[last.playerId] : '-'}`
-        TRACE[key] = (TRACE[key] ?? 0) + 1
-      }
       if ((h.stage === 'turn' || h.stage === 'river') && aggressive) {
         const s = stats.get(id)!
         s.late++
@@ -164,7 +159,6 @@ function simulate(
 
 // Самый долгий ход бота за прогон, мс
 let slowest = 0
-const TRACE: Record<string, number> = {}
 
 const pct = (a: number, b: number) => (b > 0 ? (100 * a) / b : 0)
 const bb100 = (s: Stat) => (s.chips / BB / s.hands) * 100
@@ -202,7 +196,6 @@ function holdemRun(): Map<string, Stat> {
   if (!holdemStats) {
     const started = Date.now()
     holdemStats = simulate(PLAYERS, HANDS, 139)
-    console.log(JSON.stringify(Object.entries(TRACE).sort()))
     console.log(
       `Холдем: ${HANDS} раздач за ${((Date.now() - started) / 1000).toFixed(1)} с, самый долгий ход — ${slowest.toFixed(1)} мс\n${table(holdemStats, STYLES)}`,
     )
@@ -223,13 +216,13 @@ function bandOf(stats: Map<string, Stat>, style: BotStyle, vpip: [number, number
 
 // Встреча двух стилей: стол на 6, трое против троих через место; дубликатом — те же колоды ещё раз,
 // стили поменялись местами: везение карт гасится. Итог первого стиля — bb на 100 раздач
-function duel(a: BotStyle, b: BotStyle, hands: number, seed: number, game: Game): number {
+function duel(a: BotStyle, b: BotStyle, hands: number, seed: number, game: Game, opts?: SimOptions): number {
   const seat = (first: BotStyle, second: BotStyle) =>
     [0, 1, 2].flatMap((i) => [
       { id: `${first}${i}`, style: first },
       { id: `${second}${i}`, style: second },
     ])
-  const both = [...simulate(seat(a, b), hands, seed, game), ...simulate(seat(b, a), hands, seed, game)]
+  const both = [...simulate(seat(a, b), hands, seed, game, opts), ...simulate(seat(b, a), hands, seed, game, opts)]
   const list = both.filter(([id]) => id.startsWith(a)).map(([, x]) => x)
   return (list.reduce((sum, x) => sum + x.chips, 0) / BB / list.reduce((sum, x) => sum + x.hands, 0)) * 100
 }
@@ -277,12 +270,47 @@ describe('стили ботов на прогоне между собой', () =
     expect(bb100(s('tag'))).toBeGreaterThan(bb100(s('abc')))
     expect(bb100(s('lag'))).toBeGreaterThan(bb100(s('abc')))
     expect(bb100(s('abc'))).toBeGreaterThan(bb100(s('maniac')))
+    strongAggression(stats)
+    // ЛАГ блефует на тёрне и ривере чаще ТАГа — не меньше чем в 1,3 раза (#146)
+    expect(bluffs(s('lag')) / bluffs(s('tag')), 'блефы ЛАГ к ТАГ').toBeGreaterThanOrEqual(1.3)
   }, 600_000)
 
   it('встречи: ТАГ и ЛАГ в плюсе против ABC, ABC — против нита, колл-станции и маньяка', () => {
     duels(2000, 45, 'holdem')
   }, 600_000)
+
+  it('подстройка по HUD окупается: ТАГ против колл-станции и нита без подписи', () => {
+    adapts(2000, 48, 'holdem')
+  }, 600_000)
 })
+
+// Агрессия сильных после флопа (#146, Р-47): ТАГ 2–3, ЛАГ 2,5–3,5 и выше ТАГа
+function strongAggression(stats: Map<string, Stat>): void {
+  const tag = aggression(stats.get('tag')!)
+  const lag = aggression(stats.get('lag')!)
+  expect(tag, 'агрессия ТАГ').toBeGreaterThanOrEqual(2)
+  expect(tag, 'агрессия ТАГ').toBeLessThanOrEqual(3)
+  expect(lag, 'агрессия ЛАГ').toBeGreaterThanOrEqual(2.5)
+  expect(lag, 'агрессия ЛАГ').toBeLessThanOrEqual(3.5)
+  expect(lag, 'ЛАГ агрессивнее ТАГа').toBeGreaterThan(tag)
+}
+
+// Доля ставок и повышений на тёрне и ривере с рукой слабее пары
+const bluffs = (x: Stat) => x.air / x.late
+
+// Встреча дубликатом ТАГ против стиля без подписи (#146): соперника видно только по HUD. С подстройкой
+// (HUD подан) и без (не подан — ТАГ считает его средним, ABC). С подстройкой ТАГ выигрывает больше
+function adapts(hands: number, seed: number, game: Game): void {
+  const lines: string[] = []
+  for (const rival of ['station', 'nit'] as const) {
+    const unsigned = (id: string) => id.startsWith(rival)
+    const blind = duel('tag', rival, hands, seed, game, { hud: false, unsigned })
+    const seen = duel('tag', rival, hands, seed, game, { hud: true, unsigned })
+    lines.push(`ТАГ против ${styleLabel(rival)} без подписи: без подстройки ${blind.toFixed(1)}, с подстройкой ${seen.toFixed(1)} bb/100`)
+    expect(seen, `подстройка против ${rival}`).toBeGreaterThan(blind)
+  }
+  console.log(`${game === 'omaha' ? 'Омаха' : 'Холдем'}, встречи по ${hands} раздач:\n${lines.join('\n')}`)
+}
 
 // Омаха пот-лимит (#147, Р-46): те же шесть стилей со своими для омахи диапазонами и полосами
 describe('стили ботов в омахе на прогоне между собой', () => {
@@ -305,13 +333,15 @@ describe('стили ботов в омахе на прогоне между с�
     const s = (style: BotStyle) => stats.get(style)!
     expect(aggression(s('station'))).toBeLessThan(1)
     expect(aggression(s('maniac'))).toBeGreaterThan(3)
-    // ТАГ и ЛАГ после флопа — не пассивнее, чем в холдеме на том же коде
-    const holdem = holdemRun()
-    expect(aggression(s('tag'))).toBeGreaterThanOrEqual(aggression(holdem.get('tag')!))
-    expect(aggression(s('lag'))).toBeGreaterThanOrEqual(aggression(holdem.get('lag')!))
+    // ТАГ и ЛАГ после флопа — в тех же полосах агрессии, что в холдеме (#146)
+    strongAggression(stats)
   }, 600_000)
 
   it('встречи в омахе: ТАГ и ЛАГ в плюсе против ABC, ABC — против нита, колл-станции и маньяка', () => {
     duels(1500, 46, 'omaha')
+  }, 600_000)
+
+  it('подстройка по HUD в омахе окупается: ТАГ против колл-станции и нита без подписи', () => {
+    adapts(1500, 49, 'omaha')
   }, 600_000)
 })

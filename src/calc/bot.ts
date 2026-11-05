@@ -542,8 +542,8 @@ type StrongPlay = {
 }
 const PLAY: Record<'tag' | 'lag', StrongPlay> = {
   tag: {
-    slow: 0.1, draw: 0.75, cbetDry: 0.85, cbetWet: 0.65, barrel: 0.6, river: 0.3, stab: 0.75, probe: 0.5, semi: 0.4, raise: 0.16,
-    float: 0.25, protect: 0.75, pushy: 0.12, riverRaise: 0.04,
+    slow: 0.1, draw: 0.75, cbetDry: 0.85, cbetWet: 0.75, barrel: 0.55, river: 0.25, stab: 0.75, probe: 0.6, semi: 0.4, raise: 0.16,
+    float: 0.25, protect: 0.9, pushy: 0.2, riverRaise: 0.04,
   },
   lag: {
     slow: 0.08, draw: 0.9, cbetDry: 0.95, cbetWet: 0.8, barrel: 0.85, river: 0.5, stab: 0.9, probe: 0.7, semi: 0.55, raise: 0.26,
@@ -633,9 +633,10 @@ function strongPost(x: Spot, r: Random, lag: boolean): Intent {
   // Крепкая, но не лучшая рука на одиночную ставку — часто повышением, а не коллом: защита от дро и вэлью
   // (на ривере — только впереди большей части диапазона)
   // Против того, кто давит без руки (маньяк, AF > 3 за вечер), — повышать тоньше: он и уравнивает, и
-  // ре-рейзит шире
+  // ре-рейзит шире; против того, кто ставит почти только с рукой (ABC, нит), — строже
   const pushy = prof.defend >= 1.1
-  const protectAt = (x.street === 'river' ? 0.75 : 0.6) + multi - (pushy ? p.pushy : 0)
+  const honest = prof.defend < 0.5 ? 0.1 : 0
+  const protectAt = (x.street === 'river' ? 0.75 : 0.6) + multi + honest - (pushy ? p.pushy : 0)
   if (x.level === 1 && eq >= protectAt && r() < p.protect) return commit(x, x.currentBet + 0.8 * (x.pot + x.toCall))
   // Блеф-повышение на ривере — против тех, кто сдаётся
   if (heads && x.street === 'river' && x.level === 1 && eq < 0.15 && r() < p.riverRaise * folds) return commit(x, x.currentBet + 0.8 * (x.pot + x.toCall))
