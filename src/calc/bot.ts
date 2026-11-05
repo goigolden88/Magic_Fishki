@@ -11,7 +11,7 @@ import type { BetAction } from '../poker/protocol'
 import type { Hud } from '../poker/hud'
 import type { TableState } from '../poker/table'
 import { handScore } from './allInOdds'
-import { PROFILES, readRival, type Profile, type RivalRead } from './botHud'
+import { PROFILES, readRival, THIEF_ATS, type Profile, type RivalRead } from './botHud'
 import {
   OMAHA_SPREAD,
   omahaBluff,
@@ -250,9 +250,10 @@ function lastRaiser(x: Spot): { id: string; width: number } | null {
     const limped = pre.some((e) => e.passive && pre.indexOf(e) < pre.indexOf(m))
     const behind = behindOf(x.read, m.id)
     let width = openWidth(who, behind, x.read.n) * (limped ? 0.7 : 1)
-    // Открылся с поздней позиции первым — ширина и по его ATS за вечер (доля краж ≈ ширина открытия там)
+    // Открылся с поздней позиции первым — по его ATS за вечер (доля краж ≈ ширина открытия там): явный вор
+    // (ATS от THIEF_ATS) крадёт шире, чем ждали, — диапазон шире
     const ats = x.rival(m.id).ats
-    if (!limped && ats !== null && behind <= 3 && x.read.n > 2) width = Math.min(1, (width + ats) / 2)
+    if (!limped && ats !== null && ats >= THIEF_ATS && ats > width && behind <= 3 && x.read.n > 2) width = Math.min(1, (width + ats) / 2)
     return { id: m.id, width }
   }
   if (m.level === 1) return { id: m.id, width: wd.threeBet + wd.bluffs * 0.03 }
@@ -542,8 +543,8 @@ type StrongPlay = {
 }
 const PLAY: Record<'tag' | 'lag', StrongPlay> = {
   tag: {
-    slow: 0.1, draw: 0.75, cbetDry: 0.85, cbetWet: 0.75, barrel: 0.55, river: 0.25, stab: 0.75, probe: 0.6, semi: 0.4, raise: 0.16,
-    float: 0.25, protect: 0.9, pushy: 0.2, riverRaise: 0.04,
+    slow: 0.1, draw: 0.6, cbetDry: 0.7, cbetWet: 0.5, barrel: 0.45, river: 0.25, stab: 0.6, probe: 0.35, semi: 0.3, raise: 0.12,
+    float: 0.2, protect: 0.9, pushy: 0.3, riverRaise: 0.03,
   },
   lag: {
     slow: 0.08, draw: 0.9, cbetDry: 0.95, cbetWet: 0.8, barrel: 0.85, river: 0.5, stab: 0.9, probe: 0.7, semi: 0.55, raise: 0.26,
@@ -579,7 +580,7 @@ function strongPost(x: Spot, r: Random, lag: boolean): Intent {
     // Вэлью — когда впереди той части диапазона, что уравняет; колл-станция уравнивает шире — ставка тоньше
     const thin = eq >= 0.3 ? versus(1) : 0
     // В омахе руки ближе по доле банка: на вэлью — чуть тоньше
-    const value = (lag ? 0.47 : 0.48) + multi - (x.omaha ? 0.03 : 0)
+    const value = (lag ? 0.47 : 0.5) + multi - (x.omaha ? 0.03 : 0)
     // Медленная игра — в холдеме; в омахе сильную руку догоняют чаще — ставка
     if (!x.omaha && eq >= 0.85 && x.street !== 'river' && heads && r() < p.slow) return CALL
     if (thin >= value) {

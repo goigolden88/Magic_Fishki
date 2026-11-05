@@ -18,7 +18,7 @@ export type Profile = { folds: number; defend: number; barrel: number; calls: nu
 export const PROFILES: Record<Who, Profile> = {
   maniac: { folds: 0.5, defend: 1.15, barrel: 0.4, calls: 0.65, steal: 0.75 },
   station: { folds: 0.2, defend: 0.4, barrel: 0.1, calls: 0.85, steal: 0.8 },
-  nit: { folds: 1.6, defend: 0.15, barrel: 0.8, calls: 0.3, steal: 1.45 },
+  nit: { folds: 1.6, defend: 0.15, barrel: 0.8, calls: 0.3, steal: 2 },
   abc: { folds: 1.4, defend: 0.35, barrel: 0.4, calls: 0.4, steal: 1 },
   tag: { folds: 1, defend: 1, barrel: 0.9, calls: 0.5, steal: 1 },
   lag: { folds: 0.85, defend: 1, barrel: 0.8, calls: 0.55, steal: 0.9 },
@@ -29,16 +29,22 @@ export const PROFILES: Record<Who, Profile> = {
 // ats / cb — его доли краж и продолжений ставкой, если возможностей набралось (иначе null)
 export type RivalRead = { who: Who; profile: Profile; ats: number | null; cb: number | null }
 
-// Чего ждать от типажа: VPIP и PFR (доли раздач), AF (рейзы к коллам) — у холдема; у омахи VPIP выше
+// Чего ждать от типажа: VPIP и PFR (доли раздач), AF (рейзы к коллам за все улицы, как в HUD) — у холдема;
+// у омахи VPIP выше. Цифры — HUD прогона ботов между собой
 type Expect = { vpip: number; pfr: number; af: number }
 const EXPECT: Record<BotStyle, Expect> = {
-  maniac: { vpip: 0.6, pfr: 0.45, af: 4 },
-  station: { vpip: 0.55, pfr: 0.04, af: 0.4 },
-  nit: { vpip: 0.13, pfr: 0.1, af: 1.5 },
-  abc: { vpip: 0.24, pfr: 0.15, af: 1.3 },
-  tag: { vpip: 0.22, pfr: 0.18, af: 2.5 },
-  lag: { vpip: 0.31, pfr: 0.26, af: 3 },
+  maniac: { vpip: 0.65, pfr: 0.45, af: 2.5 },
+  station: { vpip: 0.5, pfr: 0.03, af: 0.1 },
+  nit: { vpip: 0.13, pfr: 0.1, af: 2 },
+  abc: { vpip: 0.23, pfr: 0.14, af: 2 },
+  tag: { vpip: 0.21, pfr: 0.17, af: 2.8 },
+  lag: { vpip: 0.3, pfr: 0.26, af: 3.3 },
 }
+// AF в HUD — за все улицы, и до флопа осторожный игрок почти только повышает: у ABC он и так около 2–3.
+// «Давит» — заметно выше
+export const PUSHY_AF = 3.5
+// Явный вор блайндов: ATS от стольких (у ABC и ТАГа — 25–30 %, у ЛАГа — около половины)
+export const THIEF_ATS = 0.4
 // Омаха: входят шире на столько
 const OMAHA_VPIP = 0.05
 
@@ -72,11 +78,14 @@ export function readRival(id: string, styles: Record<string, BotStyle>, hud: Hud
   const af = afOf(c, e.af)
   const who = typeOf(vpip, pfr, af, omaha)
   const base = PROFILES[who]
-  // Много давит (AF > 3) — блефует часто: защита банка шире, на ставки сдаётся реже
-  const pushy = af > 3 && who !== 'maniac'
+  // Много давит (AF > PUSHY_AF) — блефует часто: защита банка шире, на ставки сдаётся реже. Кроме нита: он
+  // почти не уравнивает, а повышает — с рукой, и AF у него высокий без блефов
+  const pushy = af > PUSHY_AF && who !== 'maniac' && who !== 'nit'
   const profile: Profile = pushy ? { ...base, defend: Math.max(base.defend, 1.15), folds: Math.min(base.folds, 0.7) } : base
   return {
-    who,
+    // Нит по HUD без подписи нита: поправки — нита (чаще красть, сдаваться на его повышения), а руки — как у
+    // среднего: на прогоне так выигрывается больше, чем с узким диапазоном нита (тот переоценивает его ставки)
+    who: who === 'nit' && prior !== 'nit' ? prior : who,
     profile,
     ats: c.stealChances >= FEW_CHANCES ? c.steals / c.stealChances : null,
     cb: c.cbChances >= FEW_CHANCES ? c.cbs / c.cbChances : null,
