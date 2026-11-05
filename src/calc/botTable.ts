@@ -31,7 +31,17 @@ export type BotTable = {
   history: HistoryHand[] // раздачи по номерам — «История раздач»; стирается со столом
 }
 
-export type BotForm = { bots: number; level: BotLevel; open: boolean; sb: number; bb: number; startingStack: number }
+// Игра стола ботов (#147, Р-46): холдем без лимита или омаха пот-лимит; кэш
+export type BotGame = 'holdem' | 'omaha'
+
+export const BOT_GAMES: [BotGame, string][] = [
+  ['holdem', 'Холдем'],
+  ['omaha', 'Омаха'],
+]
+
+export const BOT_GAME_DEFAULT: BotGame = 'holdem'
+
+export type BotForm = { bots: number; level: BotLevel; open: boolean; sb: number; bb: number; startingStack: number; game?: BotGame }
 
 export type BotStep = { ok: true; bots: BotTable } | { ok: false; error: string }
 
@@ -39,18 +49,30 @@ export function botCountError(n: number): string | null {
   return Number.isInteger(n) && n >= BOTS_MIN && n <= BOTS_MAX ? null : `Ботов — от ${BOTS_MIN} до ${BOTS_MAX}`
 }
 
-// Новый стол: я на первом месте и веду стол, боты — по порядку; холдем, кэш, карты раздаёт программа.
+// Новый стол: я на первом месте и веду стол, боты — по порядку; холдем или омаха пот-лимит, кэш, карты
+// раздаёт программа. Игра — в настройках стола (у стола до #147 — холдем).
 // Стили ботов — по уровню (pickStyles): без повтора, пока хватает; random — для тестов
 export function startBotTable(form: BotForm, now: number, makeId: () => string, random: Random = Math.random): BotStep {
   const error = botCountError(form.bots)
   if (error) return { ok: false, error }
   const meId = makeId()
   const { sb, bb, startingStack } = form
-  let r = createTable(meId, ME_NAME, { sb, bb, startingStack, maxSeats: form.bots + 1, cards: 'phones', game: 'holdem' }, now)
+  const game = form.game === 'omaha' ? ({ game: 'omaha', limit: 'pot' } as const) : ({ game: 'holdem' } as const)
+  let r = createTable(meId, ME_NAME, { sb, bb, startingStack, maxSeats: form.bots + 1, cards: 'phones', ...game }, now)
   for (let i = 0; r.ok && i < form.bots; i++) r = seatPlayer(r.state, makeId(), { name: BOT_NAMES[i], regularId: null }, now)
   if (!r.ok) return r
   const styles = stylesFor(r.state, meId, form.level, random)
   return { ok: true, bots: { id: makeId(), table: r.state, meId, level: form.level, styles, open: form.open, history: [] } }
+}
+
+// Игра стола ботов — по его настройкам; стол до #147 без поля — холдем
+export function botGameOf(bt: BotTable): BotGame {
+  return bt.table.settings.game === 'omaha' ? 'omaha' : 'holdem'
+}
+
+// Строка игры стола: «Омаха, пот-лимит, кэш» или «Холдем, кэш»
+export function botGameLine(game: BotGame): string {
+  return game === 'omaha' ? 'Омаха, пот-лимит, кэш' : 'Холдем, кэш'
 }
 
 function stylesFor(table: TableState, meId: string, level: BotLevel, random: Random): Record<string, BotStyle> {
@@ -140,6 +162,10 @@ export function parseBotTable(text: string): BotTable | null {
   const meId = x.meId
   const level = BOT_LEVELS.find(([l]) => l === x.level)?.[0]
   if (typeof meId !== 'string' || !level || !base.table.players.some((p) => p.id === meId)) return null
+  // Боты играют холдем и омаху пот-лимит; у стола до #147 поля игры нет — холдем
+  const { game, limit } = base.table.settings
+  if (game !== undefined && game !== 'holdem' && game !== 'omaha') return null
+  if (game === 'omaha' && limit !== undefined && limit !== 'pot') return null
   const saved = typeof x.styles === 'object' && x.styles !== null ? (x.styles as Record<string, unknown>) : {}
   const bots = base.table.players.filter((p) => p.id !== meId)
   const known = new Set<unknown>(BOT_STYLES.map(([s]) => s))
