@@ -25,8 +25,8 @@ export type Variant = {
 }
 
 const STANDARD_ORDER: Category[] = ['high', 'pair', 'twoPair', 'trips', 'straight', 'flush', 'fullHouse', 'quads', 'straightFlush']
-// Шорт-дек: флеш старше фулл-хауса; стрит старше тройки — как в холдеме (принято по умолчанию)
-const SHORT_DECK_ORDER: Category[] = ['high', 'pair', 'twoPair', 'trips', 'straight', 'fullHouse', 'flush', 'quads', 'straightFlush']
+// Шорт-дек: флеш старше фулл-хауса; тройка старше стрита — как у Triton (Р-52)
+const SHORT_DECK_ORDER: Category[] = ['high', 'pair', 'twoPair', 'straight', 'trips', 'fullHouse', 'flush', 'quads', 'straightFlush']
 
 export const HOLDEM: Variant = { deck: 52, fromHand: 'any', order: STANDARD_ORDER }
 export const OMAHA: Variant = { deck: 52, fromHand: 2, order: STANDARD_ORDER }

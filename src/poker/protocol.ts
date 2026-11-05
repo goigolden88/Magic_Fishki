@@ -19,7 +19,8 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 // 12 — омаха и пот-лимит (#80): настройки game и limit при создании, предел ставки в раздаче (limit)
 // 13 — шорт-дек (#81): новое значение игры game — 'shortdeck'
 // 14 — история раздач вечера (#113): запрос телефона (history) и ответ комнаты со всеми раздачами (history)
-export const PROTOCOL_VERSION = 14
+// 15 — шорт-дек: тройка старше стрита (Р-52)
+export const PROTOCOL_VERSION = 15
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 

@@ -177,9 +177,10 @@ describe('шорт-дек — 36 карт', () => {
     expect(best(SHORT_DECK, 'As 6s', '7s 8s 9s Kd Kc').name).toBe('Стрит-флеш до девятки')
   })
 
-  it('стрит старше тройки (по умолчанию, как в холдеме)', () => {
-    const board = c('7c 8s 9h Qd Qc')
-    expect(winners(SHORT_DECK, board, [{ id: 'trips', cards: c('Qh 6c') }, { id: 'straight', cards: c('Th Js') }])).toEqual(['straight'])
+  it('тройка старше стрита (Р-52, как у Triton)', () => {
+    const board = c('7c 8s 9h Qd Kc')
+    expect(winners(SHORT_DECK, board, [{ id: 'trips', cards: c('Qh Qs') }, { id: 'straight', cards: c('Th Js') }])).toEqual(['trips'])
+    expect(winners(HOLDEM, board, [{ id: 'trips', cards: c('Qh Qs') }, { id: 'straight', cards: c('Th Js') }])).toEqual(['straight'])
   })
 
   it('карты 2–5 в шорт-деке — ошибка', () => {
@@ -199,17 +200,18 @@ describe('правило варианта — параметром', () => {
     expect(best(v, 'Ah Ad As 2c 3c', 'Kc Kd 9s 7c 4d').name).toBe('Фулл-хаус, тузы и короли')
   })
 
-  it('порядок старшинства меняется одним параметром: тройка старше стрита', () => {
+  it('порядок старшинства меняется одним параметром: стрит старше тройки', () => {
     const order = [...SHORT_DECK.order]
-    order.splice(order.indexOf('trips'), 1)
-    order.splice(order.indexOf('straight') + 1, 0, 'trips')
-    const triton: Variant = { ...SHORT_DECK, order }
+    order.splice(order.indexOf('straight'), 1)
+    order.splice(order.indexOf('trips') + 1, 0, 'straight')
+    const holdemLike: Variant = { ...SHORT_DECK, order }
     const board = c('7c 8s 9h Qd Qc')
     const players = [
       { id: 'trips', cards: c('Qh 6c') },
       { id: 'straight', cards: c('Th Js') },
     ]
-    expect(winners(triton, board, players)).toEqual(['trips'])
+    expect(winners(SHORT_DECK, board, players)).toEqual(['trips'])
+    expect(winners(holdemLike, board, players)).toEqual(['straight'])
   })
 })
 
