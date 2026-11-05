@@ -654,6 +654,7 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
   const [bbText, setBbText] = useState(String(DEFAULT_SETTINGS.bb))
   const [stackText, setStackText] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
+  const [showStyles, setShowStyles] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -671,7 +672,7 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
       setError('Игра против ботов уже идёт — продолжите или закончите её')
       return
     }
-    const r = startBotTable({ bots: count, level, open, sb, bb, startingStack: stack, game }, Date.now(), () => ulid())
+    const r = startBotTable({ bots: count, level, open, showStyles, sb, bb, startingStack: stack, game }, Date.now(), () => ulid())
     if (!r.ok) {
       setError(r.error)
       return
@@ -737,7 +738,10 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
             </button>
           ))}
         </div>
-        <p className="muted">{BOT_LEVEL_TEXT[level]} Стиль виден под именем бота.</p>
+        <p className="muted">
+          {BOT_LEVEL_TEXT[level]}
+          {showStyles && ' Стиль виден под именем бота.'}
+        </p>
       </fieldset>
 
       <TableFields sb={[sbText, setSbText]} bb={[bbText, setBbText]} stack={[stackText, setStackText]} tournament={false} />
@@ -748,6 +752,12 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
         Карты ботов открыты
       </label>
       <p className="muted">Только на вашем экране — учиться на их решениях. Боты ваших карт не видят.</p>
+
+      <label className="check">
+        <input type="checkbox" checked={showStyles} onChange={(e) => setShowStyles(e.target.checked)} />
+        Стиль ботов виден
+      </label>
+      <p className="muted">Выключите — стиль придётся угадывать по игре.</p>
 
       {error && <p className="warn">{error}</p>}
       <div className="row">

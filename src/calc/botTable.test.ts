@@ -68,7 +68,7 @@ describe('стол против ботов', () => {
     expect(t.hostId).toBe(bt.meId)
     expect(t.settings).toMatchObject({ sb: 5, bb: 10, startingStack: 1000, maxSeats: 4, cards: 'phones', game: 'holdem' })
     expect(t.settings.format ?? 'cash').toBe('cash')
-    expect([bt.level, bt.open, bt.history]).toEqual(['amateur', false, []])
+    expect([bt.level, bt.open, bt.showStyles, bt.history]).toEqual(['amateur', false, true, []])
     expect(bt.id).not.toBe(bt.meId)
     expect(Object.values(bt.styles)).toEqual(['abc', 'abc', 'abc'])
   })
@@ -88,6 +88,50 @@ describe('стол против ботов', () => {
     expect(v.seats.find((s) => s.isMe)?.tag).toBeUndefined()
     expect(v.seats.filter((s) => !s.isMe).map((s) => s.tag).sort()).toEqual(['ЛАГ', 'ТАГ'])
     expect(v.seats[1].name).toBe('Бот Север')
+  })
+
+  it('«Стиль ботов виден» снят — подписей стиля нет ни в раздаче, ни между раздачами; остальное у мест — как было', () => {
+    const mixed = (showStyles: boolean) =>
+      ok(startBotTable({ ...FORM, level: 'mixed', bots: BOTS_MAX, showStyles }, 0, counter(), seededRandom(11)))
+    const shown = mixed(true)
+    const hidden = mixed(false)
+    expect(hidden.showStyles).toBe(false)
+    // Стили у ботов есть и те же — ходят как прежде
+    expect(hidden.styles).toEqual(shown.styles)
+    const strip = (v: ReturnType<typeof botTableView>) => v.seats.map(({ tag: _, ...s }) => s)
+    const pairs: [BotTable, BotTable][] = [
+      [shown, hidden],
+      [ok(dealBotHand(shown, 0, bytesOf(seededRandom(4)))), ok(dealBotHand(hidden, 0, bytesOf(seededRandom(4))))],
+    ]
+    for (const [a, b] of pairs) {
+      const v = botTableView(b, 0)
+      expect(v.seats.every((s) => s.tag === undefined)).toBe(true)
+      expect(botTableView(a, 0).seats.filter((s) => !s.isMe).every((s) => s.tag !== undefined)).toBe(true)
+      expect(strip(v)).toEqual(strip(botTableView(a, 0)))
+    }
+    // Независимо от «Карты ботов открыты»: открытые карты без подписей
+    const both = ok(dealBotHand(start({ open: true, showStyles: false }), 0, bytesOf(seededRandom(2))))
+    const v = botTableView(both, 0)
+    for (const s of v.seats.filter((x) => !x.isMe)) {
+      expect(s.cards).toEqual(both.table.hand!.cards!.hole[s.id])
+      expect(s.tag).toBeUndefined()
+    }
+    // Ход бота тот же, что со стилем на виду
+    const dealtShown = ok(dealBotHand(shown, 0, bytesOf(seededRandom(6))))
+    const dealtHidden = ok(dealBotHand(hidden, 0, bytesOf(seededRandom(6))))
+    expect(ok(botStep(dealtHidden, 0, seededRandom(8))).table).toEqual(ok(botStep(dealtShown, 0, seededRandom(8))).table)
+  })
+
+  it('«Стиль ботов виден» — в памяти устройства; стол, сохранённый до этой галочки, — с подписями', () => {
+    const hidden = start({ showStyles: false })
+    const back = parseBotTable(JSON.stringify(hidden))!
+    expect(back).toEqual(hidden)
+    expect(botTableView(back, 0).seats.every((s) => s.tag === undefined)).toBe(true)
+    expect(parseBotTable(JSON.stringify(start()))!.showStyles).toBe(true)
+    const { showStyles: _, ...old } = hidden
+    const was = parseBotTable(JSON.stringify(old))!
+    expect(was.showStyles).toBe(true)
+    expect(botTableView(was, 0).seats.filter((s) => !s.isMe).every((s) => s.tag === 'ABC')).toBe(true)
   })
 
   it('старый стол против ботов, сохранённый до стилей, открывается: стили — по его уровню, всякий раз те же', () => {
