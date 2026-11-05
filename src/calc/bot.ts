@@ -562,13 +562,15 @@ function strongPost(x: Spot, r: Random, lag: boolean): Intent {
   const b = x.toCall / Math.max(1, x.pot - x.toCall)
   const strongEnough = eq >= 0.55 && versus(0.6) >= (x.street === 'river' ? 0.6 : 0.55) + multi
   if (eq >= 0.85 + multi || strongEnough) {
-    if (opp === 'maniac' && x.street !== 'river' && r() < 0.5) return CALL // пусть ставит дальше
+    // Пусть маньяк ставит дальше; в пот-лимите банк растёт медленнее — в омахе повышать чаще
+    if (opp === 'maniac' && x.street !== 'river' && r() < (x.omaha ? 0.2 : 0.5)) return CALL
     if (shallow) return ALLIN
     return commit(x, x.currentBet + 0.8 * (x.pot + x.toCall))
   }
-  // Полу-блеф повышением с дро; в омахе дро здесь — к натсам («обёртка», старший флеш): чаще
+  // Полу-блеф повышением с дро; в омахе дро здесь — к натсам («обёртка», старший флеш): чаще и не только
+  // один на один
   const semi = (lag ? 0.25 : 0.15) * (x.omaha ? 2 : 1)
-  if (draw && heads && x.level === 1 && r() < semi * folds) return commit(x, x.currentBet + 0.8 * (x.pot + x.toCall))
+  if (draw && (heads || x.omaha) && x.level === 1 && r() < semi * folds) return commit(x, x.currentBet + 0.8 * (x.pot + x.toCall))
   // Продолжение ставкой соперника на флопе и одиночная ставка до ривера — иногда рейз без руки (без позиции —
   // чек-рейз): чаще против тех, кто на повышение сдаётся
   const cbet = x.street === 'flop' && heads && x.level === 1 && lastAggressorBefore(x) === x.rivals[0]
@@ -578,7 +580,7 @@ function strongPost(x: Spot, r: Random, lag: boolean): Intent {
   if (cbet && ip && eq >= 0.25 && x.price <= 0.3 && FOLDS[opp] >= 1) return CALL
   // Колл — по цене банка; до ривера без позиции долю банка добрать труднее; в омахе доля банка до ривера
   // обманчива (руки близки, догоняют чаще) — запас больше
-  const margin = x.street === 'river' ? 0 : (draw ? -0.04 : 0) + (ip ? 0.02 : 0.06) + (heads ? 0 : 0.03) + (x.omaha ? 0.06 : 0)
+  const margin = x.street === 'river' ? 0 : (draw ? -0.04 : 0) + (ip ? 0.02 : 0.06) + (heads ? 0 : 0.03) + (x.omaha ? 0.1 : 0)
   if (eq >= x.price + margin) return CALL
   // Защита банка: лучшая часть своего диапазона, что бьёт блефы, — с частотой 1 − ставка / (банк + ставка)
   // Продолжение ставкой на флопе у любого стиля широкое — защита там не меньше 0,75 от равновесной

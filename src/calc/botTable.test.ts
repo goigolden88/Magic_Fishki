@@ -6,6 +6,8 @@ import {
   BOTS_DEFAULT,
   BOTS_MAX,
   BOTS_MIN,
+  botGameLine,
+  botGameOf,
   botStep,
   botTableView,
   botToAct,
@@ -186,5 +188,60 @@ describe('стол против ботов', () => {
     expect(parseBotTable(JSON.stringify({ ...bt, level: 'гроссмейстер' }))).toBeNull()
     expect(parseBotTable(JSON.stringify({ ...bt, meId: 'нет такого' }))).toBeNull()
     expect(parseBotTable(JSON.stringify({ id: bt.id, table: bt.table, gameId: null, history: [] }))).toBeNull()
+  })
+
+  // Омаха (#147, Р-46)
+  it('омаха: пот-лимит, кэш; по четыре карты у всех; строка игры стола', () => {
+    const bt = start({ game: 'omaha' })
+    expect(bt.table.settings).toMatchObject({ cards: 'phones', game: 'omaha', limit: 'pot' })
+    expect(botGameOf(bt)).toBe('omaha')
+    expect(botGameLine(botGameOf(bt))).toBe('Омаха, пот-лимит, кэш')
+    expect(botGameOf(start())).toBe('holdem')
+    expect(botGameLine(botGameOf(start()))).toBe('Холдем, кэш')
+    const dealt = ok(dealBotHand(bt, 0, bytesOf(seededRandom(4))))
+    const hole = dealt.table.hand!.cards!.hole
+    expect(Object.values(hole).every((c) => c.length === 4 && c.every((x) => x !== null))).toBe(true)
+    expect(dealt.table.hand!.limit).toBe('pot')
+    // Мой вид — четыре рубашки у ботов
+    for (const s of botTableView(dealt, 0).seats.filter((x) => !x.isMe)) expect(s.cards).toEqual([null, null, null, null])
+  })
+
+  it('омаха: полсотни раздач до конца без ошибок — рейз не больше банка, фишки сходятся, вскрытие по омахе', () => {
+    const random = seededRandom(147)
+    for (const level of ['novice', 'amateur', 'strong', 'mixed'] as const) {
+      let bt = start({ level, bots: BOTS_MAX, game: 'omaha' })
+      for (let k = 0; k < 50; k++) {
+        if (iAmBroke(bt)) bt = ok(myRebuy(bt, 0))
+        bt = ok(dealBotHand(bt, 0, bytesOf(random)))
+        let moves = 0
+        while (bt.table.hand) {
+          bt = play(bt, random)
+          if (++moves > 200) throw new Error('раздача не кончается')
+        }
+        expect(chipsInPlay(bt)).toBe(boughtIn(bt))
+      }
+      expect(bt.history).toHaveLength(50)
+      expect(bt.history.every((h) => h.record?.game.id === 'omaha')).toBe(true)
+    }
+  }, 60_000)
+
+  it('стол с омахой сохраняется и читается; стол до омахи (без поля игры) — холдем', () => {
+    const bt = ok(dealBotHand(start({ level: 'strong', game: 'omaha' }), 0, bytesOf(seededRandom(6))))
+    const back = parseBotTable(JSON.stringify(bt))!
+    expect(back).toEqual(bt)
+    expect(botGameOf(back)).toBe('omaha')
+    // Стол, сохранённый до #147: в настройках нет игры — холдем, играет дальше
+    const holdem = start({ level: 'amateur' })
+    const { game: _, ...settings } = holdem.table.settings
+    const old = parseBotTable(JSON.stringify({ ...holdem, table: { ...holdem.table, settings } }))!
+    expect(old).not.toBeNull()
+    expect(botGameOf(old)).toBe('holdem')
+    const dealt = ok(dealBotHand(old, 0, bytesOf(seededRandom(8))))
+    expect(Object.values(dealt.table.hand!.cards!.hole).every((c) => c.length === 2)).toBe(true)
+    // Игра, которой боты не играют, — не стол с ботами
+    const short = { ...holdem, table: { ...holdem.table, settings: { ...holdem.table.settings, game: 'shortdeck' } } }
+    expect(parseBotTable(JSON.stringify(short))).toBeNull()
+    const noLimit = { ...bt, table: { ...bt.table, settings: { ...bt.table.settings, limit: 'nolimit' } } }
+    expect(parseBotTable(JSON.stringify(noLimit))).toBeNull()
   })
 })

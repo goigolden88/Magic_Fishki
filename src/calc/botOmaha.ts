@@ -229,6 +229,8 @@ export type OmahaRange = { hands: Card[][]; w: Float64Array; info: BoardInfo }
 // Рук в выборке диапазона и попыток набрать её (узкий диапазон — меньше рук)
 export const RANGE_HANDS = 120
 const RANGE_TRIES = 3000
+// Доля вэлью в ставке омахи против холдемной (ReadStyle.value): на спаренном столе повышение — чаще фулл-хаус
+const OMAHA_VALUE = 0.6
 
 // Диапазон игрока id по ходам раздачи — на столе board (флоп и дальше). known — карты, которых у него быть не
 // может (свои бота, общие, открытые всем). extra — рука, которую поставить в выборку последней (своя рука
@@ -283,7 +285,9 @@ export function omahaRangeOf(
     }
     return info
   }
-  const style = readStyle(who)
+  // На вэлью в омахе ставят и повышают руками ближе к натсам: доля вэлью в ставке — уже холдемной
+  const base = readStyle(who)
+  const style = { ...base, value: base.value * OMAHA_VALUE }
   for (const [street, cards] of POSTFLOP_STREETS) {
     if (board.length < cards) break
     const moves = p.mine.filter((m) => m.street === street && m.type !== 'fold')
