@@ -51,23 +51,30 @@ export function TimerFields({ form, onChange }: { form: TimerForm; onChange: (fo
             : 'Время вышло — за игрока чек, если можно, иначе пас; два раза подряд — он пропускает раздачи.'}
         </p>
       </fieldset>
-      <fieldset className="players-pick">
-        <legend className="muted">Следующая раздача сама</legend>
-        <div className="amounts">
-          {AUTO_START_LABELS.map(([mode, label]) => (
-            <button
-              key={mode}
-              type="button"
-              className={form.autoStart === mode ? 'big primary' : 'big'}
-              aria-pressed={form.autoStart === mode}
-              onClick={() => onChange({ ...form, autoStart: mode })}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <p className="muted">{autoStartNote(form.autoStart)}.</p>
-      </fieldset>
+      <AutoStartField value={form.autoStart} onChange={(autoStart) => onChange({ ...form, autoStart })} />
     </>
+  )
+}
+
+// «Следующая раздача сама» — у комнаты и у стола «Против ботов» (#156)
+export function AutoStartField({ value, onChange }: { value: AutoStart; onChange: (mode: AutoStart) => void }) {
+  return (
+    <fieldset className="players-pick">
+      <legend className="muted">Следующая раздача сама</legend>
+      <div className="amounts">
+        {AUTO_START_LABELS.map(([mode, label]) => (
+          <button
+            key={mode}
+            type="button"
+            className={value === mode ? 'big primary' : 'big'}
+            aria-pressed={value === mode}
+            onClick={() => onChange(mode)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="muted">{autoStartNote(value)}.</p>
+    </fieldset>
   )
 }
