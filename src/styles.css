@@ -1510,6 +1510,49 @@ button.seat.free {
   font-size: 1rem;
 }
 
+/* Строка победителя открытого стола (Р-50): «Имя · рука» в одну строку — сжимается имя (многоточием),
+   рука видна; под ней — пять мелких карт лучшей руки. Ряд одной высоты (--win-row-h из casinoLayout)
+   стоит и у не открытого стола пустым — открылся стол, столы ниже не сдвигаются */
+.casino-win-line {
+  display: flex;
+  justify-content: center;
+  gap: 0.25em;
+}
+
+.win-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 700;
+}
+
+.win-hand {
+  flex: 0 0 auto;
+  max-width: calc(100% - 2.5em);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.casino-win-row,
+.casino-board .card-row.casino-win-row {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.06rem;
+  height: var(--win-row-h);
+  margin: 0;
+}
+
+.casino-board .casino-win-row .playing-card {
+  flex: 0 1 var(--win-card-w);
+  width: var(--win-card-w);
+  height: var(--win-card-h);
+  border-radius: 0.17rem;
+  font-size: 0.55rem;
+  letter-spacing: -0.04em;
+}
+
 /* Стол открывается (#134): карта, ставшая лицом, доворачивается из ребра — только transform,
    размер и место те же, соседние столы не сдвигаются. 0,3 с — шаг карты в casinoReveal (1,5 с / 5) */
 .casino-board.turn .playing-card:not(.back) {

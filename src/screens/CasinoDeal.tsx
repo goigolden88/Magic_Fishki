@@ -672,6 +672,9 @@ function layoutStyle(l: CasinoLayout): CSSProperties {
     '--board-w': rem(l.board.w),
     '--board-card-w': rem(l.boardCard.w),
     '--board-card-h': rem(l.boardCard.h),
+    '--win-card-w': rem(l.winCard.w),
+    '--win-card-h': rem(l.winCard.h),
+    '--win-row-h': rem(l.winRow.h),
   } as CSSProperties
 }
 
@@ -682,13 +685,16 @@ type Chance = { name: string; percent: number }
 // chances — шансы стола вместо подписи под картами, пока он не открыт целиком (#137); more — «ещё N».
 // Касание строки раскрывает её (#142): all — все ненулевые шансы, expanded — раскрыта, onToggle — касание
 type Chances = { top: Chance[]; more: number; all: Chance[]; expanded: boolean; onToggle: () => void }
+// Победитель открытого стола (Р-50): имя, название руки и пять карт лучшей руки — сначала комбинация, затем старшие
+type Winner = { name: string; hand: string; cards: Card[] }
+// winners — у открытого целиком стола, ничья — несколько (над ними «Ничья, поровну»); иначе пусто
 type BoardData = {
   cards: (Card | null)[]
   part: number
   open: boolean
   turn?: boolean
   last: boolean
-  foot: string
+  winners: Winner[]
   win: Card[]
   chances?: Chances
 }
@@ -729,12 +735,42 @@ function Felt(props: { layout: CasinoLayout; seats: SeatData[]; boards: BoardDat
                 <PlayingCard key={k} card={c} mark={b.open && c ? (b.win.includes(c) ? 'win' : 'dim') : undefined} />
               ))}
             </div>
-            {b.chances ? <ChanceLine {...b.chances} /> : <div className="casino-board-line">{b.foot}</div>}
+            {b.chances ? (
+              <ChanceLine {...b.chances} />
+            ) : (
+              b.winners.length !== 1 && (
+                <div className="casino-board-line">{b.winners.length > 1 ? 'Ничья, поровну' : ' '}</div>
+              )
+            )}
+            {b.winners.length > 0 ? (
+              b.winners.map((w, k) => <WinnerLine key={k} winner={w} />)
+            ) : (
+              // Место под ряд карт победителя: открылся стол — столы ниже не сдвигаются
+              <div className="casino-win-row" aria-hidden="true" />
+            )}
           </section>
         ))}
       </div>
       <div className="casino-seats">{block(l.bottom)}</div>
     </div>
+  )
+}
+
+// Строка победителя стола (Р-50): «Имя · рука» — длинное имя сжимается многоточием, рука видна;
+// под ней — пять мелких карт его лучшей руки, как у победителя в покерной комнате
+function WinnerLine({ winner: w }: { winner: Winner }) {
+  return (
+    <>
+      <div className="casino-board-line casino-win-line" title={`${w.name} · ${w.hand}`}>
+        <span className="win-name">{w.name}</span>
+        <span className="win-hand">· {w.hand}</span>
+      </div>
+      <span className="card-row casino-win-row">
+        {w.cards.map((c) => (
+          <PlayingCard key={c} card={c} size="small" />
+        ))}
+      </span>
+    </>
   )
 }
 
@@ -837,7 +873,7 @@ function EmptyTable(props: {
         part,
         open: false,
         last: false,
-        foot: ' ',
+        winners: [],
         win: [],
       }))}
     />
@@ -900,7 +936,8 @@ function CasinoTable(props: {
           open,
           turn,
           last: open && i === opened - 1,
-          foot: !open ? ' ' : r.winners.length > 1 ? 'Ничья, поровну' : `${name(r.winners[0])} · ${r.hand}`,
+          // У каждого открытого стола — его победители (Р-50), а не только у последнего
+          winners: open ? r.winners.map((pid) => ({ name: name(pid), hand: r.hand, cards: r.best[pid] })) : [],
           win: open ? r.winners.flatMap((pid) => r.best[pid]) : [],
           ...(odds && !open && { chances: chancesOf(i) }),
         }

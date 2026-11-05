@@ -27,6 +27,12 @@ const BOARD_CARD = { w: 2.2, h: 3.05 }
 const BOARD_GAP = 0.2
 const BOARD_PAD = 0.6
 const BOARD_TEXT_H = 1.4 // «Стол N · часть банка» и под картами — кто берёт
+// Строка победителя открытого стола (Р-50): под подписью «Имя · рука» — пять мелких карт его лучшей руки.
+// Место под ряд держит каждый стол, и ещё не открытый: открылся — столы ниже не сдвигаются.
+// Ничья — ещё по строке на каждого следующего победителя: стол выше, как раскрытые шансы
+const WIN_CARD = { w: 0.95, h: 1.4 }
+const WIN_GAP = 0.06
+const WIN_ROW_PAD = 0.2 // поля ряда сверху и снизу
 
 export type Size = { w: number; h: number }
 export type Box = { x: number; y: number; w: number; h: number } // rem: x — слева, y — сверху
@@ -35,7 +41,9 @@ export type CasinoLayout = {
   hand: Size // карта у места
   seat: Size
   boardCard: Size
-  board: Size // стол: подпись и пять карт
+  board: Size // стол: подпись, пять карт и строка победителя
+  winCard: Size // мелкая карта в строке победителя (Р-50)
+  winRow: Size // ряд пяти мелких карт победителя
   center: Size // колонка столов
   perRow: number // мест в ряду, не больше
   top: number[][] // номера участников над столами: ряды сверху вниз, в ряду — слева направо
@@ -57,9 +65,13 @@ export function casinoLayout(kind: DealKind, players: number, tables: number): C
     w: round(Math.max(SEAT_MIN_W, cards * hand.w + (cards - 1) * HAND_GAP + SEAT_PAD)),
     h: round(hand.h + SEAT_TEXT_H),
   }
+  const winRow = {
+    w: round(BOARD_CARDS * WIN_CARD.w + (BOARD_CARDS - 1) * WIN_GAP),
+    h: round(WIN_CARD.h + WIN_ROW_PAD),
+  }
   const board = {
     w: round(BOARD_CARDS * BOARD_CARD.w + (BOARD_CARDS - 1) * BOARD_GAP + BOARD_PAD),
-    h: round(BOARD_CARD.h + BOARD_TEXT_H + BOARD_PAD),
+    h: round(BOARD_CARD.h + BOARD_TEXT_H + winRow.h + BOARD_PAD),
   }
   const perRow = Math.max(1, Math.floor((MIN_WIDTH + GAP) / (seat.w + GAP)))
   const upper = Math.ceil(players / 2)
@@ -69,7 +81,7 @@ export function casinoLayout(kind: DealKind, players: number, tables: number): C
   const center = { w: board.w, h: round(tables * board.h + (tables - 1) * GAP) }
   const width = round(Math.max(perRow * seat.w + (perRow - 1) * GAP, board.w))
   const height = round(blockHeight(top.length, seat.h) + center.h + blockHeight(bottom.length, seat.h) + 2 * CENTER_PAD)
-  return { hand, seat, boardCard: BOARD_CARD, board, center, perRow, top, bottom, width, height }
+  return { hand, seat, boardCard: BOARD_CARD, board, winCard: WIN_CARD, winRow, center, perRow, top, bottom, width, height }
 }
 
 // Где что лежит: места по номеру участника и колонка столов — прямоугольниками в rem

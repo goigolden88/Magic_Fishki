@@ -66,6 +66,19 @@ describe('раскладка казино-стола', () => {
     expect(five.hand).toEqual(one.hand)
   })
 
+  it('строка победителя (Р-50): пять мелких карт — внутри стола, высота стола — с их рядом', () => {
+    for (const { kind, n, m } of every()) {
+      const l = casinoLayout(kind, n, m)
+      expect(l.winRow.w).toBeLessThanOrEqual(l.board.w - 0.6) // без полей стола
+      expect(l.winRow.w).toBeGreaterThanOrEqual(5 * l.winCard.w)
+      expect(l.winRow.h).toBeGreaterThanOrEqual(l.winCard.h)
+      expect(l.winCard.w).toBeLessThan(l.boardCard.w)
+      // стол: подпись, пять карт, строка победителя с её рядом и поля — ряд учтён в высоте
+      expect(l.board.h).toBeGreaterThanOrEqual(l.boardCard.h + l.winRow.h + 1.4)
+      expect(l.center.h).toBeCloseTo(m * l.board.h + (m - 1) * 0.3)
+    }
+  })
+
   it('по три места в ряду; у омахи четыре карты руки мельче', () => {
     expect(casinoLayout('holdem', 10, 5).perRow).toBe(3)
     expect(casinoLayout('omaha', 10, 1).perRow).toBe(3)
