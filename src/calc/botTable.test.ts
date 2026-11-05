@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest'
-import { viewFor } from '../poker/table'
+import { AUTO_START_MS, viewFor } from '../poker/table'
 import type { RandomBytes } from '../poker/tokens'
 import { botMove, seededRandom, type Random } from './bot'
 import {
+  autoDealBotHand,
+  BOT_AUTO_START_DEFAULT,
   BOTS_DEFAULT,
   BOTS_MAX,
   BOTS_MIN,
+  botAutoStart,
   botGameLine,
+  botNextHandAt,
+  botPause,
+  resumeBotTable,
   botGameOf,
   botStep,
   botTableView,
@@ -290,5 +296,125 @@ describe('стол против ботов', () => {
     expect(parseBotTable(JSON.stringify(short))).toBeNull()
     const noLimit = { ...bt, table: { ...bt.table, settings: { ...bt.table.settings, limit: 'nolimit' } } }
     expect(parseBotTable(JSON.stringify(noLimit))).toBeNull()
+  })
+})
+
+// «Следующая раздача сама» (#156, Р-51)
+describe('стол против ботов: раздача сама', () => {
+  const FAST = AUTO_START_MS.fast
+  // Раздача до конца, все ходы — в момент now
+  function finish(bt: BotTable, now: number, random: Random): BotTable {
+    let t = bt
+    for (let moves = 0; t.table.hand; moves++) {
+      if (moves > 200) throw new Error('раздача не кончается')
+      if (botToAct(t)) t = ok(botStep(t, now, random))
+      else {
+        const move = botMove(viewFor(t.table, t.meId), t.meId, 'abc', random)
+        if (!move) throw new Error('нет хода')
+        t = ok(myMove(t, move, now))
+      }
+    }
+    return t
+  }
+
+  it('новый стол — с выбором из формы; по умолчанию в окне — быстро (3 с); без поля — кнопкой', () => {
+    expect(BOT_AUTO_START_DEFAULT).toBe('fast')
+    expect(FAST).toBe(3000)
+    expect(start({ autoStart: 'fast' }).table.settings.autoStart).toBe('fast')
+    expect(start({ autoStart: 'slow' }).table.settings.autoStart).toBe('slow')
+    expect(start().table.settings.autoStart).toBe('off')
+  })
+
+  it('первая — кнопкой; закончилась — следующая сама через паузу, отсчёт виден; раньше срока — нет', () => {
+    const random = seededRandom(21)
+    let bt = start({ autoStart: 'fast' })
+    expect(botNextHandAt(bt)).toBeNull()
+    expect(autoDealBotHand(bt, 100_000).ok).toBe(false)
+    bt = finish(ok(dealBotHand(bt, 1000, bytesOf(random))), 2000, random)
+    expect(botNextHandAt(bt)).toBe(2000 + FAST)
+    expect(botTableView(bt, 2000).nextHandLeft).toBe(3)
+    expect(autoDealBotHand(bt, 2000 + FAST - 1)).toEqual({ ok: false, error: 'Раздача сама начнётся позже' })
+    const next = ok(autoDealBotHand(bt, 2000 + FAST, bytesOf(random)))
+    expect(next.table.hand?.number).toBe(2)
+    expect(Object.values(next.table.hand!.cards!.hole).every((c) => c.length === 2)).toBe(true)
+    expect(botNextHandAt(next)).toBeNull()
+    expect(next.history).toHaveLength(1)
+    // И дальше сами — десяток раздач подряд
+    bt = next
+    for (let k = 0, now = 10_000; k < 10; k++, now += 10_000) {
+      if (iAmBroke(bt)) bt = ok(myRebuy(bt, now))
+      if (!bt.table.hand) bt = ok(autoDealBotHand(bt, botNextHandAt(bt)!, bytesOf(random)))
+      bt = finish(bt, now, random)
+      expect(botNextHandAt(bt)).toBe(iAmBroke(bt) ? null : now + FAST)
+    }
+    expect(bt.history).toHaveLength(11)
+  })
+
+  it('«Нет» — как раньше: после раздачи сама не начинается, только кнопкой', () => {
+    const random = seededRandom(22)
+    const bt = finish(ok(dealBotHand(start(), 0, bytesOf(random))), 0, random)
+    expect(bt.table.nextHandAt ?? null).toBeNull()
+    expect(botTableView(bt, 0).nextHandLeft).toBeNull()
+    expect(autoDealBotHand(bt, 60_000).ok).toBe(false)
+    expect(ok(dealBotHand(bt, 60_000, bytesOf(random))).table.hand?.number).toBe(2)
+  })
+
+  it('«Перерыв» — сама не начинается, идущая доигрывается; «Продолжить» — снова через полную паузу', () => {
+    const random = seededRandom(23)
+    let bt = finish(ok(dealBotHand(start({ autoStart: 'fast' }), 0, bytesOf(random))), 0, random)
+    // Между раздачами
+    const paused = ok(botPause(bt, true, 1000))
+    expect(botTableView(paused, 1000).paused).toBe(true)
+    expect(botNextHandAt(paused)).toBeNull()
+    expect(autoDealBotHand(paused, 60_000).ok).toBe(false)
+    const resumed = ok(botPause(paused, false, 60_000))
+    expect(botNextHandAt(resumed)).toBe(60_000 + FAST)
+    // Во время раздачи: доигрывается, новая сама не взводится
+    bt = ok(autoDealBotHand(resumed, 60_000 + FAST, bytesOf(random)))
+    bt = finish(ok(botPause(bt, true, 64_000)), 65_000, random)
+    expect(bt.table.hand).toBeNull()
+    expect(bt.history).toHaveLength(2)
+    expect(botNextHandAt(bt)).toBeNull()
+    expect(botNextHandAt(ok(botPause(bt, false, 70_000)))).toBe(70_000 + FAST)
+  })
+
+  it('мои фишки кончились — сами не идут; докупился — снова сами через полную паузу', () => {
+    let bt = start({ bots: 2, autoStart: 'fast' })
+    const random = seededRandom(24)
+    bt = finish(ok(dealBotHand(bt, 0, bytesOf(random))), 0, random)
+    // Стол после раздачи, где я всё проиграл: у меня 0
+    const [me, ...bots] = bt.table.players
+    const broke = ok(botPause(ok(botPause({ ...bt, table: { ...bt.table, players: [{ ...me, chips: 0 }, ...bots] } }, true, 1000)), false, 1000))
+    expect(iAmBroke(broke)).toBe(true)
+    expect(broke.table.nextHandAt ?? null).toBeNull()
+    expect(botNextHandAt(broke)).toBeNull()
+    expect(autoDealBotHand(broke, 60_000).ok).toBe(false)
+    const back = ok(myRebuy(broke, 50_000))
+    expect(botNextHandAt(back)).toBe(50_000 + FAST)
+    expect(ok(autoDealBotHand(back, 50_000 + FAST, bytesOf(random))).table.hand).not.toBeNull()
+  })
+
+  it('стол снова открыт посреди паузы — отсчёт заново с полной; нет паузы — стол как был', () => {
+    const random = seededRandom(25)
+    const bt = finish(ok(dealBotHand(start({ autoStart: 'medium' }), 0, bytesOf(random))), 0, random)
+    expect(botNextHandAt(bt)).toBe(AUTO_START_MS.medium)
+    const reopened = resumeBotTable(parseBotTable(JSON.stringify(bt))!, 3_600_000)
+    expect(botNextHandAt(reopened)).toBe(3_600_000 + AUTO_START_MS.medium)
+    expect(autoDealBotHand(reopened, 3_600_000).ok).toBe(false)
+    const off = finish(ok(dealBotHand(start(), 0, bytesOf(random))), 0, random)
+    expect(resumeBotTable(off, 3_600_000)).toBe(off)
+    const dealing = ok(dealBotHand(bt, 0, bytesOf(random)))
+    expect(resumeBotTable(dealing, 3_600_000)).toBe(dealing)
+  })
+
+  it('стол, начатый до этой задачи (без поля в настройках), — как был: кнопкой', () => {
+    const random = seededRandom(26)
+    const bt = start({ autoStart: 'fast' })
+    const { autoStart: _, ...settings } = bt.table.settings
+    const old = parseBotTable(JSON.stringify({ ...bt, table: { ...bt.table, settings } }))!
+    expect(botAutoStart(old)).toBe('off')
+    const played = finish(ok(dealBotHand(old, 0, bytesOf(random))), 0, random)
+    expect(botNextHandAt(played)).toBeNull()
+    expect(autoDealBotHand(played, 60_000).ok).toBe(false)
   })
 })
