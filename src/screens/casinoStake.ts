@@ -1,5 +1,6 @@
 import { AUTO_OPEN_CHOICES, DEFAULT_AUTO_OPEN } from '../calc/casinoReveal'
 import { CARD_BACK_LABELS, FELT_LABELS, lookOf, type Look } from '../calc/pokerLook'
+import { parseSavedCasinoRound, type SavedCasinoRound } from '../calc/savedCasino'
 
 // Ставка прошлого раунда казино с картами (#76) — в модели раунда её нет, помнится на устройстве:
 // в localStorage, не в IndexedDB и не в копии
@@ -66,6 +67,34 @@ export function saveAutoOpen(seconds: number) {
     localStorage.setItem(AUTO_OPEN_KEY, JSON.stringify(seconds))
   } catch {
     // так же — не запомним
+  }
+}
+
+// Незаписанный раунд казино-стола (#151) — свой ключ у каждой игры, так же на устройстве.
+// Нет, битый, чужой или память браузера недоступна — null: стол как без него
+const roundKey = (gameId: string) => `fishki.casino.round.${gameId}`
+
+export function loadRound(gameId: string, players: string[]): SavedCasinoRound | null {
+  try {
+    return parseSavedCasinoRound(localStorage.getItem(roundKey(gameId)) ?? '', gameId, players)
+  } catch {
+    return null
+  }
+}
+
+export function saveRound(round: SavedCasinoRound) {
+  try {
+    localStorage.setItem(roundKey(round.gameId), JSON.stringify(round))
+  } catch {
+    // так же — не запомним: после перезапуска раунда не будет
+  }
+}
+
+export function clearRound(gameId: string) {
+  try {
+    localStorage.removeItem(roundKey(gameId))
+  } catch {
+    // память недоступна — и стирать нечего
   }
 }
 

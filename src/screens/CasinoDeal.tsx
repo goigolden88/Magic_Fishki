@@ -59,7 +59,20 @@ import type { Card } from '../poker/cards'
 import { getGame, getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 import { useCasinoOdds } from './casinoOddsClient'
-import { loadAutoOpen, loadLook, loadOdds, loadStake, saveAutoOpen, saveLook, saveOdds, saveStake } from './casinoStake'
+import { restoredReveal, savedCasinoRound } from '../calc/savedCasino'
+import {
+  clearRound,
+  loadAutoOpen,
+  loadLook,
+  loadOdds,
+  loadRound,
+  loadStake,
+  saveAutoOpen,
+  saveLook,
+  saveOdds,
+  saveRound,
+  saveStake,
+} from './casinoStake'
 import { playFlights, useLandOnHide } from './cardFly'
 import { GuestField } from './GuestField'
 import { LookFields } from './LookFields'
@@ -102,10 +115,29 @@ export function CasinoDealScreen({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
+  // Незаписанный раунд этой игры на устройстве (#151) — тот же раунд: карты уже лежат, без анимации раздачи,
+  // столы сами — на паузе до касания. Игры нет или закрыта — сохранённый стирается
   useEffect(() => {
     void getGame(id).then((g) => {
       setGame(g ?? null)
-      if (g) setPicked(new Set(g.players.map((p) => p.id)))
+      if (!g || g.closed) {
+        clearRound(id)
+        return
+      }
+      const saved = loadRound(id, g.players.map((p) => p.id))
+      if (!saved) {
+        setPicked(new Set(g.players.map((p) => p.id)))
+        return
+      }
+      const { deal: d, stake: s, opened: o } = saved
+      const t = Date.now()
+      setPicked(new Set(d.ids))
+      setKind(d.kind)
+      setTables(d.boards.length)
+      setStakeText(String(s / 100))
+      setDealt({ deal: d, results: d.boards.map((_, i) => boardResult(d, i)), stake: s, fly: null })
+      setNow(t)
+      setReveal(restoredReveal(d.boards.length, o, autoOpen > 0 ? autoOpen * 1000 : null, loadCardAnim() ? BOARD_FLIP_MS : 0, t))
     })
   }, [id])
 
@@ -147,6 +179,13 @@ export function CasinoDealScreen({ id }: { id: string }) {
 
   // Открытие столов: сколько открыто, сколько карт лицом у последнего, переворачивается ли он
   const opened = reveal?.opened ?? 0
+
+  // Раунд не записан — на устройстве после раздачи и каждого открытого стола (#151); кончен — стёрт
+  useEffect(() => {
+    if (!dealt) return
+    if (finished) clearRound(id)
+    else saveRound(savedCasinoRound(id, dealt.deal, dealt.stake, opened))
+  }, [id, dealt, opened, finished])
   const shown = reveal ? cardsShown(reveal, now) : 0
   const flipping = reveal !== null && turning(reveal, now)
   // Шансы (#137): видимые карты столов — открытые целиком, открывающийся — сколько лицом, остальные рубашкой
@@ -158,6 +197,7 @@ export function CasinoDealScreen({ id }: { id: string }) {
     if (!pending) return true
     const held = reveal && revealHold(reveal, Date.now())
     const ok = confirm(ABANDON)
+    if (ok) clearRound(id)
     if (!ok && held) {
       const t = Date.now()
       setNow(t)
@@ -166,7 +206,8 @@ export function CasinoDealScreen({ id }: { id: string }) {
     return ok
   }
 
-  // Свои кнопки ухода спрашивают; системная «Назад» — нет (сторожа ухода в приложении нет)
+  // Свои кнопки ухода спрашивают; системная «Назад» — нет (сторожа ухода в приложении нет),
+  // но раунд остаётся на устройстве и ждёт возврата (#151)
   function leave(e?: MouseEvent) {
     if (!abandon()) {
       e?.preventDefault()
@@ -216,6 +257,7 @@ export function CasinoDealScreen({ id }: { id: string }) {
         await saveGame(next)
         setGame(next)
       }
+      clearRound(id)
       saveStake(d.stake)
       setRecorded(true)
       setError(null)

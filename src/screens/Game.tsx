@@ -17,6 +17,7 @@ import {
 } from '../model'
 import { deleteGame, getGame, getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
+import { clearRound } from './casinoStake'
 
 const KIND_LABEL: Record<EntryKind, string> = { buyin: 'Закуп', rebuy: 'Докуп', cashout: 'Выход' }
 const KINDS: EntryKind[] = ['buyin', 'rebuy', 'cashout']
@@ -117,8 +118,10 @@ export function GameScreen({ id }: { id: string }) {
     setTimeout(() => setShareNote(null), 3000)
   }
 
+  // С игрой — и её незаписанный раунд казино-стола на устройстве (#151)
   async function remove() {
     await deleteGame(current.id)
+    clearRound(current.id)
     location.hash = '#/'
   }
 
@@ -328,7 +331,14 @@ export function GameScreen({ id }: { id: string }) {
       </button>
       {shareNote && <p className={shareNote === 'Скопировано' ? 'ok center' : 'warn center'}>{shareNote}</p>}
 
-      <button className="big wide" onClick={() => update({ ...current, closed: !current.closed })}>
+      {/* Закрыли — незаписанный раунд казино-стола стирается (#151): открыли снова — стол чистый */}
+      <button
+        className="big wide"
+        onClick={() => {
+          if (!current.closed) clearRound(current.id)
+          update({ ...current, closed: !current.closed })
+        }}
+      >
         {current.closed ? 'Открыть снова' : 'Закрыть игру'}
       </button>
 
