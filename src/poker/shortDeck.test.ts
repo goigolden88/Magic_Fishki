@@ -40,10 +40,17 @@ describe.each(MODES)('шорт-дек (%s)', (_, roundtrip) => {
     expect(s.lastHand?.record?.hands).toEqual({ p1: 'Флеш, старший туз', p0: 'Фулл-хаус, короли и девятки' })
   })
 
-  it('банк: A-6-7-8-9 — стрит, и он старше тройки', () => {
+  it('банк: тройка старше стрита (Р-52); A-6-7-8-9 — стрит', () => {
+    // По правилу холдема выиграл бы стрит p1
     const s = showdown([['Ad', '9c'], ['Kd', 'Ks']], ['6c', '7d', '8s', 'Kh', 'Qc'], roundtrip)
-    expect(s.lastHand?.pots).toEqual([{ amount: 20, winners: ['p1'] }])
+    expect(s.lastHand?.pots).toEqual([{ amount: 20, winners: ['p0'] }])
     expect(s.lastHand?.record?.hands).toEqual({ p1: 'Стрит до девятки', p0: 'Тройка, короли' })
+  })
+
+  it('банк: A-6-7-8-9 — младший стрит, его бьёт стрит до валета', () => {
+    const s = showdown([['Ad', 'Qs'], ['Td', 'Jc']], ['6c', '7d', '8s', '9h', 'Kc'], roundtrip)
+    expect(s.lastHand?.pots).toEqual([{ amount: 20, winners: ['p0'] }])
+    expect(s.lastHand?.record?.hands).toEqual({ p1: 'Стрит до девятки', p0: 'Стрит до валета' })
   })
 })
 
