@@ -631,8 +631,11 @@ export function HandHistory(props: {
   const hand = hands?.find((h) => h.number === open) ?? null
   const list = hands ? historyList(hands) : []
 
-  // Открыли историю или раздачу — к её началу
-  useEffect(() => ref.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }), [open])
+  // Открыли историю или раздачу — к её началу. Тело в фигурных скобках: плавная прокрутка в новом Chrome
+  // возвращает обещание, а React принял бы его за функцию уборки и снял бы весь экран
+  useEffect(() => {
+    ref.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  }, [open])
 
   return (
     <section ref={ref} className="card hand-history last-hand">
