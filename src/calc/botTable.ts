@@ -111,11 +111,12 @@ export function myMove(bt: BotTable, action: BetAction, now: number): BotStep {
   return after(bt, actFor(bt.table, action, now), now)
 }
 
-// Ход бота: решает по виду стола своими глазами
+// Ход бота: решает по виду стола своими глазами и по HUD вечера всех за столом (#146) — счётчикам по ходам,
+// без карт; их любой за столом мог бы набрать сам. Докуп HUD не сбрасывает: он лежит в столе по игроку
 export function botStep(bt: BotTable, now: number, random: Random): BotStep {
   const id = botToAct(bt)
   if (!id) return { ok: false, error: 'Сейчас не ход бота' }
-  const move = botMove(viewFor(bt.table, id), id, botStyleOf(bt, id), random, bt.styles)
+  const move = botMove(viewFor(bt.table, id), id, botStyleOf(bt, id), random, bt.styles, bt.table.hud)
   if (!move) return { ok: false, error: 'Бот не нашёл хода' }
   return after(bt, actFor(bt.table, move, now), now)
 }

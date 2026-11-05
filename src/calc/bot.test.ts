@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { bestHand, buildDeck, compareHands, HOLDEM, OMAHA, SHORT_DECK, type Card } from '../poker/cards'
 import { deckFor, HOLDEM_GAME, OMAHA_GAME, SHORT_DECK_GAME, shuffle } from '../poker/game'
 import { handScore } from './allInOdds'
+import { HUD_FEW_HANDS, type Hud, type HudCounts } from '../poker/hud'
 import { PROTOCOL_VERSION } from '../poker/protocol'
 import { createTable, handle, viewFor, type Result, type TableState } from '../poker/table'
 import type { RandomBytes } from '../poker/tokens'
@@ -321,4 +322,105 @@ describe('бот покера', () => {
     expect(preflopStrength(['Ah', 'Kh'])).toBeGreaterThan(preflopStrength(['Ah', 'Kc']))
     expect(preflopStrength(['Kh', 'Ks'])).toBeGreaterThan(preflopStrength(['Ah', 'Kh']))
   })
+
+// Чтение соперников за вечер по HUD (#146, Р-47): счётчики по ходам, без карт
+describe('сильный бот читает соперников по HUD вечера', () => {
+  const hudOf = (c: Partial<HudCounts>): HudCounts => ({
+    hands: 100, vpip: 0, pfr: 0, stealChances: 30, steals: 0, cbChances: 10, cbs: 0, raises: 0, calls: 0, ...c,
+  })
+  // Типажи за 100 раздач: всё уравнивает; играет очень узко; много давит; тот же, но спокойный
+  const STATION = hudOf({ vpip: 55, pfr: 2, steals: 1, raises: 5, calls: 120 })
+  const NIT = hudOf({ vpip: 11, pfr: 8, steals: 3, cbs: 6, raises: 20, calls: 6 })
+  const PUSHY = hudOf({ vpip: 30, pfr: 22, steals: 15, cbs: 9, raises: 90, calls: 15 })
+  const CALM = hudOf({ vpip: 30, pfr: 22, steals: 15, cbs: 9, raises: 20, calls: 40 })
+
+  it(`меньше ${HUD_FEW_HANDS} раздач — соперник средний (ABC): ходы те же, что против подписанного ABC`, () => {
+    for (let seed = 1; seed <= 25; seed++) {
+      const random = seededRandom(seed)
+      let t = start(table(4), shuffle(deckFor(HOLDEM_GAME), bytesOf(random)))
+      let moves = 0
+      while (t.hand) {
+        const id = toActId(t) as string
+        const others = t.players.map((p) => p.id).filter((x) => x !== id)
+        // Без подписи, у каждого 29 раздач колл-станции
+        const few: Hud = Object.fromEntries(others.map((x) => [x, { ...STATION, hands: HUD_FEW_HANDS - 1 }]))
+        const abc = Object.fromEntries(others.map((x) => [x, 'abc' as const]))
+        for (const style of ['tag', 'lag'] as const) {
+          const read = botMove(viewFor(t, id), id, style, seededRandom(seed * 100 + moves), {}, few)
+          expect(read).toEqual(botMove(viewFor(t, id), id, style, seededRandom(seed * 100 + moves), abc))
+          // Человек без HUD — тоже средний
+          expect(botMove(viewFor(t, id), id, style, seededRandom(seed * 100 + moves))).toEqual(read)
+        }
+        const move = botMove(viewFor(t, id), id, 'tag', seededRandom(seed * 100 + moves), {}, few)!
+        t = ok(handle(t, id, { v: PROTOCOL_VERSION, type: 'act', action: move }, 0))
+        if (++moves > 100) throw new Error('раздача не кончается')
+      }
+    }
+  })
+
+  // Хедз-ап: p0 — кнопка, открыл до 25, p1 уравнял; флоп и тёрн — чек-чек; ривер — p1 чек, ход p0 без пары
+  function airRiver(): TableState {
+    let t = start(table(2), riggedDeck(2, { 0: ['6h', '5h'], 1: OPP }, BOARD))
+    const act = (id: string, action: { type: 'check' | 'call' } | { type: 'raise'; to: number }) => {
+      t = ok(handle(t, id, { v: PROTOCOL_VERSION, type: 'act', action }, 0))
+    }
+    act('p0', { type: 'raise', to: 25 })
+    act('p1', { type: 'call' })
+    for (let k = 0; k < 3; k++) {
+      act('p1', { type: 'check' })
+      if (k < 2) act('p0', { type: 'check' })
+    }
+    return t
+  }
+
+  it('против колл-станции по HUD блефует на ривере реже, чем против среднего', () => {
+    const t = airRiver()
+    expect(toActId(t)).toBe('p0')
+    for (const style of ['tag', 'lag'] as const) {
+      const bets = (hud?: Hud) =>
+        Array.from({ length: 300 }, (_, seed) => botMove(viewFor(t, 'p0'), 'p0', style, seededRandom(seed), {}, hud)).filter(
+          (m) => m?.type === 'raise' || m?.type === 'allin',
+        ).length
+      const vsStation = bets({ p1: STATION })
+      const vsAbc = bets()
+      expect(vsAbc, style).toBeGreaterThan(30)
+      expect(vsStation, style).toBeLessThan(vsAbc / 2)
+    }
+  })
+
+  it('против нита по HUD в блайндах — кража из поздней позиции шире', () => {
+    // Шестеро: до кнопки (p0) все пасуют, на блайндах p1 и p2
+    const random = seededRandom(31)
+    let vsNit = 0
+    let vsAbc = 0
+    for (let k = 0; k < 400; k++) {
+      let t = start(table(6), shuffle(deckFor(HOLDEM_GAME), bytesOf(random)))
+      for (const id of ['p3', 'p4', 'p5']) t = ok(handle(t, id, { v: PROTOCOL_VERSION, type: 'act', action: { type: 'fold' } }, 0))
+      expect(toActId(t)).toBe('p0')
+      const steals = (hud?: Hud) => (botMove(viewFor(t, 'p0'), 'p0', 'tag', seededRandom(k), {}, hud)?.type === 'raise' ? 1 : 0)
+      vsNit += steals({ p1: NIT, p2: NIT })
+      vsAbc += steals()
+    }
+    expect(vsAbc).toBeGreaterThan(80)
+    expect(vsNit).toBeGreaterThan(vsAbc * 1.3)
+  })
+
+  it('против того, кто много давит (AF по HUD высокий), ловит блефы на ривере шире', () => {
+    const base = riverSpot(['7c', '7s'])
+    const own = rangeOf(readHand(base.hand!), 'p1', 'tag', BOARD, [...BOARD, ...OPP])
+    const calls = (hud: Hud) => {
+      let total = 0
+      let called = 0
+      for (let c = 0; c < COMBOS.length; c++) {
+        if (own[c] < 0.05) continue
+        const t = riverSpot([COMBOS[c].a, COMBOS[c].b])
+        const move = botMove(viewFor(t, 'p1'), 'p1', 'tag', seededRandom(c), {}, hud)
+        total += own[c]
+        if (move?.type !== 'fold') called += own[c]
+      }
+      return called / total
+    }
+    expect(calls({ p0: PUSHY })).toBeGreaterThan(calls({ p0: CALM }))
+  })
+})
 })

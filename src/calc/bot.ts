@@ -8,8 +8,10 @@ import { buildDeck, type Card, type Variant } from '../poker/cards'
 import { publicCards } from '../poker/game'
 import type { Street } from '../poker/hand'
 import type { BetAction } from '../poker/protocol'
+import type { Hud } from '../poker/hud'
 import type { TableState } from '../poker/table'
 import { handScore } from './allInOdds'
+import { PROFILES, readRival, THIEF_ATS, type Profile, type RivalRead } from './botHud'
 import {
   OMAHA_SPREAD,
   omahaBluff,
@@ -129,7 +131,9 @@ type Spot = {
   eff: number // эффективный стек в больших блайндах: меньший из своего и крупнейшего у соперников
   read: HandRead
   rivals: string[] // в раздаче, не сбросили
-  who: (id: string) => Who
+  who: (id: string) => Who // типаж соперника для чтения диапазона (botHud)
+  profile: (id: string) => Profile // поправки к игре против него (botHud)
+  rival: (id: string) => RivalRead
   level: number // повышений на этой улице до хода (до флопа — сверх большого блайнда)
   limpers: number // до флопа: уравняли большой блайнд до первого повышения
   behind: number // до флопа: сколько ходят после (открытие первым)
@@ -142,13 +146,15 @@ const CALL: Intent = { kind: 'call' } // уравнивать нечего — �
 const ALLIN: Intent = { kind: 'raise', to: Infinity }
 const raiseTo = (to: number): Intent => ({ kind: 'raise', to })
 
-// Ход бота botId стиля style; styles — стили соперников-ботов (человек — без стиля); не его ход — null
+// Ход бота botId стиля style; styles — стили соперников-ботов (человек — без стиля); hud — HUD вечера всех
+// за столом (счётчики по ходам, без карт): по нему ТАГ и ЛАГ читают соперников (botHud, #146); не его ход — null
 export function botMove(
   view: TableState,
   botId: string,
   style: BotStyle,
   random: Random,
   styles: Record<string, BotStyle> = {},
+  hud?: Hud,
 ): BetAction | null {
   const hand = view.hand
   const a = actionsView(view, botId)
@@ -171,6 +177,12 @@ export function botMove(
   const firstRaise = pre.findIndex((m) => m.aggressive)
   const streetMoves = read.moves.filter((m) => m.street === hand.stage)
   const biggest = Math.max(0, ...rivalSeats.map((s) => s.chips + s.bet))
+  const reads = new Map<string, RivalRead>()
+  const rival = (id: string): RivalRead => {
+    let r = reads.get(id)
+    if (!r) reads.set(id, (r = readRival(id, styles, hud, omaha)))
+    return r
+  }
   const x: Spot = {
     me: botId,
     style,
@@ -198,7 +210,9 @@ export function botMove(
     eff: Math.min(seat.chips + seat.bet, biggest) / hand.bb,
     read,
     rivals: rivalSeats.map((s) => s.id),
-    who: (id) => styles[id] ?? 'unknown',
+    who: (id) => rival(id).who,
+    profile: (id) => rival(id).profile,
+    rival,
     level: streetMoves.filter((m) => m.aggressive).length,
     limpers: (firstRaise === -1 ? pre : pre.slice(0, firstRaise)).filter((m) => m.passive).length,
     behind: behindOf(read, botId),
@@ -234,7 +248,13 @@ function lastRaiser(x: Spot): { id: string; width: number } | null {
   const wd = WIDTHS[who]
   if (m.level === 0) {
     const limped = pre.some((e) => e.passive && pre.indexOf(e) < pre.indexOf(m))
-    return { id: m.id, width: openWidth(who, behindOf(x.read, m.id), x.read.n) * (limped ? 0.7 : 1) }
+    const behind = behindOf(x.read, m.id)
+    let width = openWidth(who, behind, x.read.n) * (limped ? 0.7 : 1)
+    // Открылся с поздней позиции первым — по его ATS за вечер (доля краж ≈ ширина открытия там): явный вор
+    // (ATS от THIEF_ATS) крадёт шире, чем ждали, — диапазон шире
+    const ats = x.rival(m.id).ats
+    if (!limped && ats !== null && ats >= THIEF_ATS && ats > width && behind <= 3 && x.read.n > 2) width = Math.min(1, (width + ats) / 2)
+    return { id: m.id, width }
   }
   if (m.level === 1) return { id: m.id, width: wd.threeBet + wd.bluffs * 0.03 }
   return { id: m.id, width: wd.fourBet + wd.bluffs * 0.01 }
@@ -340,7 +360,8 @@ function strongPre(x: Spot, r: Random, lag: boolean): Intent {
   if (x.level === 0) {
     const w = openWidth(me, x.behind, x.read.n)
     if (x.limpers === 0) {
-      if (t <= w) return raiseTo(openSize(x))
+      // Кража блайндов из поздних позиций: против тех, кто сзади сдаётся (нит), — шире
+      if (t <= w * (x.behind <= 3 ? stealFactor(x) : 1)) return raiseTo(openSize(x))
       return x.toCall === 0 ? CALL : FOLD
     }
     // Изоляция вошедших: против слабых — шире
@@ -360,7 +381,7 @@ function strongPre(x: Spot, r: Random, lag: boolean): Intent {
     call *= Math.min(1.2, Math.max(0.5, (2.5 * x.bb) / Math.max(x.bb, x.currentBet)))
     if (callers > 0) call *= 0.85
     // Блеф-3-бет — чаще против тех, кто на него сдаётся
-    const foldsTo = raiser ? FOLDS[x.who(raiser.id)] : 1
+    const foldsTo = raiser ? x.profile(raiser.id).folds : 1
     const bluff = callers === 0 && t > v && bluffHand(x) && r() < (lag ? 0.45 : 0.25) * (wR > 0.3 ? 1.3 : 1) * foldsTo
     if (t <= v || bluff) return commit(x, threeBetSize(x, ip))
     if (t <= call && x.toCall <= x.stack * 0.12) return CALL
@@ -378,6 +399,13 @@ function strongPre(x: Spot, r: Random, lag: boolean): Intent {
   }
   if (t <= Math.max(0.012, wR * 0.5)) return ALLIN
   return t <= Math.max(0.02, wR * 0.8) * cheap ? CALL : FOLD
+}
+
+// Во сколько раз шире красть блайнды: среднее по тем, кто ходит после, — как они сдаются на кражу
+function stealFactor(x: Spot): number {
+  const after = x.read.ids.filter((id) => id !== x.me && behindOf(x.read, id) < x.behind)
+  if (after.length === 0) return 1
+  return after.reduce((sum, id) => sum + x.profile(id).steal, 0) / after.length
 }
 
 // Пуш/фолд от PUSH_FOLD_BB и меньше: первым — олл-ин шире открытия; на повышение — олл-ин по ширине повысившего и цене
@@ -496,23 +524,47 @@ function lastAggressorBefore(x: Spot): string | null {
   return m?.id ?? null
 }
 
-// Как соперник сдаётся на ставку (множитель частоты блефа) и как часто блефует сам (множитель защиты банка)
-const FOLDS: Record<Who, number> = { maniac: 0.5, station: 0.2, nit: 1.6, abc: 1.4, tag: 1, lag: 0.85, unknown: 0.9 }
-const DEFEND: Record<Who, number> = { maniac: 1.15, station: 0.4, nit: 0.15, abc: 0.35, tag: 1, lag: 1, unknown: 0.9 }
-// Вторая ставка без руки (тёрн): уравнявший флоп ABC или колл-станция держат пару — блефа почти не будет
-const BARREL: Record<Who, number> = { maniac: 0.4, station: 0.1, nit: 0.8, abc: 0.4, tag: 0.9, lag: 0.8, unknown: 0.7 }
-// Какая часть диапазона соперника уравняет ставку — по стилю
-const CALLS: Record<Who, number> = { maniac: 0.65, station: 0.85, nit: 0.3, abc: 0.4, tag: 0.5, lag: 0.55, unknown: 0.5 }
+// Частоты сильных после флопа (#146, Р-47): ТАГ — агрессивно с запасом, ЛАГ — рискованнее, блефов больше
+type StrongPlay = {
+  slow: number // медленная игра очень сильной рукой
+  draw: number // дро — ставкой
+  cbetDry: number // продолжение ставкой на сухом флопе
+  cbetWet: number // и на мокром
+  barrel: number // вторая ставка без руки (тёрн)
+  river: number // блеф ривера
+  stab: number // соперник сдался (ставил прошлую улицу, теперь чек) — забрать банк
+  probe: number // все прочекали ко мне — ставка
+  semi: number // полу-блеф повышением с дро
+  raise: number // повышение без руки (чек-рейз) на одиночную ставку до ривера
+  float: number // в позиции против продолжения ставкой: повышение вместо колла
+  protect: number // крепкая рука на одиночную ставку — повышением
+  pushy: number // насколько тоньше повышать против того, кто давит
+  riverRaise: number // блеф-повышение на ривере
+}
+const PLAY: Record<'tag' | 'lag', StrongPlay> = {
+  tag: {
+    slow: 0.1, draw: 0.6, cbetDry: 0.7, cbetWet: 0.5, barrel: 0.45, river: 0.25, stab: 0.6, probe: 0.35, semi: 0.3, raise: 0.12,
+    float: 0.2, protect: 0.9, pushy: 0.2, riverRaise: 0.03,
+  },
+  lag: {
+    slow: 0.08, draw: 0.9, cbetDry: 0.95, cbetWet: 0.8, barrel: 0.85, river: 0.5, stab: 0.9, probe: 0.7, semi: 0.55, raise: 0.26,
+    float: 0.4, protect: 0.9, pushy: 0.3, riverRaise: 0.06,
+  },
+}
 
 // ТАГ и ЛАГ: сила — против диапазонов соперников по их ходам; размер ставки — от текстуры; блефы — дро и
-// руками без вскрытия, не дальше двух-трёх улиц; медленная игра и чек-рейз; защита банка по цене
+// руками без вскрытия, не дальше двух-трёх улиц; медленная игра и чек-рейз; защита банка по цене.
+// Против каждого — по его чтению за вечер (botHud): кто всё уравнивает — без блефов и с вэлью тоньше,
+// кто сдаётся — чаще давить, кто давит — шире ловить блефы
 function strongPost(x: Spot, r: Random, lag: boolean): Intent {
   if (!x.holdem && !x.omaha) return abcPost(x, r)
   const g = x.omaha ? omahaReading(x, r) : holdemReading(x, r)
   const { eq, draw, versus } = g
+  const p = PLAY[lag ? 'lag' : 'tag']
   const heads = x.rivals.length === 1
   const opp: Who = heads ? x.who(x.rivals[0]) : 'unknown'
-  const folds = FOLDS[opp]
+  const prof = heads ? x.profile(x.rivals[0]) : PROFILES.unknown
+  const folds = prof.folds
   const multi = 0.07 * (x.rivals.length - 1)
   const wet = wetBoard(x.board)
   const aggressor = lastAggressorBefore(x) === x.me
@@ -528,25 +580,26 @@ function strongPost(x: Spot, r: Random, lag: boolean): Intent {
     // Вэлью — когда впереди той части диапазона, что уравняет; колл-станция уравнивает шире — ставка тоньше
     const thin = eq >= 0.3 ? versus(1) : 0
     // В омахе руки ближе по доле банка: на вэлью — чуть тоньше
-    const value = 0.5 + multi - (x.omaha ? 0.03 : 0)
+    const value = (lag ? 0.47 : 0.5) + multi - (x.omaha ? 0.03 : 0)
     // Медленная игра — в холдеме; в омахе сильную руку догоняют чаще — ставка
-    if (!x.omaha && eq >= 0.85 && x.street !== 'river' && heads && r() < (lag ? 0.15 : 0.2)) return CALL
+    if (!x.omaha && eq >= 0.85 && x.street !== 'river' && heads && r() < p.slow) return CALL
     if (thin >= value) {
       if (shallow) return ALLIN
       const f = x.street === 'river' ? (eq >= 0.8 ? 0.75 : 0.5) + (opp === 'station' ? 0.25 : 0) : x.street === 'flop' && !wet ? 0.33 : 0.66
       return raiseTo(potBet(x, f))
     }
     // Дро — ставкой; в омахе дро здесь к натсам — чаще
-    if (draw && r() < (lag ? 0.7 : 0.5) * (x.omaha ? 1.3 : 1) * Math.min(1, folds + 0.2)) return raiseTo(potBet(x, wet ? 0.66 : 0.5))
-    if (x.street === 'flop' && aggressor && x.rivals.length <= 2) {
+    if (draw && r() < p.draw * (x.omaha ? 1.2 : 1) * Math.min(1, folds + 0.2)) return raiseTo(potBet(x, wet ? 0.66 : 0.5))
+    if (x.street === 'flop' && aggressor && x.rivals.length <= 3) {
       // В омахе мокрый почти каждый флоп, а продолжение ставкой — всё равно частое
-      const cbet = (wet ? (lag ? 0.55 : 0.4) : lag ? 0.8 : 0.65) * Math.min(1.2, folds) * (heads ? 1 : 0.6) * (x.omaha ? 1.4 : 1)
+      const many = heads ? 1 : x.rivals.length === 2 ? 0.7 : 0.45
+      const cbet = (wet ? p.cbetWet : p.cbetDry) * Math.min(1.2, folds) * many * (x.omaha ? 1.2 : 1)
       if (r() < cbet) return raiseTo(potBet(x, wet ? 0.66 : 0.33))
     }
-    if (heads && eq < 0.4 && barrels >= 1 && x.street === 'turn' && aggressor && r() < (lag ? 0.45 : 0.3) * BARREL[opp]) {
+    if (heads && thin < value && barrels >= 1 && x.street === 'turn' && aggressor && r() < p.barrel * prof.barrel) {
       return raiseTo(potBet(x, 0.66))
     }
-    if (heads && eq < 0.25 && x.street === 'river' && barrels <= 2 && r() < (lag ? 0.4 : 0.3) * folds * (barrels >= 2 ? 0.5 : 1)) {
+    if (heads && eq < 0.25 && x.street === 'river' && barrels <= 2 && r() < p.river * folds * (barrels >= 2 ? 0.6 : 1)) {
       // Против тех, кто сдаётся на крупное, — в банк
       return raiseTo(potBet(x, folds >= 1.2 ? 1 : 0.75))
     }
@@ -554,30 +607,51 @@ function strongPost(x: Spot, r: Random, lag: boolean): Intent {
     const checkedTo = x.read.moves.filter((m) => m.street === x.street).every((m) => m.type === 'check')
     // Ставил прошлую улицу, а теперь прочекал — сдался: забрать банк
     const gaveUp = heads && checkedTo && x.street !== 'flop' && lastAggressorBefore(x) === x.rivals[0]
-    if (gaveUp && ip && r() < (lag ? 0.65 : 0.5) * Math.min(1, folds)) return raiseTo(potBet(x, 0.6))
-    if (heads && checkedTo && ip && barrels === 0 && eq < 0.35 && r() < (lag ? 0.4 : 0.25) * folds) return raiseTo(potBet(x, 0.5))
+    if (gaveUp && ip && r() < p.stab * Math.min(1, folds)) return raiseTo(potBet(x, 0.6))
+    if (heads && checkedTo && ip && barrels === 0 && eq < 0.45 && r() < p.probe * folds) return raiseTo(potBet(x, 0.5))
+    // Прошлую улицу все прочекали — ставка первым и без позиции: банк ничей
+    const nobody = x.street !== 'flop' && lastAggressorBefore(x) === null
+    if (heads && checkedTo && nobody && r() < p.probe * Math.min(1.2, folds)) return raiseTo(potBet(x, 0.5))
+    // Втроём все прочекали ко мне последним — ставка реже
+    if (x.rivals.length === 2 && checkedTo && ip && x.street !== 'river' && r() < p.probe * 0.5 * Math.min(1, folds)) {
+      return raiseTo(potBet(x, 0.5))
+    }
     return CALL
   }
   // Ставка против меня: повышение на вэлью — когда впереди того, что продолжит против повышения
   const b = x.toCall / Math.max(1, x.pot - x.toCall)
   const strongEnough = eq >= 0.55 && versus(0.6) >= (x.street === 'river' ? 0.6 : 0.55) + multi
   if (eq >= 0.85 + multi || strongEnough) {
-    // Пусть маньяк ставит дальше; в пот-лимите банк растёт медленнее — в омахе повышать чаще
-    if (opp === 'maniac' && x.street !== 'river' && r() < (x.omaha ? 0.2 : 0.5)) return CALL
+    // Иногда пусть маньяк ставит дальше
+    if (opp === 'maniac' && x.street !== 'river' && r() < 0.2) return CALL
     if (shallow) return ALLIN
     return commit(x, x.currentBet + 0.8 * (x.pot + x.toCall))
   }
   // Полу-блеф повышением с дро; в омахе дро здесь — к натсам («обёртка», старший флеш): чаще и не только
   // один на один
-  const semi = (lag ? 0.25 : 0.15) * (x.omaha ? 2 : 1)
+  const semi = p.semi * (x.omaha ? 1.5 : 1)
   if (draw && (heads || x.omaha) && x.level === 1 && r() < semi * folds) return commit(x, x.currentBet + 0.8 * (x.pot + x.toCall))
+  // Крепкая, но не лучшая рука на одиночную ставку — часто повышением, а не коллом: защита от дро и вэлью
+  // (на ривере — только впереди большей части диапазона)
+  // Против того, кто давит без руки (маньяк, AF > 3 за вечер), — повышать тоньше: он и уравнивает, и
+  // ре-рейзит шире; против того, кто ставит почти только с рукой (ABC, нит), — строже
+  const pushy = prof.defend >= 1.1
+  const honest = prof.defend < 0.5 ? 0.1 : 0
+  const protectAt = (x.street === 'river' ? 0.75 : 0.6) + multi + honest - (pushy ? p.pushy : 0)
+  if (x.level === 1 && eq >= protectAt && r() < p.protect) return commit(x, x.currentBet + 0.8 * (x.pot + x.toCall))
+  // Блеф-повышение на ривере — против тех, кто сдаётся
+  if (heads && x.street === 'river' && x.level === 1 && eq < 0.15 && r() < p.riverRaise * folds) return commit(x, x.currentBet + 0.8 * (x.pot + x.toCall))
   // Продолжение ставкой соперника на флопе и одиночная ставка до ривера — иногда рейз без руки (без позиции —
   // чек-рейз): чаще против тех, кто на повышение сдаётся
   const cbet = x.street === 'flop' && heads && x.level === 1 && lastAggressorBefore(x) === x.rivals[0]
   const single = heads && x.level === 1 && x.street !== 'river'
-  if (single && eq < 0.35 && r() < (lag ? 0.14 : 0.1) * folds) return commit(x, x.currentBet + 0.8 * (x.pot + x.toCall))
-  // В позиции против продолжения ставкой — уравнять с любой долей, чтобы забрать банк, когда он сдастся
-  if (cbet && ip && eq >= 0.25 && x.price <= 0.3 && FOLDS[opp] >= 1) return CALL
+  if (single && eq < 0.35 && r() < p.raise * folds) return commit(x, x.currentBet + 0.8 * (x.pot + x.toCall))
+  // В позиции против продолжения ставкой — уравнять с любой долей, чтобы забрать банк, когда он сдастся;
+  // а то и повысить: часто продолжающий ставкой (CB за вечер) ставит и без руки
+  if (cbet && ip && eq >= 0.25 && x.price <= 0.3 && folds >= 1) {
+    const cb = x.rival(x.rivals[0]).cb
+    return r() < p.float * (cb !== null && cb >= 0.75 ? 1.3 : 1) ? commit(x, x.currentBet + 0.8 * (x.pot + x.toCall)) : CALL
+  }
   // Колл — по цене банка; до ривера без позиции долю банка добрать труднее; в омахе доля банка до ривера
   // обманчива (руки близки, догоняют чаще) — запас больше
   const margin = x.street === 'river' ? 0 : (draw ? -0.04 : 0) + (ip ? 0.02 : 0.06) + (heads ? 0 : 0.03) + (x.omaha ? 0.1 : 0)
@@ -586,7 +660,7 @@ function strongPost(x: Spot, r: Random, lag: boolean): Intent {
   // Продолжение ставкой на флопе у любого стиля широкое — защита там не меньше 0,75 от равновесной
   if (heads && eq >= (x.street === 'river' ? 0.08 : 0.28)) {
     // В омахе блефов меньше: ставят чаще с рукой или с дро — защита реже
-    const defend = (1 / (1 + b)) * (cbet ? Math.max(0.75, DEFEND[opp]) : DEFEND[opp]) * (x.omaha ? 0.85 : 1)
+    const defend = (1 / (1 + b)) * (cbet ? Math.max(0.75, prof.defend) : prof.defend) * (x.omaha ? 0.85 : 1)
     if (g.ownRank() >= 1 - defend) return CALL
   }
   return FOLD
@@ -608,7 +682,7 @@ function holdemReading(x: Spot, r: Random): Reading {
       equityVs(
         x.own,
         x.board,
-        ranges.map((w, i) => topOfRange(w, x.board, Math.min(1, CALLS[x.who(x.rivals[i])] * share))),
+        ranges.map((w, i) => topOfRange(w, x.board, Math.min(1, x.profile(x.rivals[i]).calls * share))),
         r,
         BOT_SAMPLES * 2,
       ),
@@ -631,7 +705,7 @@ function omahaReading(x: Spot, r: Random): Reading {
       omahaEquityVs(
         x.own,
         x.board,
-        ranges.map((w, i) => omahaTopOfRange(w, Math.min(1, CALLS[x.who(x.rivals[i])] * share))),
+        ranges.map((w, i) => omahaTopOfRange(w, Math.min(1, x.profile(x.rivals[i]).calls * share))),
         dead,
         r,
         BOT_SAMPLES * 2,
