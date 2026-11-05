@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { BOT_LEVELS, type BotLevel } from '../calc/bot'
-import { BOT_LEVEL_DEFAULT, BOTS_DEFAULT, BOTS_MAX, BOTS_MIN, startBotTable } from '../calc/botTable'
+import { BOT_GAME_DEFAULT, BOT_GAMES, BOT_LEVEL_DEFAULT, BOTS_DEFAULT, BOTS_MAX, BOTS_MIN, startBotTable, type BotGame } from '../calc/botTable'
 import { eveningDay, eveningLine, type EveningSummary } from '../calc/evenings'
 import { parseChips } from '../calc/format'
 import { localStartError, startLocalTable } from '../calc/localTable'
@@ -644,8 +644,10 @@ function TableFields({ sb, bb, stack, tournament }: { sb: Field; bb: Field; stac
   )
 }
 
-// Против ботов (#117, Р-38): сколько ботов, их уровень, блайнды и стек; холдем, кэш, карты раздаёт программа
+// Против ботов (#117, Р-38): игра (холдем или омаха пот-лимит, #147), сколько ботов, их уровень, блайнды и стек;
+// кэш, карты раздаёт программа
 function NewBotsCard({ onCancel }: { onCancel: () => void }) {
+  const [game, setGame] = useState<BotGame>(BOT_GAME_DEFAULT)
   const [count, setCount] = useState(BOTS_DEFAULT)
   const [level, setLevel] = useState<BotLevel>(BOT_LEVEL_DEFAULT)
   const [sbText, setSbText] = useState(String(DEFAULT_SETTINGS.sb))
@@ -669,7 +671,7 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
       setError('Игра против ботов уже идёт — продолжите или закончите её')
       return
     }
-    const r = startBotTable({ bots: count, level, open, sb, bb, startingStack: stack }, Date.now(), () => ulid())
+    const r = startBotTable({ bots: count, level, open, sb, bb, startingStack: stack, game }, Date.now(), () => ulid())
     if (!r.ok) {
       setError(r.error)
       return
@@ -684,6 +686,24 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
       <h2>Против ботов</h2>
       <p className="muted">Вы и боты за одним столом на этом телефоне. Карты раздаёт программа, боты ходят сами. Без сервера и сети.</p>
       {!storageWorks() && <p className="warn">{NO_STORAGE}</p>}
+
+      <fieldset className="players-pick">
+        <legend className="muted">Покер</legend>
+        <div className="row">
+          {BOT_GAMES.map(([g, label]) => (
+            <button
+              key={g}
+              type="button"
+              className={game === g ? 'big primary grow' : 'big grow'}
+              aria-pressed={game === g}
+              onClick={() => setGame(g)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {game === 'omaha' && <p className="muted">Четыре карты на руках, рука — ровно две свои и три со стола. Рейз — не больше банка.</p>}
+      </fieldset>
 
       <fieldset className="players-pick">
         <legend className="muted">Ботов</legend>
@@ -721,7 +741,7 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
       </fieldset>
 
       <TableFields sb={[sbText, setSbText]} bb={[bbText, setBbText]} stack={[stackText, setStackText]} tournament={false} />
-      <p className="muted">Игра — холдем, кэш. Кончились фишки у бота — он докупается сам.</p>
+      <p className="muted">Игра — {game === 'omaha' ? 'омаха, пот-лимит' : 'холдем'}, кэш. Кончились фишки у бота — он докупается сам.</p>
 
       <label className="check">
         <input type="checkbox" checked={open} onChange={(e) => setOpen(e.target.checked)} />

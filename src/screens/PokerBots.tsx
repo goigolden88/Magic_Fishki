@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { BOT_LEVELS } from '../calc/bot'
 import {
   BOT_PAUSE_MS,
+  botGameLine,
+  botGameOf,
   botStep,
   botTableView,
   botToAct,
@@ -150,8 +152,8 @@ function BotTableCard(props: {
         <section className="card">
           <h2>Стол с ботами</h2>
           <p className="muted">
-            Ботов: {botCount} · уровень «{level}» · карты ботов {bots.open ? 'открыты' : 'закрыты'}. Холдем, кэш. Кончились
-            фишки у бота — он докупается сам.
+            Ботов: {botCount} · уровень «{level}» · карты ботов {bots.open ? 'открыты' : 'закрыты'}. {botGameLine(botGameOf(bots))}.
+            Кончились фишки у бота — он докупается сам.
           </p>
           <button type="button" className="big wide danger-text" onClick={onFinish}>
             Закончить игру

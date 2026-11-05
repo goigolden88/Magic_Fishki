@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deckFor, HOLDEM_GAME, shuffle } from '../poker/game'
+import { deckFor, HOLDEM_GAME, OMAHA_GAME, shuffle } from '../poker/game'
 import { PROTOCOL_VERSION } from '../poker/protocol'
 import { createTable, handle, viewFor, type Result, type TableState } from '../poker/table'
 import type { RandomBytes } from '../poker/tokens'
@@ -36,8 +36,13 @@ type Stat = {
   vs: Record<string, number> // фишек выиграно у каждого соперника (минус — проиграно)
 }
 
-// Колоды — своим случаем от seed: при тех же seed и числе раздач колоды те же, как бы ни ходили боты
-function simulate(players: { id: string; style: BotStyle }[], hands: number, seed: number): Map<string, Stat> {
+type Game = 'holdem' | 'omaha'
+
+// Колоды — своим случаем от seed: при тех же seed и числе раздач колоды те же, как бы ни ходили боты.
+// Омаха (#147) — пот-лимит, как у стола ботов
+function simulate(players: { id: string; style: BotStyle }[], hands: number, seed: number, game: Game = 'holdem'): Map<string, Stat> {
+  const settings = game === 'omaha' ? ({ game: 'omaha', limit: 'pot' } as const) : ({ game: 'holdem' } as const)
+  const def = game === 'omaha' ? OMAHA_GAME : HOLDEM_GAME
   const random = seededRandom(seed + 1)
   const decks = seededRandom(seed)
   const stats = new Map<string, Stat>(
@@ -48,9 +53,9 @@ function simulate(players: { id: string; style: BotStyle }[], hands: number, see
   for (let k = 0; k < hands; k++) {
     // Места по кругу: кнопка — всегда место 0, игроки сдвигаются на одно каждую раздачу
     const order = players.map((_, i) => players[(i + k) % n])
-    let t = ok(createTable(order[0].id, order[0].id, { sb: BB / 2, bb: BB, startingStack: STACK, maxSeats: n, cards: 'phones', game: 'holdem' }, 0))
+    let t = ok(createTable(order[0].id, order[0].id, { sb: BB / 2, bb: BB, startingStack: STACK, maxSeats: n, cards: 'phones', ...settings }, 0))
     for (const p of order.slice(1)) t = ok(handle(t, p.id, { v: PROTOCOL_VERSION, type: 'sit', name: p.id }, 0))
-    t = ok(handle(t, order[0].id, { v: PROTOCOL_VERSION, type: 'start' }, 0, shuffle(deckFor(HOLDEM_GAME), bytesOf(decks))))
+    t = ok(handle(t, order[0].id, { v: PROTOCOL_VERSION, type: 'start' }, 0, shuffle(deckFor(def), bytesOf(decks))))
     let moves = 0
     while (t.hand) {
       const id = toActId(t) as string
@@ -138,26 +143,76 @@ function table(stats: Map<string, Stat>, styles: Record<string, BotStyle>): stri
 
 // Раздач в прогоне; отчёт PR — на 6000 раздач тем же тестом
 const HANDS = 6000
+// Омаха (#147): не меньше 3000 раздач
+const OMAHA_HANDS = 3000
+
+const PLAYERS = LEVEL_STYLES.mixed.map((style) => ({ id: style, style }))
+const STYLES = Object.fromEntries(PLAYERS.map((p) => [p.id, p.style]))
+
+// Прогон холдема — один на файл: с его агрессией сравнивается омаха
+let holdemStats: Map<string, Stat> | null = null
+function holdemRun(): Map<string, Stat> {
+  if (!holdemStats) {
+    const started = Date.now()
+    holdemStats = simulate(PLAYERS, HANDS, 139)
+    console.log(
+      `Холдем: ${HANDS} раздач за ${((Date.now() - started) / 1000).toFixed(1)} с, самый долгий ход — ${slowest.toFixed(1)} мс\n${table(holdemStats, STYLES)}`,
+    )
+  }
+  return holdemStats
+}
+
+const aggression = (x: Stat) => x.aggr / x.calls
+
+// VPIP / PFR стиля — в полосе
+function bandOf(stats: Map<string, Stat>, style: BotStyle, vpip: [number, number], pfr: [number, number]) {
+  const x = stats.get(style)!
+  expect(pct(x.vpip, x.hands), `${style} VPIP`).toBeGreaterThanOrEqual(vpip[0])
+  expect(pct(x.vpip, x.hands), `${style} VPIP`).toBeLessThanOrEqual(vpip[1])
+  expect(pct(x.pfr, x.hands), `${style} PFR`).toBeGreaterThanOrEqual(pfr[0])
+  expect(pct(x.pfr, x.hands), `${style} PFR`).toBeLessThanOrEqual(pfr[1])
+}
+
+// Встреча двух стилей: стол на 6, трое против троих через место; дубликатом — те же колоды ещё раз,
+// стили поменялись местами: везение карт гасится. Итог первого стиля — bb на 100 раздач
+function duel(a: BotStyle, b: BotStyle, hands: number, seed: number, game: Game): number {
+  const seat = (first: BotStyle, second: BotStyle) =>
+    [0, 1, 2].flatMap((i) => [
+      { id: `${first}${i}`, style: first },
+      { id: `${second}${i}`, style: second },
+    ])
+  const both = [...simulate(seat(a, b), hands, seed, game), ...simulate(seat(b, a), hands, seed, game)]
+  const list = both.filter(([id]) => id.startsWith(a)).map(([, x]) => x)
+  return (list.reduce((sum, x) => sum + x.chips, 0) / BB / list.reduce((sum, x) => sum + x.hands, 0)) * 100
+}
+
+const DUELS: [BotStyle, BotStyle][] = [
+  ['tag', 'abc'],
+  ['lag', 'abc'],
+  ['abc', 'nit'],
+  ['abc', 'station'],
+  ['abc', 'maniac'],
+]
+
+function duels(hands: number, seed: number, game: Game): void {
+  const lines: string[] = []
+  const results: [string, number][] = []
+  for (const [a, b] of DUELS) {
+    const x = duel(a, b, hands, seed, game)
+    lines.push(`${styleLabel(a)} против ${styleLabel(b)}: ${x.toFixed(1)} bb/100`)
+    results.push([`${a} против ${b}`, x])
+  }
+  console.log(`${game === 'omaha' ? 'Омаха' : 'Холдем'}, встречи по ${hands} раздач:\n${lines.join('\n')}`)
+  for (const [name, x] of results) expect(x, name).toBeGreaterThan(0)
+}
 
 describe('стили ботов на прогоне между собой', () => {
   it('VPIP / PFR в полосах стилей, агрессия, сильные сильнее', () => {
-    const players = LEVEL_STYLES.mixed.map((style) => ({ id: style, style }))
-    const styles = Object.fromEntries(players.map((p) => [p.id, p.style]))
-    const started = Date.now()
-    const stats = simulate(players, HANDS, 139)
-    console.log(
-      `${HANDS} раздач за ${((Date.now() - started) / 1000).toFixed(1)} с, самый долгий ход — ${slowest.toFixed(1)} мс\n${table(stats, styles)}`,
-    )
+    const stats = holdemRun()
     // Ход на телефоне — не дольше ≈ 0,2 с: здесь, на компьютере, с запасом в разы
     expect(slowest).toBeLessThan(100)
     const s = (style: BotStyle) => stats.get(style)!
-    const band = (style: BotStyle, vpip: [number, number], pfr: [number, number]) => {
-      const x = s(style)
-      expect(pct(x.vpip, x.hands), `${style} VPIP`).toBeGreaterThanOrEqual(vpip[0])
-      expect(pct(x.vpip, x.hands), `${style} VPIP`).toBeLessThanOrEqual(vpip[1])
-      expect(pct(x.pfr, x.hands), `${style} PFR`).toBeGreaterThanOrEqual(pfr[0])
-      expect(pct(x.pfr, x.hands), `${style} PFR`).toBeLessThanOrEqual(pfr[1])
-    }
+    const band = (style: BotStyle, vpip: [number, number], pfr: [number, number]) => bandOf(stats, style, vpip, pfr)
     band('nit', [10, 16], [7, 13])
     band('station', [40, 100], [0, 8])
     band('maniac', [45, 100], [30, 100])
@@ -176,34 +231,39 @@ describe('стили ботов на прогоне между собой', () =
     expect(bb100(s('abc'))).toBeGreaterThan(bb100(s('maniac')))
   }, 600_000)
 
-  // Встреча двух стилей: стол на 6, трое против троих через место; дубликатом — те же колоды ещё раз,
-  // стили поменялись местами: везение карт гасится
-  const DUEL_HANDS = 2000
-  const duels: [BotStyle, BotStyle][] = [
-    ['tag', 'abc'],
-    ['lag', 'abc'],
-    ['abc', 'nit'],
-    ['abc', 'station'],
-    ['abc', 'maniac'],
-  ]
   it('встречи: ТАГ и ЛАГ в плюсе против ABC, ABC — против нита, колл-станции и маньяка', () => {
-    const lines: string[] = []
-    const results: [string, number][] = []
-    for (const [a, b] of duels) {
-      const seat = (first: BotStyle, second: BotStyle) =>
-        [0, 1, 2].flatMap((i) => [
-          { id: `${first}${i}`, style: first },
-          { id: `${second}${i}`, style: second },
-        ])
-      const both = [...simulate(seat(a, b), DUEL_HANDS, 45), ...simulate(seat(b, a), DUEL_HANDS, 45)]
-      const of = (style: BotStyle) => {
-        const list = both.filter(([id]) => id.startsWith(style)).map(([, x]) => x)
-        return (list.reduce((sum, x) => sum + x.chips, 0) / BB / list.reduce((sum, x) => sum + x.hands, 0)) * 100
-      }
-      lines.push(`${styleLabel(a)} против ${styleLabel(b)}: ${of(a).toFixed(1)} bb/100`)
-      results.push([`${a} против ${b}`, of(a)])
-    }
-    console.log(`Встречи по ${DUEL_HANDS} раздач:\n${lines.join('\n')}`)
-    for (const [name, x] of results) expect(x, name).toBeGreaterThan(0)
+    duels(2000, 45, 'holdem')
+  }, 600_000)
+})
+
+// Омаха пот-лимит (#147, Р-46): те же шесть стилей со своими для омахи диапазонами и полосами
+describe('стили ботов в омахе на прогоне между собой', () => {
+  it('VPIP / PFR в полосах омахи, агрессия, ход не дольше холдемного', () => {
+    slowest = 0
+    const started = Date.now()
+    const stats = simulate(PLAYERS, OMAHA_HANDS, 147, 'omaha')
+    const omahaSlowest = slowest
+    console.log(
+      `Омаха: ${OMAHA_HANDS} раздач за ${((Date.now() - started) / 1000).toFixed(1)} с, самый долгий ход — ${omahaSlowest.toFixed(1)} мс\n${table(stats, STYLES)}`,
+    )
+    expect(omahaSlowest).toBeLessThan(100)
+    const band = (style: BotStyle, vpip: [number, number], pfr: [number, number]) => bandOf(stats, style, vpip, pfr)
+    band('nit', [12, 20], [7, 14])
+    band('station', [45, 100], [0, 8])
+    band('maniac', [50, 100], [30, 100])
+    band('abc', [22, 32], [12, 20])
+    band('tag', [22, 30], [15, 23])
+    band('lag', [32, 42], [22, 32])
+    const s = (style: BotStyle) => stats.get(style)!
+    expect(aggression(s('station'))).toBeLessThan(1)
+    expect(aggression(s('maniac'))).toBeGreaterThan(3)
+    // ТАГ и ЛАГ после флопа — не пассивнее, чем в холдеме на том же коде
+    const holdem = holdemRun()
+    expect(aggression(s('tag'))).toBeGreaterThanOrEqual(aggression(holdem.get('tag')!))
+    expect(aggression(s('lag'))).toBeGreaterThanOrEqual(aggression(holdem.get('lag')!))
+  }, 600_000)
+
+  it('встречи в омахе: ТАГ и ЛАГ в плюсе против ABC, ABC — против нита, колл-станции и маньяка', () => {
+    duels(1500, 46, 'omaha')
   }, 600_000)
 })

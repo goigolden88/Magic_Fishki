@@ -2,7 +2,8 @@
 // и сужается по каждому его ходу раздачи. Крупная ставка — поляризованный диапазон: сильные руки и
 // блефы, доля блефов — от размера ставки и стиля игрока; мелкая — широкий; чек — без части самых
 // сильных рук (не целиком); колл — без части самых сильных и самых слабых. Вход — только журнал ходов
-// (hand.log), свои карты бота и открытые всем: чужих закрытых карт здесь нет. Только холдем
+// (hand.log), свои карты бота и открытые всем: чужих закрытых карт здесь нет. Диапазоны здесь — холдема
+// (1326 рук); омаха (#147, Р-46) читает теми же правилами (preflopWeight, narrow) свою выборку рук — botOmaha
 import { buildDeck, HOLDEM, type Card } from '../poker/cards'
 import type { Hand, Street } from '../poker/hand'
 import { handScore } from './allInOdds'
@@ -185,7 +186,7 @@ function hasStraight(mask: number): boolean {
 }
 
 // Как читается ход по стилю игрока
-type ReadStyle = {
+export type ReadStyle = {
   trap: number // чек: вес самых сильных рук (медленная игра)
   callTop: number // колл: вес самых сильных (с ними чаще повышают)
   callLow: number // колл: вес самых слабых
@@ -213,41 +214,17 @@ export function bluffShare(size: number, who: Who): number {
 export function rangeOf(r: HandRead, id: string, who: Who, board: Card[], known: Card[]): Float64Array {
   const w = new Float64Array(COMBOS.length)
   const out = new Set(known)
-  const isBB = r.ids.indexOf(id) === r.bbIndex
-  const wd = WIDTHS[who]
-  const mine = r.moves.filter((m) => m.id === id)
-  const pre = mine.filter((m) => m.street === 'preflop')
+  const p = preflopOf(r, id, who)
   for (let c = 0; c < COMBOS.length; c++) {
     const combo = COMBOS[c]
     if (out.has(combo.a) || out.has(combo.b)) continue
-    const t = combo.top
-    let x = 1
-    for (const m of pre) {
-      if (m.type === 'fold') continue
-      if (m.level === 0) {
-        if (m.type === 'check') x *= t < wd.threeBet * 2 && who !== 'station' ? (who === 'maniac' ? 0.2 : 0.35) : 1
-        else if (m.passive) x *= inTop(t, wd.limp) * (t < 0.04 && who !== 'station' ? 0.4 : 1)
-        else if (m.aggressive) x *= inTop(t, openWidth(who, behindOf(r, id), r.n))
-      } else if (m.level === 1) {
-        if (m.passive) x *= inTop(t, isBB ? wd.bbCall : wd.call) * (t < wd.threeBet && who !== 'station' ? 0.35 : 1)
-        else if (m.aggressive) x *= Math.max(inTop(t, wd.threeBet), blockerBluff(combo) ? wd.bluffs * 0.5 : 0)
-      } else {
-        if (m.passive) x *= inTop(t, wd.threeBet * 1.6) * (t < wd.fourBet ? 0.4 : 1)
-        else if (m.aggressive) x *= Math.max(inTop(t, wd.fourBet), blockerBluff(combo) ? wd.bluffs * 0.25 : 0)
-      }
-    }
-    w[c] = x
+    w[c] = preflopWeight(p, combo.top, () => blockerBluff(combo))
   }
   // После флопа — по улицам, на их общих картах
-  const streets: [Street, number][] = [
-    ['flop', 3],
-    ['turn', 4],
-    ['river', 5],
-  ]
   const style = READ[who]
-  for (const [street, cards] of streets) {
+  for (const [street, cards] of POSTFLOP_STREETS) {
     if (board.length < cards) break
-    const moves = mine.filter((m) => m.street === street && m.type !== 'fold')
+    const moves = p.mine.filter((m) => m.street === street && m.type !== 'fold')
     if (moves.length === 0) continue
     const info = boardInfo(board.slice(0, cards))
     for (let c = 0; c < w.length; c++) if (info.score[c] < 0) w[c] = 0
@@ -256,8 +233,57 @@ export function rangeOf(r: HandRead, id: string, who: Who, board: Card[], known:
   return w
 }
 
-// Сузить диапазон по одному ходу после флопа: q — место руки в нынешнем диапазоне (0 — слабейшая, 1 — сильнейшая)
-function narrow(w: Float64Array, info: BoardInfo, m: Move, style: ReadStyle, who: Who): void {
+// Улицы после флопа и карт стола на каждой
+export const POSTFLOP_STREETS: [Street, number][] = [
+  ['flop', 3],
+  ['turn', 4],
+  ['river', 5],
+]
+
+// Что про игрока нужно для веса руки до флопа: его ходы, стиль, большой ли блайнд, ширина открытия по месту
+export type PreflopRead = { who: Who; mine: Move[]; pre: Move[]; isBB: boolean; open: number }
+
+export function preflopOf(r: HandRead, id: string, who: Who): PreflopRead {
+  const mine = r.moves.filter((m) => m.id === id)
+  return {
+    who,
+    mine,
+    pre: mine.filter((m) => m.street === 'preflop'),
+    isBB: r.ids.indexOf(id) === r.bbIndex,
+    open: openWidth(who, behindOf(r, id), r.n),
+  }
+}
+
+// Вес руки с верхней долей t по ходам игрока до флопа; bluff — годится ли рука в блеф-3-бет (блокеры).
+// Одно правило для холдема и омахи: у омахи t — своей оценкой четырёх карт (botOmaha)
+export function preflopWeight(p: PreflopRead, t: number, bluff: () => boolean): number {
+  const { who, isBB } = p
+  const wd = WIDTHS[who]
+  let x = 1
+  for (const m of p.pre) {
+    if (m.type === 'fold') continue
+    if (m.level === 0) {
+      if (m.type === 'check') x *= t < wd.threeBet * 2 && who !== 'station' ? (who === 'maniac' ? 0.2 : 0.35) : 1
+      else if (m.passive) x *= inTop(t, wd.limp) * (t < 0.04 && who !== 'station' ? 0.4 : 1)
+      else if (m.aggressive) x *= inTop(t, p.open)
+    } else if (m.level === 1) {
+      if (m.passive) x *= inTop(t, isBB ? wd.bbCall : wd.call) * (t < wd.threeBet && who !== 'station' ? 0.35 : 1)
+      else if (m.aggressive) x *= Math.max(inTop(t, wd.threeBet), bluff() ? wd.bluffs * 0.5 : 0)
+    } else {
+      if (m.passive) x *= inTop(t, wd.threeBet * 1.6) * (t < wd.fourBet ? 0.4 : 1)
+      else if (m.aggressive) x *= Math.max(inTop(t, wd.fourBet), bluff() ? wd.bluffs * 0.25 : 0)
+    }
+  }
+  return x
+}
+
+export function readStyle(who: Who): ReadStyle {
+  return READ[who]
+}
+
+// Сузить диапазон по одному ходу после флопа: q — место руки в нынешнем диапазоне (0 — слабейшая, 1 — сильнейшая).
+// Руки — номерами: у холдема все 1326, у омахи — выборка диапазона (botOmaha)
+export function narrow(w: Float64Array, info: BoardInfo, m: Move, style: ReadStyle, who: Who): void {
   const q = quantiles(w, info)
   if (q === null) return
   if (m.type === 'check') {
