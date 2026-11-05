@@ -81,11 +81,13 @@ export function readRival(id: string, styles: Record<string, BotStyle>, hud: Hud
   // Много давит (AF > PUSHY_AF) — блефует часто: защита банка шире, на ставки сдаётся реже. Кроме нита: он
   // почти не уравнивает, а повышает — с рукой, и AF у него высокий без блефов
   const pushy = af > PUSHY_AF && who !== 'maniac' && who !== 'nit'
-  const profile: Profile = pushy ? { ...base, defend: Math.max(base.defend, 1.15), folds: Math.min(base.folds, 0.7) } : base
+  // Нит по HUD без подписи нита: от нита — только кражи шире и сдаваться на его повышения, а руки и прочие
+  // поправки — как у среднего: на прогоне так выигрывается больше, чем с узким диапазоном и блефами против нита
+  const readNit = who === 'nit' && prior !== 'nit'
+  const own = readNit ? { ...PROFILES[prior], steal: base.steal, defend: base.defend } : base
+  const profile: Profile = pushy ? { ...own, defend: Math.max(own.defend, 1.15), folds: Math.min(own.folds, 0.7) } : own
   return {
-    // Нит по HUD без подписи нита: поправки — нита (чаще красть, сдаваться на его повышения), а руки — как у
-    // среднего: на прогоне так выигрывается больше, чем с узким диапазоном нита (тот переоценивает его ставки)
-    who: who === 'nit' && prior !== 'nit' ? prior : who,
+    who: readNit ? prior : who,
     profile,
     ats: c.stealChances >= FEW_CHANCES ? c.steals / c.stealChances : null,
     cb: c.cbChances >= FEW_CHANCES ? c.cbs / c.cbChances : null,
