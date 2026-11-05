@@ -544,11 +544,11 @@ type StrongPlay = {
 const PLAY: Record<'tag' | 'lag', StrongPlay> = {
   tag: {
     slow: 0.1, draw: 0.6, cbetDry: 0.7, cbetWet: 0.5, barrel: 0.45, river: 0.25, stab: 0.6, probe: 0.35, semi: 0.3, raise: 0.12,
-    float: 0.2, protect: 0.9, pushy: 0.3, riverRaise: 0.03,
+    float: 0.2, protect: 0.9, pushy: 0.2, riverRaise: 0.03,
   },
   lag: {
     slow: 0.08, draw: 0.9, cbetDry: 0.95, cbetWet: 0.8, barrel: 0.85, river: 0.5, stab: 0.9, probe: 0.7, semi: 0.55, raise: 0.26,
-    float: 0.4, protect: 0.9, pushy: 0.2, riverRaise: 0.06,
+    float: 0.4, protect: 0.9, pushy: 0.3, riverRaise: 0.06,
   },
 }
 
