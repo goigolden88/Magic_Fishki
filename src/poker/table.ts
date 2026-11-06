@@ -19,6 +19,7 @@ import {
 } from './game'
 import { act, awardPots, dealOrder, startHand, type Hand, type HandLogEntry } from './hand'
 import { addHand, type Hud } from './hud'
+import { isMixShare, MIX_VOTE_MS, mixPasses, type MixResult, type MixShare, type MixVote } from './mix'
 import { PROTOCOL_VERSION, VERSION_ERROR, type BetAction, type ClientBody } from './protocol'
 import {
   addBusts,
@@ -60,6 +61,11 @@ export type Settings = {
   // limit — у омахи: пот-лимит (нет поля — он) или без лимита; холдем и шорт-дек — всегда без лимита
   game?: GameId
   limit?: Limit
+  // «Микс» (#166, Р-57): игру между раздачами предлагает батон, смена — голосованием; только карты
+  // на телефонах. mixAgainst — доля «против», при которой смена ещё проходит (нет поля — половина).
+  // У столов до него полей нет — выкл
+  mix?: boolean
+  mixAgainst?: MixShare
 }
 
 export type TableFormat = 'cash' | 'tournament'
@@ -174,6 +180,9 @@ export type TableState = {
   // HUD вечера (#79): счётчики по игрокам за этот стол, прибавляются в конце раздачи (hud.ts).
   // У столов до #79 поля нет — с нуля
   hud?: Hud
+  // «Микс» (#166): идущее голосование за игру и итог последнего; у столов до него полей нет — нет
+  mixVote?: MixVote | null
+  mixResult?: MixResult | null
 }
 
 // Срок хода: ход — номер раздачи и число ходов в ней (log), чтобы будильник не принял старый срок за новый
@@ -219,27 +228,40 @@ export function handle(state: TableState, from: string, message: unknown, now: n
   const next = structuredClone(state)
   const error = apply(next, from, message as ClientBody, now, deck) ?? settle(next, now)
   if (error) return { ok: false, error }
+  closeVote(next, now)
   endWait(next, now)
   rearm(next, now)
   clock(next, now)
   return { ok: true, state: next }
 }
 
-// Ближайший срок стола — истечение хода, раздача «сама» или закрытие ребая, пока его ждут (#94);
-// нет — null. По нему сервер ставит будильник
+// Ближайший срок стола — истечение хода, раздача «сама», закрытие ребая, пока его ждут (#94), или
+// конец голосования «Микса» (#166); нет — null. По нему сервер ставит будильник
 export function nextDeadline(state: TableState): number | null {
   const t = state.settings.tournament
   const rebuyCloses = t && state.tournament && alone(state) ? rebuyClosesAt(t, state.tournament) : null
-  const times = [state.turn?.deadline, state.nextHandAt, rebuyCloses].filter((x): x is number => typeof x === 'number')
+  const times = [state.turn?.deadline, state.nextHandAt, rebuyCloses, state.mixVote?.deadline].filter(
+    (x): x is number => typeof x === 'number',
+  )
   return times.length > 0 ? Math.min(...times) : null
 }
 
 // Будильник сервера: ребай закрылся, пока его ждали, — турнир окончен; истёк ход — за игрока
-// чек, если можно, иначе пас («время вышло»); пора — новая раздача (deck — колода от сервера,
-// как на start). Сверяет срок с состоянием: сработал раньше срока или повторно — null, стол не меняется
+// чек, если можно, иначе пас («время вышло»); кончилось голосование «Микса» — итог, раздача «сама»
+// взводится заново (раздача тем же будильником не начинается: колоду сервер тасует по игре стола до вызова);
+// пора — новая раздача (deck — колода от сервера, как на start). Сверяет срок с состоянием: сработал
+// раньше срока или повторно — null, стол не меняется
 export function onTime(state: TableState, now: number, deck?: Card[]): TableState | null {
   const closed = closeRebuyWait(state, now)
   if (closed) return closed
+  const vote = state.mixVote
+  if (vote && now >= vote.deadline) {
+    const next = structuredClone(state)
+    closeVote(next, now)
+    rearm(next, now)
+    clock(next, now)
+    return next
+  }
   const hand = state.hand
   const turn = state.turn
   if (hand && turn && now >= turn.deadline && sameTurn(turn, hand) && !state.paused) {
@@ -297,7 +319,8 @@ function sameTurn(turn: TurnClock, hand: Hand): boolean {
 }
 
 // Раздача «сама» — через паузу из настроек; выкл, перерыв, идёт раздача, раздач ещё не было,
-// турнир окончен или ждёт ребая, играть некому (с фишками и не пропускают меньше двоих) — нет
+// турнир окончен или ждёт ребая, играть некому (с фишками и не пропускают меньше двоих),
+// идёт голосование «Микса» (#166: ждёт его конца) — нет
 function armNext(state: TableState, now: number): void {
   const mode = state.settings.autoStart ?? 'off'
   state.nextHandAt = mode !== 'off' && autoReady(state) ? now + AUTO_START_MS[mode] : null
@@ -306,7 +329,7 @@ function armNext(state: TableState, now: number): void {
 function autoReady(state: TableState): boolean {
   const ended = typeof state.tournament?.endedAt === 'number'
   const playing = state.players.filter((p) => p.chips > 0 && !p.sittingOut).length
-  return !state.hand && !state.paused && state.handCount > 0 && !ended && !alone(state) && playing >= 2
+  return !state.hand && !state.paused && !state.mixVote && state.handCount > 0 && !ended && !alone(state) && playing >= 2
 }
 
 // После любой перемены между раздачами (#106): снова двое с фишками — докуп, возврат в раздачи,
@@ -357,6 +380,7 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
   switch (msg.type) {
     case 'start':
       if (!isHost) return hostOnly
+      if (state.mixVote) return 'Идёт голосование за игру — дождитесь итога или нажмите «Без смены»'
       return state.paused ? 'Перерыв — сначала «Продолжить»' : start(state, deck, now)
     case 'tournamentRebuy':
       return tournamentRebuy(state, me, now)
@@ -409,6 +433,12 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
       return takeHost(state, from, now)
     case 'show':
       return show(state, from, msg.cards)
+    case 'mixPropose':
+      return proposeGame(state, me, msg.game, now)
+    case 'mixVote':
+      return voteGame(state, me, msg.yes)
+    case 'mixCancel':
+      return isHost ? cancelVote(state) : hostOnly
     default:
       return 'Неизвестное сообщение — обновите приложение'
   }
@@ -740,6 +770,78 @@ function changeLook(state: TableState, msg: Extract<ClientBody, { type: 'look' }
   return null
 }
 
+// «Микс» (#166): предлагает батон прошлой раздачи — тот, у кого фишка дилера между раздачами, если он
+// за столом; «Микс» выключен, идёт раздача или раздач ещё не было — никто (null)
+export function mixProposer(state: TableState): string | null {
+  if (!state.settings.mix || state.hand || state.handCount === 0 || state.buttonSeat === null) return null
+  return state.players.find((p) => p.seat === state.buttonSeat)?.id ?? null
+}
+
+// Почему игроку сейчас нельзя предложить игру; можно — null. Одно предложение между раздачами
+export function mixProposeError(state: TableState, playerId: string): string | null {
+  if (!state.settings.mix) return '«Микс» за этим столом выключен'
+  if (state.hand) return 'Игру предлагают между раздачами'
+  if (state.handCount === 0) return 'Игру предлагают после раздачи'
+  if (typeof state.tournament?.endedAt === 'number') return 'Турнир окончен'
+  if (state.mixVote) return 'Голосование уже идёт'
+  if (state.mixResult?.after === state.handCount) return 'Игру уже выбирали — следующий батон предложит после раздачи'
+  if (mixProposer(state) !== playerId) return 'Игру предлагает батон прошлой раздачи'
+  return null
+}
+
+// Батон предлагает игру: голосуют те, кто играет следующую раздачу (с фишками и не пропускают), кроме него
+function proposeGame(state: TableState, me: TablePlayer, game: unknown, now: number): string | null {
+  const error = mixProposeError(state, me.id)
+  if (error) return error
+  if (typeof game !== 'string' || !Object.hasOwn(GAMES, game)) return 'Игра — холдем, омаха или шорт-дек'
+  const from = state.settings.game ?? 'holdem'
+  if (game === from) return 'Эта игра уже идёт — выберите другую'
+  const voters = state.players.filter((p) => p.id !== me.id && p.chips > 0 && !p.sittingOut).map((p) => p.id)
+  state.mixVote = { after: state.handCount, by: me.id, from, game: game as GameId, deadline: now + MIX_VOTE_MS, voters, answers: {} }
+  return null
+}
+
+// «За» (yes) или «Против»; до итога ответ можно сменить
+function voteGame(state: TableState, me: TablePlayer, yes: unknown): string | null {
+  const vote = state.mixVote
+  if (!vote) return 'Голосования сейчас нет'
+  if (!vote.voters.includes(me.id)) return 'Вы в этом голосовании не участвуете'
+  if (typeof yes !== 'boolean') return 'Неизвестное сообщение — обновите приложение'
+  vote.answers[me.id] = yes
+  return null
+}
+
+// «Без смены» ведущего: голосование прервано, игра прежняя
+function cancelVote(state: TableState): string | null {
+  const vote = state.mixVote
+  if (!vote) return 'Голосования сейчас нет'
+  state.mixResult = { ...voteCount(state, vote), after: vote.after, from: vote.from, game: vote.game, changed: false, cancelled: true }
+  state.mixVote = null
+  return null
+}
+
+// Итог голосования, когда ответили все голосующие за столом или вышел срок: не ответил — «За»,
+// предложивший — «За»; смена — если «против» не больше доли стола (mixPasses). Новая игра — в настройки
+// стола: с неё берут колоду, сдачу, силу руки и лимит следующие раздачи (gameFor, limitFor)
+function closeVote(state: TableState, now: number): void {
+  const vote = state.mixVote
+  if (!vote) return
+  const seated = new Set(state.players.map((p) => p.id))
+  const waiting = vote.voters.some((id) => seated.has(id) && !Object.hasOwn(vote.answers, id))
+  if (waiting && now < vote.deadline) return
+  const count = voteCount(state, vote)
+  const changed = mixPasses(count.against, count.total, state.settings.mixAgainst)
+  if (changed) state.settings = { ...state.settings, game: vote.game }
+  state.mixResult = { ...count, after: vote.after, from: vote.from, game: vote.game, changed }
+  state.mixVote = null
+}
+
+// «Против» и всего голосовавших — голосующие, кто ещё за столом, и предложивший
+function voteCount(state: TableState, vote: MixVote): { against: number; total: number } {
+  const voters = vote.voters.filter((id) => state.players.some((p) => p.id === id))
+  return { against: voters.filter((id) => vote.answers[id] === false).length, total: voters.length + 1 }
+}
+
 // Игрок походил сам или вернулся в раздачи — истечения подряд с нуля
 function resetTimeouts(state: TableState, playerId: string): null {
   if (state.timeouts) delete state.timeouts[playerId]
@@ -868,6 +970,9 @@ function settingsError(s: Settings): string | null {
   if (s.publicHud !== undefined && typeof s.publicHud !== 'boolean') return 'HUD видят — все или каждый только свою'
   if (s.game !== undefined && !Object.hasOwn(GAMES, s.game)) return 'Игра — холдем, омаха или шорт-дек'
   if (s.limit !== undefined && s.limit !== 'nolimit' && s.limit !== 'pot') return 'Лимит — пот-лимит или без лимита'
+  if (s.mix !== undefined && typeof s.mix !== 'boolean') return '«Микс» — включён или выключен'
+  if (s.mix && s.cards !== 'phones') return '«Микс» — только с картами на телефонах'
+  if (s.mixAgainst !== undefined && !isMixShare(s.mixAgainst)) return 'Сменить игру, если против не больше трети, половины или двух третей'
   const format = s.format ?? 'cash'
   if (format !== 'cash' && format !== 'tournament') return 'Игра — кэш или турнир'
   if (format === 'tournament') return tournamentError(s.tournament)
