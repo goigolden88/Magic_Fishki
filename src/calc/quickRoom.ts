@@ -3,6 +3,7 @@
 import type { Regular } from '../model'
 import type { CardsMode, GameId, Limit } from '../poker/game'
 import type { MixShare } from '../poker/mix'
+import type { MaxRuns } from '../poker/runs'
 import { DEFAULT_SETTINGS, type AutoStart, type Settings } from '../poker/table'
 import { formatNumber } from './format'
 import { lookOf, type Look } from './pokerLook'
@@ -39,6 +40,21 @@ export type RoomChoice = {
   // «Микс» (#166): доля «против», при которой смена игры ещё проходит; нет или null — выкл.
   // Только с картами на телефонах: при живых не уходит
   mix?: MixShare | null
+  // «Прогнать несколько раз» (#167, Р-58): до скольких раз; нет или 1 — нет. Только с картами на телефонах
+  maxRuns?: MaxRuns
+}
+
+// «Прогнать несколько раз: нет / до двух / до трёх» — выбор ведущего; сначала — нет
+export const MAX_RUNS_CHOICES: [MaxRuns, string][] = [
+  [1, 'Нет'],
+  [2, 'До двух'],
+  [3, 'До трёх'],
+]
+
+// В описании стола: «прогон до двух раз»; нет — null
+export function runsText(s: Partial<Settings>): string | null {
+  const max = s.cards === 'phones' ? (s.maxRuns ?? 1) : 1
+  return max === 2 ? 'прогон до двух раз' : max === 3 ? 'прогон до трёх раз' : null
 }
 
 // «Сменить игру, если против не больше …» — выбор ведущего; сначала — половины
@@ -78,6 +94,7 @@ export function roomSettings(c: RoomChoice): Partial<Settings> {
     ...c.format,
     publicHud: c.publicHud,
     ...(c.mix && c.cards === 'phones' ? { mix: true, mixAgainst: c.mix } : {}),
+    ...(c.maxRuns && c.maxRuns > 1 && c.cards === 'phones' ? { maxRuns: c.maxRuns } : {}),
   }
 }
 

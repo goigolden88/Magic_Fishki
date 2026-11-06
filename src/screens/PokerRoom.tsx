@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from 'react'
 import {
   BOARD_GROUP,
+  boardGroup,
   dealPlan,
   flightsEnd,
   flyKey,
@@ -51,6 +52,8 @@ import {
 } from '../calc/preAction'
 import { roomEvening } from '../calc/evenings'
 import { mixView, type MixView } from '../calc/pokerMix'
+import { runView, type RunView } from '../calc/pokerRuns'
+import { runsText } from '../calc/quickRoom'
 import { gameFromTable, gameFromTournament } from '../calc/pokerGame'
 import { lookClass, lookOf } from '../calc/pokerLook'
 import { timerSettings, turnSecondsOf } from '../calc/pokerTimer'
@@ -339,6 +342,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
 
   const v = tableView(table, me, room.serverNow())
   const mix = mixView(table, me, room.serverNow()) // «Микс» (#166) — между раздачами, над кнопками ведущего
+  const runs = runView(table, me, room.serverNow()) // «Сколько раз прогнать» (#167) — вместо полосы «Ждём хода»
   // Копия раздач (#114) — со своими картами каждой раздачи (Р-54): к ответу истории они уже запомнены
   const mine = useMyCards(table, v.myCards)
   const copyWorks = useHandCopy(roomEvening(code, table, me), room.history, mine)
@@ -444,7 +448,9 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
           onAct={(body) => room.send(body)}
         />
       )}
-      {(dock === 'wait' || autoMove !== null) &&
+      {runs && <RunDock run={runs} online={room.online} onChoose={(times) => room.send({ type: 'runChoice', times })} />}
+      {!runs &&
+        (dock === 'wait' || autoMove !== null) &&
         (showPreActions(v.actions) || autoMove !== null ? (
           <PreActionsDock
             line={waitLine(v)}
@@ -607,9 +613,44 @@ function MixDock(props: { mix: MixView; online: boolean; onSend: (body: ClientBo
   )
 }
 
+// «Сколько раз прогнать» (#167, Р-58) — внизу экрана, пока все в олл-ине до ривера: дошедшим — кнопки 1…3
+// с отсчётом, остальным — кто выбирает. Не ответил — 1
+export function RunDock(props: { run: RunView; online: boolean; onChoose: (times: number) => void }) {
+  const { run, online, onChoose } = props
+  return (
+    <section className="dock">
+      <p className="dock-title muted">
+        {run.line} · {run.left} с
+      </p>
+      {run.canChoose && (
+        <div className="dock-row">
+          {run.choices.map((times) => (
+            <button
+              key={times}
+              type="button"
+              className={run.answer === times ? 'big primary grow' : 'big grow'}
+              aria-pressed={run.answer === times}
+              disabled={!online}
+              onClick={() => onChoose(times)}
+            >
+              {run.answer === times ? '✓ ' : ''}
+              {times}
+            </button>
+          ))}
+        </div>
+      )}
+      <p className="muted dock-note">
+        {run.waiting.length > 0 ? `Не ответили: ${run.waiting.join(', ')}` : 'Ответили все'}
+        {run.canChoose && run.answer === null ? ' · не ответите — 1' : ' · прогоняется наименьшее'}
+      </p>
+    </section>
+  )
+}
+
 // Строка над столом: блайнды и анте раздачи (между раздачами — следующей); в турнире — с уровнем;
-// омаха (#80) — с лимитом, шорт-дек (#81) — названием, холдем — без подписи
+// омаха (#80) — с лимитом, шорт-дек (#81) — названием, холдем — без подписи; «прогон до двух раз» (#167) — в конце
 export function blindsLine(table: TableState, v: TableView): string {
+  const runs = runsText(table.settings)
   const hand = table.hand
   const t = v.tournament
   const blinds = hand ? { sb: hand.sb, bb: hand.bb, ante: hand.ante ?? 0 } : t ? t.blinds : { ...table.settings, ante: v.ante }
@@ -619,7 +660,7 @@ export function blindsLine(table: TableState, v: TableView): string {
       : table.settings.game === 'shortdeck'
         ? 'Шорт-дек · '
         : ''
-  return `${game}${t ? 'Турнир · ' : ''}Блайнды ${levelText(blinds)}`
+  return `${game}${t ? 'Турнир · ' : ''}Блайнды ${levelText(blinds)}${runs ? ` · ${runs}` : ''}`
 }
 
 // Под столом — банки с претендентами
@@ -656,7 +697,19 @@ function HandBody({ view: v }: { view: LastHandView | HistoryHandView }) {
   const full = 'chips' in v ? v : null
   return (
     <>
-      {v.board.length > 0 && <CardRow cards={v.board} />}
+      {v.runs ? (
+        // Прогнали несколько раз (#167): каждый борд и кто на нём взял
+        v.runs.map((run) => (
+          <div key={run.label} className="run-row">
+            <CardRow cards={run.cards} win={run.win} />
+            <span className="muted">
+              {run.label}: {run.winners}
+            </span>
+          </div>
+        ))
+      ) : (
+        v.board.length > 0 && <CardRow cards={v.board} />
+      )}
       <ul className="list">
         {v.players.map((p, i) => (
           <li key={i} className="row">
@@ -743,6 +796,7 @@ export function HandHistory(props: {
                     <span className="history-number">№ {item.number}</span>
                     <span className="history-wins">{item.wins.map((w) => `${w.name} +${formatNumber(w.amount)}`).join(', ')}</span>
                     {item.board.length > 0 && <CardRow cards={item.board} size="small" />}
+                    {item.more?.map((board, k) => <CardRow key={k} cards={board} size="small" />)}
                   </button>
                 </li>
               ))}
@@ -937,10 +991,22 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
               {p.label} {formatNumber(p.amount)}
             </div>
           ))}
-        {v.board.length > 0 && (
-          <div className="board">
-            <CardRow cards={v.board} win={v.boardWin} fly={BOARD_GROUP} />
-          </div>
+        {v.runs ? (
+          // Прогнали несколько раз (#167) — борды друг под другом, у каждого свой победитель
+          v.runs.map((run, k) => (
+            <div key={run.label} className="board run-board">
+              <CardRow cards={run.cards} win={run.win} fly={boardGroup(k)} />
+              <span className="run-winner">
+                {run.label}: {run.winners}
+              </span>
+            </div>
+          ))
+        ) : (
+          v.board.length > 0 && (
+            <div className="board">
+              <CardRow cards={v.board} win={v.boardWin} fly={BOARD_GROUP} />
+            </div>
+          )
         )}
         {v.paused && v.stage !== null && (
           <div>

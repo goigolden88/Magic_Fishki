@@ -22,6 +22,7 @@ import {
   DEFAULT_GAME,
   GAME_CHOICES,
   gameSettings,
+  MAX_RUNS_CHOICES,
   MIX_SHARE_CHOICES,
   quickRoomHost,
   quickRoomLine,
@@ -35,6 +36,7 @@ import type { Regular } from '../model'
 import type { CardsMode, Limit } from '../poker/game'
 import { MIX_SHARE_DEFAULT, MIX_VOTE_MS, type MixShare } from '../poker/mix'
 import { PROTOCOL_VERSION, type CreateRoomRequest, type CreateRoomResponse } from '../poker/protocol'
+import { RUN_VOTE_MS, type MaxRuns } from '../poker/runs'
 import { DEFAULT_SETTINGS, type AutoStart, type Felt } from '../poker/table'
 import { formatDate, today } from '../dates'
 import { handsFileName, handsText } from '../calc/handText'
@@ -395,6 +397,7 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
   const [format, setFormat] = useState<TournamentForm>(() => tournamentForm(0))
   const [publicHud, setPublicHud] = useState(ROOM_DEFAULTS.publicHud)
   const [mix, setMix] = useState<MixShare | null>(null)
+  const [maxRuns, setMaxRuns] = useState<MaxRuns>(1)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -456,6 +459,7 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
         format: game.settings,
         publicHud,
         mix,
+        maxRuns,
       }),
     }
     setBusy(true)
@@ -570,6 +574,8 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
       <GameFields choice={variant} phones={cards === 'phones'} onChange={setVariant} />
       {/* #166: «Микс» — только карты на телефонах */}
       {cards === 'phones' && <MixFields mix={mix} onChange={setMix} />}
+      {/* #167: «Прогнать несколько раз» — только карты на телефонах, кэш и турнир */}
+      {cards === 'phones' && <RunsFields max={maxRuns} onChange={setMaxRuns} />}
 
       {/* #75: стол на одном телефоне — без таймера и раздачи «сама» */}
       <TimerFields form={timer} onChange={setTimer} />
@@ -684,6 +690,34 @@ function MixFields({ mix, onChange }: { mix: MixShare | null; onChange: (m: MixS
             следующий батон не предложит другую.
           </p>
         </>
+      )}
+    </fieldset>
+  )
+}
+
+// «Прогнать несколько раз» (#167, Р-58): нет / до двух / до трёх; в кэше и в турнире
+function RunsFields({ max, onChange }: { max: MaxRuns; onChange: (m: MaxRuns) => void }) {
+  return (
+    <fieldset className="players-pick">
+      <legend className="muted">Прогнать несколько раз</legend>
+      <div className="row">
+        {MAX_RUNS_CHOICES.map(([runs, label]) => (
+          <button
+            key={runs}
+            type="button"
+            className={max === runs ? 'big primary grow' : 'big grow'}
+            aria-pressed={max === runs}
+            onClick={() => onChange(runs)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {max > 1 && (
+        <p className="muted">
+          Все в олл-ине до ривера — каждый выбирает, сколько раз раздать оставшиеся карты, {RUN_VOTE_MS / 1000} секунд; не
+          ответил — один раз. Раздают наименьшее из выбранного, каждый банк делится по бордам.
+        </p>
       )}
     </fieldset>
   )

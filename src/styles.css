@@ -1364,6 +1364,33 @@ textarea.note-input {
   overflow: visible;
 }
 
+/* «Прогнать несколько раз» (#167): борды друг под другом, под каждым — кто взял; длинная подпись — с многоточием */
+.felt-center .run-board {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  margin: 0.15rem 0;
+}
+
+.run-winner {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+}
+
+/* Борды в прошлой раздаче и в истории — карты, под ними победитель */
+.run-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+  margin: 0.25rem 0;
+}
+
 /* «Подглядеть»: палец на картах — без выделения, меню и прокрутки */
 .peek-cards {
   display: flex;
@@ -2144,6 +2171,13 @@ input.bet-amount {
     width: 2.1rem;
     height: 2.95rem;
     font-size: 1.15rem;
+  }
+
+  /* Несколько бордов (#167) — мельче одного, чтобы два-три вошли в центр стола */
+  .felt-center .run-board .playing-card {
+    width: 1.7rem;
+    height: 2.4rem;
+    font-size: 0.95rem;
   }
 
   .seat {
