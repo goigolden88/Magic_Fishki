@@ -27,7 +27,15 @@ import { lookClass } from '../calc/pokerLook'
 import { handFor } from '../poker/history'
 import { NO_STORAGE } from './PokerLocal'
 import { ActionsCard, blindsLine, HandHistory, HostDock, LastHand, PokerTable, PotList } from './PokerRoom'
-import { clearBotTable, loadBotTable, loadMyLook, loadQuickBets, saveBotTable, storageWorks } from './pokerStorage'
+import {
+  clearBotTable,
+  loadBotTable,
+  loadMyLook,
+  loadQuickBets,
+  saveBotTable,
+  storageWorks,
+  tableFitStyle,
+} from './pokerStorage'
 
 // Адрес стола с ботами: под код комнаты (6 знаков) не подходит
 export const BOTS_HASH = '#/poker/bots'
@@ -169,9 +177,10 @@ function BotTableCard(props: {
   const auto = botAutoStart(bots) !== 'off'
   const pause = () => apply((bt, now) => botPause(bt, !v.paused, now))
 
-  // Колонка (#97): стол — на весь первый экран, под ним листается остальное, панель хода — внизу
+  // Колонка (#97): стол — на весь первый экран, под ним листается остальное, панель хода — внизу.
+  // Широкое окно (Р-63): стол и панель — целиком в окне, панель — справа внизу; под ними листается страница
   return (
-    <div className={`table-layout ${lookClass(table.settings, loadMyLook())}`}>
+    <div className={`table-layout ${lookClass(table.settings, loadMyLook())}`} style={tableFitStyle()}>
       <div className="table-scroll">
         <div className="table-stage">
           <p className="muted table-info">
@@ -182,72 +191,76 @@ function BotTableCard(props: {
           <PokerTable view={v} open />
         </div>
 
-        {broke && (
-          <section className="card">
-            <h2>Фишки кончились</h2>
-            <button type="button" className="big primary wide" onClick={() => apply((bt, now) => myRebuy(bt, now))}>
-              Докупиться на {formatNumber(table.settings.startingStack)}
-            </button>
-            <button type="button" className="big wide danger-text" onClick={onFinish}>
-              Закончить
-            </button>
-          </section>
-        )}
+        <div className="table-below">
+          {broke && (
+            <section className="card">
+              <h2>Фишки кончились</h2>
+              <button type="button" className="big primary wide" onClick={() => apply((bt, now) => myRebuy(bt, now))}>
+                Докупиться на {formatNumber(table.settings.startingStack)}
+              </button>
+              <button type="button" className="big wide danger-text" onClick={onFinish}>
+                Закончить
+              </button>
+            </section>
+          )}
 
-        <PotList view={v} />
-        <LastHand table={table} view={v} />
+          <PotList view={v} />
+          <LastHand table={table} view={v} />
 
-        {/* История раздач — на этом телефоне, вместе со столом; карты бота, взявшего банк без вскрытия, не видны */}
-        {showHistory ? (
-          <HandHistory hands={history} onClose={() => setShowHistory(false)} />
-        ) : (
-          <button type="button" className="big wide" onClick={() => setShowHistory(true)}>
-            История раздач
-          </button>
-        )}
-        {!copyWorks && <p className="warn">{NO_COPY}</p>}
-
-        <section className="card">
-          <h2>Стол с ботами</h2>
-          <p className="muted">
-            Ботов: {botCount} · уровень «{level}» · карты ботов {bots.open ? 'открыты' : 'закрыты'}. {botGameLine(botGameOf(bots))}.
-            Кончились фишки у бота — он докупается сам.
-            {auto && ' Следующая раздача начинается сама.'}
-          </p>
-          {/* В раздаче «Перерыв» — здесь: она доигрывается, новая сама не начнётся; между раздачами — внизу экрана */}
-          {auto && table.hand && (
-            <button type="button" className={v.paused ? 'big primary wide' : 'big wide'} onClick={pause}>
-              {v.paused ? 'Продолжить' : 'Перерыв'}
+          {/* История раздач — на этом телефоне, вместе со столом; карты бота, взявшего банк без вскрытия, не видны */}
+          {showHistory ? (
+            <HandHistory hands={history} onClose={() => setShowHistory(false)} />
+          ) : (
+            <button type="button" className="big wide" onClick={() => setShowHistory(true)}>
+              История раздач
             </button>
           )}
-          <button type="button" className="big wide danger-text" onClick={onFinish}>
-            Закончить игру
-          </button>
-        </section>
+          {!copyWorks && <p className="warn">{NO_COPY}</p>}
+
+          <section className="card">
+            <h2>Стол с ботами</h2>
+            <p className="muted">
+              Ботов: {botCount} · уровень «{level}» · карты ботов {bots.open ? 'открыты' : 'закрыты'}.{' '}
+              {botGameLine(botGameOf(bots))}. Кончились фишки у бота — он докупается сам.
+              {auto && ' Следующая раздача начинается сама.'}
+            </p>
+            {/* В раздаче «Перерыв» — здесь: она доигрывается, новая сама не начнётся; между раздачами — внизу экрана */}
+            {auto && table.hand && (
+              <button type="button" className={v.paused ? 'big primary wide' : 'big wide'} onClick={pause}>
+                {v.paused ? 'Продолжить' : 'Перерыв'}
+              </button>
+            )}
+            <button type="button" className="big wide danger-text" onClick={onFinish}>
+              Закончить игру
+            </button>
+          </section>
+        </div>
       </div>
 
-      {error && (
-        <p className="warn table-error" onClick={() => onError(null)}>
-          {error}
-        </p>
-      )}
+      <div className="table-dock">
+        {error && (
+          <p className="warn table-error" onClick={() => onError(null)}>
+            {error}
+          </p>
+        )}
 
-      {dock === 'turn' && v.actions && (
-        // Новый ход или новый минимум — сумма снова с минимума
-        <ActionsCard
-          key={`${v.handNumber}-${v.stage}-${table.hand?.log.length ?? 0}-${v.actions.raise?.min ?? ''}`}
-          actions={v.actions}
-          sb={sb}
-          bb={v.bb}
-          who={null}
-          online
-          onAct={(body) => apply((bt, now) => myMove(bt, body.action, now))}
-        />
-      )}
-      {dock === 'wait' && <p className="dock wait-strip">{waitLine(v)}</p>}
-      {dock === 'host' && (
-        <HostDock view={v} pause={auto} onStart={() => apply((bt, now) => dealBotHand(bt, now))} onPause={pause} />
-      )}
+        {dock === 'turn' && v.actions && (
+          // Новый ход или новый минимум — сумма снова с минимума
+          <ActionsCard
+            key={`${v.handNumber}-${v.stage}-${table.hand?.log.length ?? 0}-${v.actions.raise?.min ?? ''}`}
+            actions={v.actions}
+            sb={sb}
+            bb={v.bb}
+            who={null}
+            online
+            onAct={(body) => apply((bt, now) => myMove(bt, body.action, now))}
+          />
+        )}
+        {dock === 'wait' && <p className="dock wait-strip">{waitLine(v)}</p>}
+        {dock === 'host' && (
+          <HostDock view={v} pause={auto} onStart={() => apply((bt, now) => dealBotHand(bt, now))} onPause={pause} />
+        )}
+      </div>
     </div>
   )
 }

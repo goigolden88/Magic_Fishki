@@ -5,12 +5,14 @@ import { parseLabels, parseNotes, type NoteLabels, type PlayerNotes } from '../c
 import { isDefaultLook, MY_LOOK_DEFAULT, parseMyLook, type MyLook } from '../calc/pokerLook'
 import { parseQuickBets, QUICK_BETS_DEFAULT, type QuickBets } from '../calc/quickBets'
 import { parseQuickRoom, type QuickRoom } from '../calc/quickRoom'
+import { parseDockSize, parseTableSize, tableFitVars, type DockSize } from '../calc/tableFit'
+import type { CSSProperties } from 'react'
 
 // Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги,
 // звук «ваш ход», «карты всегда открыты», «анимация карт», стол на этом телефоне и стол против ботов — данные этого устройства,
 // а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21, Р-38).
 // Заметки об игроках и подписи их цветов (Р-56), личный «Вид стола» (Р-61), своя «Быстрая комната», показ в ББ
-// и быстрые ставки (Р-62) — тоже в localStorage, но в копию идут
+// и быстрые ставки (Р-62), размер стола и панели ставок (Р-63) — тоже в localStorage, но в копию идут
 const PASSWORD_KEY = 'fishki.poker.password'
 const SERVER_KEY = 'fishki.poker.server'
 const SEATS_KEY = 'fishki.poker.seats'
@@ -28,6 +30,8 @@ const LOOK_KEY = 'fishki.poker.look'
 const QUICK_ROOM_KEY = 'fishki.poker.quickRoom'
 const BB_KEY = 'fishki.poker.bigBlinds'
 const BETS_KEY = 'fishki.poker.quickBets'
+const TABLE_SIZE_KEY = 'fishki.poker.tableSize'
+const DOCK_SIZE_KEY = 'fishki.poker.dockSize'
 
 function read(key: string): string {
   try {
@@ -277,6 +281,37 @@ export function saveQuickBets(bets: QuickBets | null) {
   quickBets = bets
   write(BETS_KEY, bets ? JSON.stringify(bets) : '')
 }
+
+// Размер стола и панели ставок на широком окне (Р-63): свой выбор этого устройства, в копию идёт.
+// null — не задано: стол во всё место, панель «Средняя». Копия в памяти страницы — стол спрашивает при каждой перемене
+let tableSize: number | null | undefined // undefined — ещё не читали
+let dockSize: DockSize | null | undefined
+
+export function loadTableSizeChoice(): number | null {
+  if (tableSize === undefined) {
+    const raw = read(TABLE_SIZE_KEY)
+    tableSize = raw ? parseTableSize(Number(raw)) : null
+  }
+  return tableSize
+}
+
+export function saveTableSize(size: number | null) {
+  tableSize = size
+  write(TABLE_SIZE_KEY, size === null ? '' : String(size))
+}
+
+export function loadDockSizeChoice(): DockSize | null {
+  if (dockSize === undefined) dockSize = parseDockSize(read(DOCK_SIZE_KEY))
+  return dockSize
+}
+
+export function saveDockSize(size: DockSize | null) {
+  dockSize = size
+  write(DOCK_SIZE_KEY, size ?? '')
+}
+
+// Переменные CSS обёртки стола: размер стола и панели (действуют только на широком окне — styles.css)
+export const tableFitStyle = (): CSSProperties => tableFitVars(loadTableSizeChoice(), loadDockSizeChoice()) as CSSProperties
 
 // Память браузера работает: записать и прочитать
 export function storageWorks(): boolean {

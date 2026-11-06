@@ -369,7 +369,13 @@ describe('файл-копия формата 5: вид стола', () => {
 // Покер-рум телефона в копии (Р-62): своя «Быстрая комната», показ в ББ, быстрые ставки
 describe('файл-копия формата 6: покер-рум', () => {
   const ROOM = { ...QUICK_ROOM_DEFAULT, sb: 25, bb: 50, startingStack: 5000, variant: { game: 'omaha' as const, limit: 'pot' as const } }
-  const POKER = { quickRoom: ROOM, bigBlinds: true, quickBets: { pot: [50, 100], pre: [20, 35] } }
+  const POKER = {
+    quickRoom: ROOM,
+    bigBlinds: true,
+    quickBets: { pot: [50, 100], pre: [20, 35] },
+    tableSize: 85,
+    dockSize: 'large' as const,
+  }
 
   it('всё — в копии и читается обратно без потерь', () => {
     const backup = makeBackup([game('g1')], SETTINGS, NOW, [], {}, {}, undefined, POKER)
@@ -386,15 +392,34 @@ describe('файл-копия формата 6: покер-рум', () => {
   })
 
   it('негодное значение — не задано, копия читается', () => {
-    const odd = { quickRoom: { ...ROOM, startingStack: 10 }, bigBlinds: 'да', quickBets: { pot: [0], pre: [] } }
+    const odd = {
+      quickRoom: { ...ROOM, startingStack: 10 },
+      bigBlinds: 'да',
+      quickBets: { pot: [0], pre: [] },
+      tableSize: 120,
+      dockSize: 'huge',
+    }
     const parsed = parse(JSON.stringify({ ...backupOf([]), poker: odd }))
     expect(parsed.ok && parsed.backup.poker).toEqual(POKER_PREFS_NONE)
   })
 
   it('восстановление: из копии — то, что здесь не задано; своё остаётся', () => {
-    const local = { quickRoom: null, bigBlinds: false, quickBets: null }
-    expect(mergePokerPrefs(local, POKER)).toEqual({ quickRoom: ROOM, bigBlinds: false, quickBets: POKER.quickBets })
+    const local = { ...POKER_PREFS_NONE, bigBlinds: false, dockSize: 'small' as const }
+    expect(mergePokerPrefs(local, POKER)).toEqual({
+      quickRoom: ROOM,
+      bigBlinds: false,
+      quickBets: POKER.quickBets,
+      tableSize: 85,
+      dockSize: 'small',
+    })
     expect(mergePokerPrefs(POKER_PREFS_NONE, POKER_PREFS_NONE)).toEqual(POKER_PREFS_NONE)
+  })
+
+  // Р-63: размер стола и панели — в том же формате 6; копия 6 без них (до Р-63) читается — не заданы
+  it('копия формата 6 без размера стола и панели — они не заданы, остальное на месте', () => {
+    const { tableSize: _t, dockSize: _d, ...before } = POKER
+    const parsed = parse(JSON.stringify({ ...backupOf([]), poker: before }))
+    expect(parsed.ok && parsed.backup.poker).toEqual({ ...before, tableSize: null, dockSize: null })
   })
 })
 

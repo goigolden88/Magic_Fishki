@@ -676,6 +676,19 @@ button.bar-button {
   margin: 0.25rem 0;
 }
 
+/* Низ колонки (Р-63): ошибка и панель хода одним блоком — на широком окне он встаёт справа от стола */
+.table-dock {
+  flex: none;
+}
+
+/* Рамка стола (Р-63): на телефоне стол занимает её целиком, как прежде; на широком — по центру, своего размера */
+.felt-box {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 /* Стол: овал, места — готовые точки seatSpots в процентах слоя .spots, ставка — у места со стороны стола.
    Стол заполняет рамку над панелью хода (#97); слой мест отступает от боков на половину места,
    сверху — на половину места с подписью позиции; моё место внизу растёт вверх от низа рамки */
@@ -2150,14 +2163,20 @@ input.bet-amount {
    Уже — телефон и планшет — всё как выше, без изменений */
 @media (min-width: 1024px) {
   :root {
-    --content-max: 66rem; /* ≈ 1200 px: экраны учёта */
-    --form-max: 35.5rem; /* ≈ 640 px: формы, поля ввода, кнопки, панель хода */
-    --felt-max: 61rem; /* ≈ 1100 px: стол покера */
+    --column-max: clamp(48rem, 62vw, 60rem); /* экраны учёта (Р-63): одна колонка по центру, ≈ 860–1080 px */
+    --content-max: 66rem; /* ≈ 1200 px: казино (Р-60) */
+    --form-max: 35.5rem; /* ≈ 640 px: формы и панель казино, всё под столом покера */
+    --dock-w: 22rem; /* ≈ 400 px: панель хода справа от стола (Р-63), «Средняя» */
   }
 
+  /* Экраны учёта (Р-63): шапка, кнопки, формы и списки — одной колонкой по центру, одной ширины */
   .screen {
-    max-width: var(--content-max);
+    max-width: var(--column-max);
     padding-inline: 2rem;
+  }
+
+  .casino-screen {
+    max-width: var(--content-max);
   }
 
   /* Списки карточек («Игры», «Игроки», участники игры) — в две колонки */
@@ -2196,24 +2215,29 @@ input.bet-amount {
     margin: 0.75rem 0 0;
   }
 
-  /* Формы, поля и кнопки прямо на экране — не шире ≈ 640 px */
-  .screen > :is(form, .card, button, a.button-link, .row, .field, textarea, .casino-fold, .casino-dock) {
-    max-width: var(--form-max);
-  }
-
-  /* Казино: формы и панель — по центру, под столом */
+  /* Казино (Р-60): формы и панель — по центру, под столом, не шире ≈ 640 px */
   .casino-screen > :is(form, .card, button, a.button-link, .row, .field, textarea, .casino-fold, .casino-dock) {
+    max-width: var(--form-max);
     margin-inline: auto;
   }
 
-  /* Стол покера: сукно растёт по окну до ≈ 1100 px, места и карты крупнее; панель хода и всё под столом —
-     по центру, не шире ≈ 640 px */
-  .table-screen .dock,
-  .table-screen .table-error,
-  .table-scroll > :not(.table-stage) {
+  /* Стол покера (Р-63): экран — во всё окно; стол — в своей рамке по центру, места и карты крупнее.
+     Всё под столом — по центру, не шире ≈ 640 px; панель хода — тоже, пока она под столом (окно выше, чем шире) */
+  .table-screen {
+    max-width: none;
+    padding-inline: 1.5rem;
+  }
+
+  .table-dock,
+  .table-below > * {
     width: 100%;
     max-width: var(--form-max);
     margin-inline: auto;
+  }
+
+  /* «Панель ставок» из «Настроек» (Р-63): маленькая, средняя (как было) или крупная — масштабом всей панели */
+  .table-dock {
+    zoom: var(--dock-zoom, 1);
   }
 
   .table-info,
@@ -2221,9 +2245,20 @@ input.bet-amount {
     text-align: center;
   }
 
+  /* Рамка стола — запрос размера для сукна внутри: стол не шире двух своих высот, «Размер стола» из «Настроек»
+     (--table-size, 0,7…1) — доля рамки; стол по центру. Места — по ширине и высоте окна и по размеру стола */
+  .felt-box {
+    container-type: size;
+    align-items: center;
+    justify-content: center;
+  }
+
   .felt-wrap {
-    --seat-w: clamp(6.5rem, 9vw, 8.5rem);
-    max-width: var(--felt-max);
+    --seat-w: clamp(5.5rem, min(9vw, 15dvh) * var(--table-size, 1), 8.5rem);
+    flex: none;
+    width: calc(min(100cqw, 200cqh) * var(--table-size, 1));
+    height: calc(100cqh * var(--table-size, 1));
+    max-width: none;
   }
 
   /* Отступы слоя мест — на половину крупного места с подписью позиции */
@@ -2233,6 +2268,19 @@ input.bet-amount {
 
   .spots {
     inset: 3.4rem calc(var(--seat-w) / 2) 0.3rem;
+  }
+
+  /* Не моё место у самого низа (9–10 мест) — растёт вверх от точки, как моё: не уходит за край стола и окна */
+  .seat.low {
+    transform: translate(-50%, -100%);
+  }
+
+  .seat.low.edge-l {
+    transform: translate(calc(var(--seat-w) / -2), -100%);
+  }
+
+  .seat.low.edge-r {
+    transform: translate(calc(var(--seat-w) / 2 - 100%), -100%);
   }
 
   .felt-center {
@@ -2326,5 +2374,51 @@ input.bet-amount {
   .seat.me.many .seat-cards .playing-card,
   .seat.me.many .card-row .playing-card.mid {
     font-size: 1.1rem;
+  }
+}
+
+/* Широкое и не высокое окно — ноутбук, монитор (Р-63), как в покер-румах: стол и панель хода — целиком в первом
+   экране, без своей прокрутки; панель — справа внизу, рядом со столом, стол получает всю высоту под шапкой.
+   Под ними (информация о столе, история, ведущий) — во всю ширину, листается страница целиком.
+   Столбец панели — всегда своей ширины: панель пришла или ушла — стол не прыгает */
+@media (min-width: 1024px) and (min-aspect-ratio: 1/1) {
+  .table-screen {
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .table-screen .bar {
+    height: 2.75rem;
+  }
+
+  .table-layout {
+    flex: none;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: calc(100dvh - env(safe-area-inset-top) - 8px - 2.75rem);
+    column-gap: 1rem;
+  }
+
+  .table-scroll {
+    display: contents;
+  }
+
+  .table-stage {
+    grid-area: 1 / 1;
+    height: auto;
+    min-height: 0;
+  }
+
+  .table-dock {
+    grid-area: 1 / 2;
+    align-self: end;
+    width: var(--dock-w);
+    max-width: none;
+    margin: 0;
+  }
+
+  .table-below {
+    grid-column: 1 / -1;
+    padding-block: 0.5rem 2rem;
   }
 }

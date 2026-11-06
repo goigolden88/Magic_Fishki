@@ -26,7 +26,15 @@ import { getSettings, saveGame, saveHands } from '../store/db'
 import { ulid } from '../ulid'
 import { openGameYear } from './openYears'
 import { LookFields } from './LookFields'
-import { clearLocalTable, loadLocalTable, loadMyLook, loadQuickBets, saveLocalTable, storageWorks } from './pokerStorage'
+import {
+  clearLocalTable,
+  loadLocalTable,
+  loadMyLook,
+  loadQuickBets,
+  saveLocalTable,
+  storageWorks,
+  tableFitStyle,
+} from './pokerStorage'
 import {
   ActionsCard,
   AwardPanel,
@@ -241,9 +249,10 @@ function LocalTableCard(props: {
   const dock = dockOf(v)
   const pause = () => apply((s, now) => hostDo(s, { type: 'pause', paused: !v.paused }, now))
 
-  // Колонка (#97): стол — на весь первый экран, под ним листается ведущий, панель хода — внизу
+  // Колонка (#97): стол — на весь первый экран, под ним листается ведущий, панель хода — внизу.
+  // Широкое окно (Р-63): стол и панель — целиком в окне, панель — справа внизу; под ними листается страница
   return (
-    <div className={`table-layout ${lookClass(table.settings, loadMyLook())}`}>
+    <div className={`table-layout ${lookClass(table.settings, loadMyLook())}`} style={tableFitStyle()}>
       <div className="table-scroll">
         <div className="table-stage">
           <p className="muted table-info">
@@ -253,98 +262,107 @@ function LocalTableCard(props: {
           <PokerTable view={v} />
         </div>
 
-        {t && <TournamentPanel view={t} onEnd={() => apply((s, now) => hostDo(s, { type: 'endTournament' }, now))} />}
-        <PotList view={v} />
-        <LastHand table={table} view={v} />
+        <div className="table-below">
+          {t && <TournamentPanel view={t} onEnd={() => apply((s, now) => hostDo(s, { type: 'endTournament' }, now))} />}
+          <PotList view={v} />
+          <LastHand table={table} view={v} />
 
-        {/* История раздач (#113) — на этом телефоне, вместе со столом */}
-        {showHistory ? (
-          <HandHistory hands={history} onClose={() => setShowHistory(false)} />
-        ) : (
-          <button type="button" className="big wide" onClick={() => setShowHistory(true)}>
-            История раздач
-          </button>
-        )}
-
-        <section className="card host">
-          <h2>Ведущий</h2>
-          {t?.ended && (
-            <>
-              <h2>Места и призы</h2>
-              <TournamentResults table={table} />
-            </>
-          )}
-          {/* Турнир (#78): «Перерыв» стоит часы уровней — и здесь, на одном телефоне.
-              Между раздачами он и «Начать раздачу» — внизу экрана (HostDock, #97) */}
-          {hand && t?.started && !t.ended && (
-            <button type="button" className={v.paused ? 'big primary wide' : 'big wide'} onClick={pause}>
-              {v.paused ? 'Продолжить' : 'Перерыв'}
+          {/* История раздач (#113) — на этом телефоне, вместе со столом */}
+          {showHistory ? (
+            <HandHistory hands={history} onClose={() => setShowHistory(false)} />
+          ) : (
+            <button type="button" className="big wide" onClick={() => setShowHistory(true)}>
+              История раздач
             </button>
           )}
-          {hand && hand.stage === 'showdown' && (
-            <AwardPanel
-              key={hand.number}
-              table={table}
-              view={v}
-              online
-              onAward={(winners) => apply((s, now) => hostDo(s, { type: 'award', winners }, now))}
-            />
-          )}
 
-          <h2>Игроки</h2>
-          <PlayerList table={table} view={v} amounts={amounts} apply={apply} />
-          {/* Турнир идёт — новых не сажаем */}
-          {!t?.started && <SeatNew table={table} regulars={regulars} apply={apply} />}
+          <section className="card host">
+            <h2>Ведущий</h2>
+            {t?.ended && (
+              <>
+                <h2>Места и призы</h2>
+                <TournamentResults table={table} />
+              </>
+            )}
+            {/* Турнир (#78): «Перерыв» стоит часы уровней — и здесь, на одном телефоне.
+                Между раздачами он и «Начать раздачу» — внизу экрана (HostDock, #97) */}
+            {hand && t?.started && !t.ended && (
+              <button type="button" className={v.paused ? 'big primary wide' : 'big wide'} onClick={pause}>
+                {v.paused ? 'Продолжить' : 'Перерыв'}
+              </button>
+            )}
+            {hand && hand.stage === 'showdown' && (
+              <AwardPanel
+                key={hand.number}
+                table={table}
+                view={v}
+                online
+                onAward={(winners) => apply((s, now) => hostDo(s, { type: 'award', winners }, now))}
+              />
+            )}
 
-          {/* Вид стола (#77): карты здесь живые (Р-21) — только сукно */}
-          <details className="table-settings">
-            <summary>Вид стола</summary>
-            <LookFields
-              look={lookOf(table.settings)}
-              backs={false}
-              onChange={(look) => apply((s, now) => hostDo(s, { type: 'look', ...look }, now))}
-            />
-          </details>
+            <h2>Игроки</h2>
+            <PlayerList table={table} view={v} amounts={amounts} apply={apply} />
+            {/* Турнир идёт — новых не сажаем */}
+            {!t?.started && <SeatNew table={table} regulars={regulars} apply={apply} />}
 
-          {/* Турнир пишется, когда окончен; бросить раньше — «Удалить стол» */}
-          {(!t || t.ended) && (
-            <button type="button" className={t ? 'big wide primary' : 'big wide danger'} disabled={finishing} onClick={onFinish}>
-              {t ? 'Записать игру' : 'Закончить игру'}
+            {/* Вид стола (#77): карты здесь живые (Р-21) — только сукно */}
+            <details className="table-settings">
+              <summary>Вид стола</summary>
+              <LookFields
+                look={lookOf(table.settings)}
+                backs={false}
+                onChange={(look) => apply((s, now) => hostDo(s, { type: 'look', ...look }, now))}
+              />
+            </details>
+
+            {/* Турнир пишется, когда окончен; бросить раньше — «Удалить стол» */}
+            {(!t || t.ended) && (
+              <button
+                type="button"
+                className={t ? 'big wide primary' : 'big wide danger'}
+                disabled={finishing}
+                onClick={onFinish}
+              >
+                {t ? 'Записать игру' : 'Закончить игру'}
+              </button>
+            )}
+            <button type="button" className="big wide danger-text" disabled={finishing} onClick={onRemove}>
+              Удалить стол
             </button>
-          )}
-          <button type="button" className="big wide danger-text" disabled={finishing} onClick={onRemove}>
-            Удалить стол
-          </button>
-        </section>
+          </section>
+        </div>
       </div>
 
-      {error && (
-        <p className="warn table-error" onClick={() => onError(null)}>
-          {error}
-        </p>
-      )}
+      <div className="table-dock">
+        {error && (
+          <p className="warn table-error" onClick={() => onError(null)}>
+            {error}
+          </p>
+        )}
 
-      {dock === 'turn' && v.actions && v.toActName && (
-        // Ход перешёл или новый минимум — сумма снова с минимума
-        <ActionsCard
-          key={`${v.handNumber}-${v.stage}-${actId}-${v.actions.raise?.min ?? ''}`}
-          actions={v.actions}
-          sb={sb}
-          bb={v.bb}
-          who={v.toActName}
-          online
-          onAct={(body) => apply((t, now) => actFor(t, body.action, now))}
-        />
-      )}
-      {dock === 'wait' && <p className="dock wait-strip">{waitLine(v)}</p>}
-      {dock === 'host' && (
-        <HostDock
-          view={v}
-          pause={t !== null && t.started && !t.ended}
-          onStart={() => apply((s, now) => hostDo(s, { type: 'start' }, now))}
-          onPause={pause}
-        />
-      )}
+        {dock === 'turn' && v.actions && v.toActName && (
+          // Ход перешёл или новый минимум — сумма снова с минимума
+          <ActionsCard
+            key={`${v.handNumber}-${v.stage}-${actId}-${v.actions.raise?.min ?? ''}`}
+            actions={v.actions}
+            sb={sb}
+            bb={v.bb}
+            who={v.toActName}
+            online
+            onAct={(body) => apply((t, now) => actFor(t, body.action, now))}
+          />
+        )}
+        {dock === 'wait' && <p className="dock wait-strip">{waitLine(v)}</p>}
+        {dock === 'host' && (
+          <HostDock
+            view={v}
+            pause={t !== null && t.started && !t.ended}
+            onStart={() => apply((s, now) => hostDo(s, { type: 'start' }, now))}
+            onPause={pause}
+          />
+        )}
+      </div>
     </div>
   )
 }
