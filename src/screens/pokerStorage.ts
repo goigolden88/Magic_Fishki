@@ -2,11 +2,12 @@ import { parseBotTable, type BotTable } from '../calc/botTable'
 import { parseLocalTable, type LocalTable } from '../calc/localTable'
 import { serverBase, type SavedSeat } from '../calc/pokerLink'
 import { parseLabels, parseNotes, type NoteLabels, type PlayerNotes } from '../calc/playerNotes'
+import { isDefaultLook, MY_LOOK_DEFAULT, parseMyLook, type MyLook } from '../calc/pokerLook'
 
 // Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги,
 // звук «ваш ход», «карты всегда открыты», «анимация карт», стол на этом телефоне и стол против ботов — данные этого устройства,
 // а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21, Р-38).
-// Заметки об игроках и подписи их цветов (Р-56) — тоже в localStorage, но в копию идут
+// Заметки об игроках и подписи их цветов (Р-56), личный «Вид стола» (Р-61) — тоже в localStorage, но в копию идут
 const PASSWORD_KEY = 'fishki.poker.password'
 const SERVER_KEY = 'fishki.poker.server'
 const SEATS_KEY = 'fishki.poker.seats'
@@ -20,6 +21,7 @@ const OPEN_KEY = 'fishki.poker.open'
 const ANIM_KEY = 'fishki.poker.anim'
 const NOTES_KEY = 'fishki.poker.notes'
 const LABELS_KEY = 'fishki.poker.noteLabels'
+const LOOK_KEY = 'fishki.poker.look'
 
 function read(key: string): string {
   try {
@@ -210,6 +212,20 @@ export function saveNotes(next: NotesState) {
 export function subscribeNotes(listener: () => void): () => void {
   notesListeners.add(listener)
   return () => notesListeners.delete(listener)
+}
+
+// Личный «Вид стола» (Р-61): сукно, рубашка, колода — на этом телефоне, в копию идёт.
+// Копия — в памяти страницы: каждая карта на экране спрашивает колоду, память браузера читается раз
+let myLook: MyLook | undefined // undefined — ещё не читали
+
+export function loadMyLook(): MyLook {
+  myLook ??= parseStored(LOOK_KEY, parseMyLook) ?? MY_LOOK_DEFAULT
+  return myLook
+}
+
+export function saveMyLook(next: MyLook) {
+  myLook = next
+  write(LOOK_KEY, isDefaultLook(next) ? '' : JSON.stringify(next))
 }
 
 // Память браузера работает: записать и прочитать

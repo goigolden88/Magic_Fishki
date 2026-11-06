@@ -26,7 +26,7 @@ import { getSettings, saveGame, saveHands } from '../store/db'
 import { ulid } from '../ulid'
 import { openGameYear } from './openYears'
 import { LookFields } from './LookFields'
-import { clearLocalTable, loadLocalTable, saveLocalTable, storageWorks } from './pokerStorage'
+import { clearLocalTable, loadLocalTable, loadMyLook, saveLocalTable, storageWorks } from './pokerStorage'
 import {
   ActionsCard,
   AwardPanel,
@@ -243,7 +243,7 @@ function LocalTableCard(props: {
 
   // Колонка (#97): стол — на весь первый экран, под ним листается ведущий, панель хода — внизу
   return (
-    <div className={`table-layout ${lookClass(table.settings)}`}>
+    <div className={`table-layout ${lookClass(table.settings, loadMyLook())}`}>
       <div className="table-scroll">
         <div className="table-stage">
           <p className="muted table-info">
