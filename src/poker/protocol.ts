@@ -1,5 +1,6 @@
 // Сообщения клиента и сервера стола. Их берут сервер комнат и экран — версия одна на всех:
 // клиент с другой версией получает отказ «обновите приложение»
+import type { GameId } from './game'
 import type { HistoryHand } from './history'
 import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 
@@ -20,7 +21,9 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 // 13 — шорт-дек (#81): новое значение игры game — 'shortdeck'
 // 14 — история раздач вечера (#113): запрос телефона (history) и ответ комнаты со всеми раздачами (history)
 // 15 — шорт-дек: тройка старше стрита (Р-52)
-export const PROTOCOL_VERSION = 15
+// 16 — «Микс» (#166, Р-57): настройки mix и mixAgainst при создании, голосование и итог в столе
+//      (mixVote, mixResult); предложение батона (mixPropose), ответ (mixVote), «Без смены» ведущего (mixCancel)
+export const PROTOCOL_VERSION = 16
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -84,6 +87,11 @@ export type ClientBody =
     }
   // ведущий, в любой момент: вид стола — сукно и рубашка карт; нет поля — не меняется
   | { type: 'look'; felt?: Felt; cardBack?: CardBack }
+  // «Микс» (#166): батон прошлой раздачи между раздачами предлагает игру; голосующий — «За» (yes) или «Против»;
+  // ведущий прерывает голосование — «Без смены»
+  | { type: 'mixPropose'; game: GameId }
+  | { type: 'mixVote'; yes: boolean }
+  | { type: 'mixCancel' }
 
 export type ClientMessage = ClientBody & { v: number }
 

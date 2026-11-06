@@ -49,6 +49,15 @@ describe('quickRoomSettings', () => {
     expect(gameSettings({ game: 'omaha', limit: 'pot' })).toEqual({ game: 'omaha', limit: 'pot' })
   })
 
+  it('«Микс» (#166) — только с картами на телефонах, с долей «против»; выключен — полей нет', () => {
+    const base = { ...ROOM_DEFAULTS, startingStack: 1000 }
+    expect(roomSettings({ ...base, mix: 'half' })).toMatchObject({ mix: true, mixAgainst: 'half' })
+    expect(roomSettings({ ...base, mix: 'third' })).toMatchObject({ mix: true, mixAgainst: 'third' })
+    expect(roomSettings({ ...base, cards: 'live', mix: 'half' })).not.toHaveProperty('mix')
+    expect(roomSettings({ ...base, mix: null })).not.toHaveProperty('mix')
+    expect(quickRoomSettings(1000)).not.toHaveProperty('mix')
+  })
+
   it('не меняет значения по умолчанию', () => {
     quickRoomSettings(700)
     expect(ROOM_DEFAULTS).not.toHaveProperty('startingStack')

@@ -22,6 +22,7 @@ import {
   DEFAULT_GAME,
   GAME_CHOICES,
   gameSettings,
+  MIX_SHARE_CHOICES,
   quickRoomHost,
   quickRoomLine,
   quickRoomSettings,
@@ -32,6 +33,7 @@ import {
 import { formSettings, tournamentForm, type TournamentForm } from '../calc/tournamentForm'
 import type { Regular } from '../model'
 import type { CardsMode, Limit } from '../poker/game'
+import { MIX_SHARE_DEFAULT, MIX_VOTE_MS, type MixShare } from '../poker/mix'
 import { PROTOCOL_VERSION, type CreateRoomRequest, type CreateRoomResponse } from '../poker/protocol'
 import { DEFAULT_SETTINGS, type AutoStart, type Felt } from '../poker/table'
 import { formatDate, today } from '../dates'
@@ -392,6 +394,7 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
   const [look, setLook] = useState<Look>(ROOM_DEFAULTS.look)
   const [format, setFormat] = useState<TournamentForm>(() => tournamentForm(0))
   const [publicHud, setPublicHud] = useState(ROOM_DEFAULTS.publicHud)
+  const [mix, setMix] = useState<MixShare | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -452,6 +455,7 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
         look,
         format: game.settings,
         publicHud,
+        mix,
       }),
     }
     setBusy(true)
@@ -564,6 +568,8 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
       </fieldset>
 
       <GameFields choice={variant} phones={cards === 'phones'} onChange={setVariant} />
+      {/* #166: «Микс» — только карты на телефонах */}
+      {cards === 'phones' && <MixFields mix={mix} onChange={setMix} />}
 
       {/* #75: стол на одном телефоне — без таймера и раздачи «сама» */}
       <TimerFields form={timer} onChange={setTimer} />
@@ -643,6 +649,42 @@ function GameFields({ choice, phones, onChange }: { choice: GameChoice; phones: 
               choice.limit === 'pot' ? 'Рейз — не больше банка.' : 'Ставки без лимита.'
             }`}
       </p>
+    </fieldset>
+  )
+}
+
+// «Микс» (#166, Р-57): батон предлагает игру перед раздачей, остальные голосуют; смена — если «против»
+// не больше выбранной доли. mix — доля или null (выкл)
+function MixFields({ mix, onChange }: { mix: MixShare | null; onChange: (m: MixShare | null) => void }) {
+  return (
+    <fieldset className="players-pick">
+      <legend className="muted">Микс</legend>
+      <label className="check">
+        <input type="checkbox" checked={mix !== null} onChange={(e) => onChange(e.target.checked ? MIX_SHARE_DEFAULT : null)} />
+        Батон предлагает игру перед раздачей
+      </label>
+      {mix !== null && (
+        <>
+          <p className="muted">Сменить игру, если против не больше …</p>
+          <div className="row">
+            {MIX_SHARE_CHOICES.map(([share, label]) => (
+              <button
+                key={share}
+                type="button"
+                className={mix === share ? 'big primary grow' : 'big grow'}
+                aria-pressed={mix === share}
+                onClick={() => onChange(share)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="muted">
+            Остальные голосуют «За» или «Против» {MIX_VOTE_MS / 1000} секунд, не ответил — «За». Новая игра держится, пока
+            следующий батон не предложит другую.
+          </p>
+        </>
+      )}
     </fieldset>
   )
 }

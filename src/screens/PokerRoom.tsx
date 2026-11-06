@@ -50,6 +50,7 @@ import {
   type PreActionMark,
 } from '../calc/preAction'
 import { roomEvening } from '../calc/evenings'
+import { mixView, type MixView } from '../calc/pokerMix'
 import { gameFromTable, gameFromTournament } from '../calc/pokerGame'
 import { lookClass, lookOf } from '../calc/pokerLook'
 import { timerSettings, turnSecondsOf } from '../calc/pokerTimer'
@@ -337,6 +338,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   const live = room.online && sy.first !== null && table !== sy.first
 
   const v = tableView(table, me, room.serverNow())
+  const mix = mixView(table, me, room.serverNow()) // «Микс» (#166) — между раздачами, над кнопками ведущего
   // Копия раздач (#114) — со своими картами каждой раздачи (Р-54): к ответу истории они уже запомнены
   const mine = useMyCards(table, v.myCards)
   const copyWorks = useHandCopy(roomEvening(code, table, me), room.history, mine)
@@ -455,10 +457,12 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
         ) : (
           <p className="dock wait-strip">{waitLine(v)}</p>
         ))}
+      {mix && <MixDock mix={mix} online={room.online} onSend={(body) => room.send(body)} />}
       {dock === 'host' && (
         <HostDock
           view={v}
           pause
+          voting={mix?.kind === 'vote'}
           onStart={() => room.send({ type: 'start' })}
           onPause={() => room.send({ type: 'pause', paused: !v.paused })}
         />
@@ -507,15 +511,16 @@ function OpenCards({ open, onOpen }: { open: boolean; onOpen: (on: boolean) => v
 }
 
 // Между раздачами у ведущего — внизу экрана: «Начать раздачу» и «Перерыв» / «Продолжить».
-// pause — «Перерыв» есть на этом столе (на одном телефоне — только в идущем турнире)
-export function HostDock(props: { view: TableView; pause: boolean; onStart: () => void; onPause: () => void }) {
-  const { view: v, pause, onStart, onPause } = props
+// pause — «Перерыв» есть на этом столе (на одном телефоне — только в идущем турнире);
+// voting — идёт голосование «Микса» (#166): раздача ждёт его итога
+export function HostDock(props: { view: TableView; pause: boolean; voting?: boolean; onStart: () => void; onPause: () => void }) {
+  const { view: v, pause, voting = false, onStart, onPause } = props
   const t = v.tournament
   return (
     <section className="dock">
       <div className="dock-row">
         {!v.paused && (
-          <button type="button" className="big primary grow" disabled={!v.canStart} onClick={onStart}>
+          <button type="button" className="big primary grow" disabled={!v.canStart || voting} onClick={onStart}>
             {t && !t.started ? 'Начать турнир' : 'Начать раздачу'}
           </button>
         )}
@@ -526,6 +531,78 @@ export function HostDock(props: { view: TableView; pause: boolean; onStart: () =
         )}
       </div>
       {!v.paused && !v.canStart && <p className="muted dock-note">Нужно хотя бы двое с фишками, которые не пропускают раздачи</p>}
+    </section>
+  )
+}
+
+// «Микс» (#166, Р-57) — внизу экрана между раздачами: батону — «Предложить игру» с выбором; в голосовании —
+// кто что предложил, отсчёт, «За» / «Против», ведущему — «Без смены»; затем — итог
+function MixDock(props: { mix: MixView; online: boolean; onSend: (body: ClientBody) => void }) {
+  const { mix, online, onSend } = props
+  const [picking, setPicking] = useState(false)
+  if (mix.kind === 'idle' || mix.kind === 'result') {
+    return <p className={mix.kind === 'result' ? 'dock wait-strip mix-result' : 'dock wait-strip'}>{mix.line}</p>
+  }
+  if (mix.kind === 'propose') {
+    return (
+      <section className="dock">
+        {picking ? (
+          <>
+            <p className="dock-title muted">Предложить игру — остальные проголосуют</p>
+            <div className="dock-row mix-pick">
+              {mix.choices.map(([game, label]) => (
+                <button
+                  key={game}
+                  type="button"
+                  className="big primary grow"
+                  disabled={!online}
+                  onClick={() => {
+                    setPicking(false)
+                    onSend({ type: 'mixPropose', game })
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+              <button type="button" className="big" onClick={() => setPicking(false)}>
+                Нет
+              </button>
+            </div>
+          </>
+        ) : (
+          <div className="dock-row">
+            <button type="button" className="big grow" onClick={() => setPicking(true)}>
+              Предложить игру
+            </button>
+          </div>
+        )}
+      </section>
+    )
+  }
+  const vote = (yes: boolean) => onSend({ type: 'mixVote', yes })
+  return (
+    <section className="dock">
+      <p className="dock-title muted">
+        {mix.line} · {mix.left} с
+      </p>
+      {mix.canVote && (
+        <div className="dock-row">
+          <button type="button" className={mix.answer === true ? 'big primary grow' : 'big grow'} aria-pressed={mix.answer === true} disabled={!online} onClick={() => vote(true)}>
+            {mix.answer === true ? '✓ ' : ''}За
+          </button>
+          <button type="button" className={mix.answer === false ? 'big primary grow' : 'big grow'} aria-pressed={mix.answer === false} disabled={!online} onClick={() => vote(false)}>
+            {mix.answer === false ? '✓ ' : ''}Против
+          </button>
+        </div>
+      )}
+      <div className="dock-row mix-tally">
+        <p className="muted dock-note grow">{mix.tally}{mix.canVote && mix.answer === null ? ' · не ответите — «За»' : ''}</p>
+        {mix.canCancel && (
+          <button type="button" className="big" onClick={() => onSend({ type: 'mixCancel' })}>
+            Без смены
+          </button>
+        )}
+      </div>
     </section>
   )
 }
