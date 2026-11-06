@@ -14,6 +14,8 @@ const STREET_FLY_MS = 300
 const STREET_MAX_GAP_MS = 200
 
 export const BOARD_GROUP = 'board'
+// Второй и третий борд (#167): k — номер борда с нуля, первый — BOARD_GROUP
+export const boardGroup = (k: number) => (k === 0 ? BOARD_GROUP : `board-${k + 1}`)
 export const seatGroup = (seat: number) => `seat-${seat}`
 export const flyKey = (group: string, card: number) => `${group}:${card}`
 
@@ -37,11 +39,12 @@ export function dealFlights(seats: number[], first: number, cards: number): Flig
   return order.map((o, i) => ({ key: flyKey(seatGroup(o.seat), o.card), ...times[i] }))
 }
 
-// Общие карты с номера from до to (не включая): флоп — три по одной, тёрн и ривер — по одной
-export function streetFlights(from: number, to: number): Flight[] {
+// Общие карты с номера from до to (не включая): флоп — три по одной, тёрн и ривер — по одной.
+// group — борд (#167: второй и третий — после первого, через after мс)
+export function streetFlights(from: number, to: number, group = BOARD_GROUP, after = 0): Flight[] {
   const count = Math.max(0, to - from)
   const times = spread(count, STREET_FLY_MS, STREET_MAX_GAP_MS, STREET_TOTAL_MS)
-  return times.map((t, i) => ({ key: flyKey(BOARD_GROUP, from + i), ...t }))
+  return times.map((t, i) => ({ key: flyKey(group, from + i), ...t, delay: t.delay + after }))
 }
 
 // Конец полёта последней карты, мс
@@ -53,6 +56,7 @@ export type DealSnapshot = {
   hand: number
   playing: boolean // идёт раздача (не между раздачами)
   board: string[]
+  more?: string[][] // прогнали несколько раз (#167) — второй и третий борд; один борд — поля нет
   seats: number[] // номера сданных мест по возрастанию — это и есть «по часовой»
   button: number | null // номер места с кнопкой
   cards: number // карт в руке у каждого; карт на экране нет (живые карты) — 0
@@ -64,6 +68,7 @@ export function tableSnapshot(v: TableView): DealSnapshot {
     hand: v.handNumber,
     playing: v.stage !== null,
     board: v.board,
+    ...(v.runs ? { more: v.runs.slice(1).map((r) => r.cards) } : {}),
     seats: v.seats.filter((s) => s.inHand).map((s) => s.seat),
     button: v.seats.find((s) => s.button)?.seat ?? null,
     cards: v.myCards?.length ?? v.seats.find((s) => s.cards)?.cards?.length ?? 0,
@@ -74,7 +79,8 @@ export type DealPlan = { kind: 'deal' | 'street'; flights: Flight[] }
 
 // Что проиграть, когда стол сменился с prev на next. prev нет (стол только открыли) — ничего:
 // карты уже лежат. Новая раздача — карты по местам с места после кнопки; та же раздача и общих карт
-// прибавилось — новые общие карты. Иначе — ничего
+// прибавилось — новые общие карты; прогнали несколько раз (#167) — следом новые карты второго и третьего борда,
+// борд за бордом. Иначе — ничего
 export function dealPlan(prev: DealSnapshot | null, next: DealSnapshot): DealPlan | null {
   if (!prev) return null
   if (next.hand !== prev.hand) {
@@ -87,5 +93,8 @@ export function dealPlan(prev: DealSnapshot | null, next: DealSnapshot): DealPla
   }
   const grew = next.board.length > prev.board.length && prev.board.every((c, i) => next.board[i] === c)
   if (!grew) return null
-  return { kind: 'street', flights: streetFlights(prev.board.length, next.board.length) }
+  const from = prev.board.length
+  const flights = streetFlights(from, next.board.length)
+  ;(next.more ?? []).forEach((board, k) => flights.push(...streetFlights(from, board.length, boardGroup(k + 1), (k + 1) * STREET_TOTAL_MS)))
+  return { kind: 'street', flights }
 }

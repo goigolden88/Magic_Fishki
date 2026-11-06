@@ -173,7 +173,7 @@ describe('«Микс»: настройки и версия', () => {
 
   it('старая копия приложения — «обновите приложение»', () => {
     const s = afterHand(false)
-    expect(PROTOCOL_VERSION).toBe(16)
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(16) // «Микс» — с версии 16; 17 — #167
     const r = handle(s, 'p0', { v: 15, type: 'mixPropose', game: 'omaha' }, 0)
     expect(r).toEqual({ ok: false, error: VERSION_ERROR })
   })

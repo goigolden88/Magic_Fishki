@@ -37,6 +37,7 @@ const PLACEHOLDERS: HelpValues = {
   autoOpenDefault: '‹столы сами сначала›',
   flipSeconds: '‹стол переворачивается›',
   mixVoteSeconds: '‹голосование микса›',
+  runVoteSeconds: '‹выбор прогона›',
 }
 
 describe('справка', () => {
@@ -104,6 +105,7 @@ describe('справка', () => {
       autoOpenDefault: '5',
       flipSeconds: '1,5',
       mixVoteSeconds: '15',
+      runVoteSeconds: '10',
     })
   })
 })

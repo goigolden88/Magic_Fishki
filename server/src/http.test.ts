@@ -32,10 +32,10 @@ describe('создание комнаты', () => {
 
   it('верный пароль — код комнаты и токен ведущего', async () => {
     const { d, calls } = deps('пароль компании')
-    // Вид стола (#77), турнир и анте (#78), игра и лимит (#80), «Микс» (#166) — тоже настройки стола
+    // Вид стола (#77), турнир и анте (#78), игра и лимит (#80), «Микс» (#166), «Прогнать несколько раз» (#167) — тоже настройки стола
     const look = {
       ...{ felt: 'blue', cardBack: 'geo', format: 'tournament', ante: 0, tournament: { buyIn: 500 }, game: 'omaha', limit: 'pot' },
-      ...{ mix: true, mixAgainst: 'third' },
+      ...{ mix: true, mixAgainst: 'third', maxRuns: 2 },
     }
     const settings = { bb: 20, sb: 10, cards: 'phones', turnSeconds: 30, autoStart: 'fast', ...look, junk: 1 }
     const r = await createRoom(body('пароль компании', { settings }), d)

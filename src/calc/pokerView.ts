@@ -9,6 +9,7 @@ import { buildPots } from '../poker/pots'
 import type { HistoryHand } from '../poker/history'
 import { blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type HandRecord, type HandResult, type TableState } from '../poker/table'
 import { allInOdds } from './allInOdds'
+import { runBoards, type RunBoardView } from './pokerRuns'
 import {
   buildLevels,
   clockAt,
@@ -128,6 +129,9 @@ export type TableView = {
   board: Card[] // общие карты; между раздачами — прошлой раздачи
   // Между раздачами после вскрытия — карты стола из пятёрок победителей: их подсветить, остальные приглушить; иначе null
   boardWin: Card[] | null
+  // Между раздачами, когда прошлую прогнали несколько раз (#167), — все борды друг под другом, у каждого свой
+  // победитель (board — первый из них); иначе null
+  runs: RunBoardView[] | null
   myCards: Card[] | null // мои закрытые и открытые карты в раздаче — для «Подглядеть»
   // Моя лучшая комбинация сейчас (#105) — с флопа, пока я в раздаче и не спасовал: «Пара, дамы».
   // Видна только вместе с открытыми картами — это решает экран. Префлоп, пас, живые карты — null
@@ -171,7 +175,8 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
       const s = hand && index !== -1 ? hand.seats[index] : null
       return {
         cards: cards ? (s && !s.folded ? publicCards(cards, p.id) : null) : (record?.shown[p.id] ?? null),
-        handName: record?.hands[p.id] ?? null,
+        // Прогнали несколько раз (#167) — у каждого борда своя рука: подписи — у бордов, не у мест
+        handName: record?.runs ? null : (record?.hands[p.id] ?? null),
         best: fives.get(p.id) ?? null,
         id: p.id,
         seat: p.seat,
@@ -233,6 +238,7 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
     phoneCards: table.settings.cards === 'phones',
     board: cards?.board ?? record?.board ?? [],
     boardWin: record && fives.size > 0 ? record.board.filter((c) => [...fives.values()].some((five) => five.includes(c))) : null,
+    runs: runBoards(record, potLabels(table.lastHand?.pots.length ?? 0)),
     myCards,
     myHand,
     canShow: hidden && record ? { cards: hidden.cards, shown: hidden.cards.map((_, i) => Boolean(record.shown[meId]?.[i])) } : null,
@@ -367,6 +373,10 @@ function potLabel(k: number, count: number): string {
   return count === 1 ? 'Банк' : k === 0 ? 'Основной банк' : count === 2 ? 'Побочный банк' : `Побочный банк ${k}`
 }
 
+function potLabels(count: number): string[] {
+  return Array.from({ length: count }, (_, k) => potLabel(k, count))
+}
+
 // Кнопки хода игрока meId; стол на одном телефоне берёт их за того, чей ход (localTable.ts)
 export function actionsView(table: TableState, meId: string): ActionsView | null {
   const hand = table.hand
@@ -459,10 +469,11 @@ export function winningFives(table: TableState): Map<string, Card[]> {
   return table.lastHand ? fivesOf(table.lastHand) : new Map<string, Card[]>()
 }
 
+// Прогнали несколько раз (#167) — пятёрки у каждого борда свои (runBoards): у мест их нет
 function fivesOf(last: HandResult): Map<string, Card[]> {
   const best = last.record?.best
   const out = new Map<string, Card[]>()
-  if (!best) return out
+  if (!best || last.record?.runs) return out
   for (const pot of last.pots) for (const id of pot.winners) if (best[id]) out.set(id, best[id])
   return out
 }
@@ -475,6 +486,8 @@ export type LastHandView = {
   rounds: { label: string; moves: string[] }[] // ходы по кругам торгов
   // Ва-банк до ривера и вскрытие (#116): «Шансы на ва-банке (флоп): Аня 72 %, Боря 28 %»; иначе null
   odds: string | null
+  // Прогнали несколько раз (#167): все борды с победителями (board — первый); прогон один — поля нет
+  runs?: RunBoardView[]
 }
 
 // Прошлая раздача с картами на телефонах — вся запись: места, карты, ходы, кто что взял.
@@ -484,18 +497,20 @@ export function lastHandRecord(table: TableState): LastHandView | null {
   const record = last?.record
   if (!last || !record || table.hand) return null
   const fives = fivesOf(last)
+  const runs = runBoards(record, potLabels(last.pots.length))
   return {
     number: last.number,
     board: record.board,
     players: record.seats.map((s) => ({
       name: s.name,
       cards: record.shown[s.id] ?? null,
-      hand: record.hands[s.id] ?? null,
+      hand: runs ? null : (record.hands[s.id] ?? null),
       best: fives.get(s.id) ?? null,
       won: last.payouts[s.id] ?? 0,
     })),
     rounds: roundsOf(record.log, record.seats),
     odds: oddsLine(record),
+    ...(runs ? { runs } : {}),
   }
 }
 
@@ -518,8 +533,9 @@ function roundsOf(log: HandLogEntry[], seats: { id: string; name: string }[]): L
   return rounds
 }
 
-// Строка списка «История раздач» (#113): номер, кто сколько взял, стол (общие карты)
-export type HistoryItem = { number: number; board: Card[]; wins: { name: string; amount: number }[] }
+// Строка списка «История раздач» (#113): номер, кто сколько взял, стол (общие карты);
+// прогнали несколько раз (#167) — в more остальные борды, по порядку (у раздач с одним бордом поля нет)
+export type HistoryItem = { number: number; board: Card[]; wins: { name: string; amount: number }[]; more?: Card[][] }
 
 // Раздача из истории целиком — как прошлая, и ещё стеки в начале (chips — по местам, как players)
 // и банки с именами взявших. Живые карты — без карт: места, ходы, банки
@@ -534,7 +550,8 @@ export function historyList(hands: HistoryHand[]): HistoryItem[] {
       const wins = Object.entries(h.payouts)
         .filter(([, amount]) => amount > 0)
         .map(([id, amount]) => ({ name: names.get(id) ?? 'Ушёл', amount }))
-      return { number: h.number, board: h.record?.board ?? [], wins }
+      const runs = h.record?.runs
+      return { number: h.number, board: h.record?.board ?? [], wins, ...(runs && runs.length > 1 ? { more: runs.slice(1).map((r) => r.board) } : {}) }
     })
 }
 
@@ -551,13 +568,14 @@ export function historyHandView(h: HistoryHand): HistoryHandView {
   const seats = record?.seats ?? h.live?.seats ?? []
   const hidden = record?.hidden ?? null
   const fives = fivesOf(h)
+  const runs = runBoards(record, potLabels(h.pots.length))
   return {
     number: h.number,
     board: record?.board ?? [],
     players: seats.map((s) => ({
       name: s.name,
       cards: hidden?.playerId === s.id ? hidden.cards : (record?.shown[s.id] ?? null),
-      hand: record?.hands[s.id] ?? null,
+      hand: runs ? null : (record?.hands[s.id] ?? null),
       best: fives.get(s.id) ?? null,
       won: h.payouts[s.id] ?? 0,
     })),
@@ -565,6 +583,7 @@ export function historyHandView(h: HistoryHand): HistoryHandView {
     odds: record ? oddsLine(record) : null,
     chips: seats.map((s) => s.chips),
     pots,
+    ...(runs ? { runs } : {}),
   }
 }
 

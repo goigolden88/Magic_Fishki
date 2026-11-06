@@ -23,7 +23,9 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 // 15 — шорт-дек: тройка старше стрита (Р-52)
 // 16 — «Микс» (#166, Р-57): настройки mix и mixAgainst при создании, голосование и итог в столе
 //      (mixVote, mixResult); предложение батона (mixPropose), ответ (mixVote), «Без смены» ведущего (mixCancel)
-export const PROTOCOL_VERSION = 16
+// 17 — «Прогнать несколько раз» (#167, Р-58): настройка maxRuns при создании, выбор в столе (runVote),
+//      ответ дошедшего (runChoice), несколько бордов в раздаче (boards) и в записи (runs)
+export const PROTOCOL_VERSION = 17
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -92,6 +94,8 @@ export type ClientBody =
   | { type: 'mixPropose'; game: GameId }
   | { type: 'mixVote'; yes: boolean }
   | { type: 'mixCancel' }
+  // «Прогнать несколько раз» (#167): дошедший до вскрытия олл-ин — сколько раз прогнать, 1…runVote.max
+  | { type: 'runChoice'; times: number }
 
 export type ClientMessage = ClientBody & { v: number }
 

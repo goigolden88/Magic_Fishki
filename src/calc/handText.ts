@@ -46,6 +46,17 @@ function dateText(ms: number): string {
 
 const cardsText = (cards: Card[]) => `[${cards.join(' ')}]`
 
+// Несколько бордов (#167) — подписи покер-румов
+const RUN_ORDINALS = ['FIRST', 'SECOND', 'THIRD']
+const RUN_TIMES: Record<number, string> = { 2: 'twice', 3: 'three times' }
+
+// Сколько первых карт у всех бордов общие
+function commonLength(boards: Card[][]): number {
+  let n = 0
+  while (boards.every((b) => n < b.length && b[n] === boards[0][n])) n++
+  return n
+}
+
 // Номер для трекера — уникальный между вечерами: начало вечера в секундах и номер раздачи в нём
 function handId(s: SavedHand): string {
   return `${Math.floor(s.startedAt / 1000)}${pad(s.number, 4)}`
@@ -60,7 +71,9 @@ export function handText(saved: SavedHand): string {
   const seats = record?.seats ?? h.live?.seats ?? []
   const button = record?.button ?? h.live?.button ?? 0
   const log: HandLogEntry[] = record?.log ?? h.live?.log ?? []
-  const board = record?.board ?? []
+  // Прогнали несколько раз (#167): общая часть бордов сдана до олл-ина, остальное — у каждого борда своё
+  const runs = record?.runs && record.runs.length > 1 ? record.runs : null
+  const board = runs ? runs[0].board.slice(0, commonLength(runs.map((r) => r.board))) : (record?.board ?? [])
   const names = new Map(seats.map((s) => [s.id, s.name]))
   const name = (id: string) => names.get(id) ?? 'Ушёл'
 
@@ -156,6 +169,16 @@ export function handText(saved: SavedHand): string {
   }
   // Ва-банк до ривера — остальные улицы открываются без ходов
   while (street < STREETS.length - 1 && board.length >= BOARD_AT[STREETS[street + 1]]) nextStreet()
+  // Прогнали несколько раз — оставшиеся улицы каждого борда, как у покер-румов: «*** FIRST FLOP ***», «*** SECOND TURN ***»
+  runs?.forEach((run, b) => {
+    for (let k = street + 1; k < STREETS.length; k++) {
+      const s = STREETS[k]
+      const at = BOARD_AT[s]
+      if (run.board.length < at) break
+      const head = `*** ${RUN_ORDINALS[b]} ${s.toUpperCase()} ***`
+      lines.push(s === 'flop' ? `${head} ${cardsText(run.board.slice(0, 3))}` : `${head} ${cardsText(run.board.slice(0, at - 1))} [${run.board[at - 1]}]`)
+    }
+  })
 
   // Непокрытая ставка вернулась: вложено больше, чем во всех банках, — у вложившего больше всех
   const total = h.pots.reduce((sum, p) => sum + p.amount, 0)
@@ -169,7 +192,12 @@ export function handText(saved: SavedHand): string {
   const shown = record?.shown ?? {}
   const shownOf = (id: string) => (shown[id] ?? []).filter((c): c is Card => c !== null)
   const atShowdown = seats.filter((s) => hands[s.id] !== undefined)
-  if (atShowdown.length > 0) {
+  if (runs) {
+    runs.forEach((run, b) => {
+      lines.push(`*** ${RUN_ORDINALS[b]} SHOW DOWN ***`)
+      for (const s of atShowdown) lines.push(`${s.name}: shows ${cardsText(shownOf(s.id))} (${run.hands[s.id] ?? hands[s.id]})`)
+    })
+  } else if (atShowdown.length > 0) {
     lines.push('*** SHOW DOWN ***')
     for (const s of atShowdown) lines.push(`${s.name}: shows ${cardsText(shownOf(s.id))} (${hands[s.id]})`)
   }
@@ -184,7 +212,10 @@ export function handText(saved: SavedHand): string {
 
   lines.push('*** SUMMARY ***')
   lines.push(`Total pot ${total} | Rake 0`)
-  if (board.length > 0) lines.push(`Board ${cardsText(board)}`)
+  if (runs) {
+    lines.push(`Hand was run ${RUN_TIMES[runs.length] ?? `${runs.length} times`}`)
+    runs.forEach((run, b) => lines.push(`${RUN_ORDINALS[b]} Board ${cardsText(run.board)}`))
+  } else if (board.length > 0) lines.push(`Board ${cardsText(board)}`)
   seats.forEach((s, i) => {
     const tags = `${i === button ? ' (button)' : ''}${i === sbIndex ? ' (small blind)' : i === bbIndex ? ' (big blind)' : ''}`
     const won = h.payouts[s.id] ?? 0
@@ -193,8 +224,8 @@ export function handText(saved: SavedHand): string {
       ? FOLDED[fold]
       : hands[s.id] !== undefined
         ? won > 0
-          ? `showed ${cardsText(shownOf(s.id))} and won (${won}) with ${hands[s.id]}`
-          : `showed ${cardsText(shownOf(s.id))} and lost with ${hands[s.id]}`
+          ? `showed ${cardsText(shownOf(s.id))} and won (${won})${runs ? '' : ` with ${hands[s.id]}`}`
+          : `showed ${cardsText(shownOf(s.id))} and lost${runs ? '' : ` with ${hands[s.id]}`}`
         : won > 0
           ? `collected (${won})`
           : 'mucked'

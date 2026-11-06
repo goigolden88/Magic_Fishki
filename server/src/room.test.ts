@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { HistoryHand } from '../../src/poker/history'
 import { PING_MS, PROTOCOL_VERSION, VERSION_ERROR } from '../../src/poker/protocol'
+import { RUN_VOTE_MS } from '../../src/poker/runs'
 import { AUTO_START_MS, HOST_TAKEOVER_MS, type Settings, type TableState } from '../../src/poker/table'
 import {
   alarm,
@@ -650,6 +651,34 @@ describe('время на ход и раздача «сама» — будиль
     // Сработал раньше срока — тоже ничего
     await alarm(r.env, 2000 + T + 1)
     expect(guest.sent.length).toBe(sent)
+  })
+
+  it('«Прогнать несколько раз» (#167): выбор дошедших — прогон дважды; не ответили до срока — будильник, один борд', async () => {
+    const both = await twoPlayers({ cards: 'phones', maxRuns: 2 })
+    await send(both.r, both.host, { type: 'start' }, 1000)
+    await send(both.r, both.host, { type: 'act', action: { type: 'allin' } }, 2000)
+    await send(both.r, both.guest, { type: 'act', action: { type: 'call' } }, 3000)
+    expect(tableOf(both.guest).runVote).toMatchObject({ max: 2, deadline: 3000 + RUN_VOTE_MS, answers: {} })
+    expect(both.r.storage.alarmAt).toBe(3000 + RUN_VOTE_MS)
+    await send(both.r, both.host, { type: 'runChoice', times: 2 }, 4000)
+    await send(both.r, both.guest, { type: 'runChoice', times: 2 }, 5000)
+    const done = (await stored(both.r))?.table
+    expect(done?.hand).toBeNull()
+    expect(done?.lastHand?.record?.runs).toHaveLength(2)
+    expect(Object.values(done?.lastHand?.payouts ?? {}).reduce((a, b) => a + b, 0)).toBe(2000)
+
+    const silent = await twoPlayers({ cards: 'phones', maxRuns: 2 })
+    await send(silent.r, silent.host, { type: 'start' }, 1000)
+    await send(silent.r, silent.host, { type: 'act', action: { type: 'allin' } }, 2000)
+    await send(silent.r, silent.guest, { type: 'act', action: { type: 'call' } }, 3000)
+    await send(silent.r, silent.host, { type: 'runChoice', times: 2 }, 4000)
+    for (const p of [silent.host, silent.guest]) p.ping(3000 + RUN_VOTE_MS)
+    await alarm(silent.r.env, 3000 + RUN_VOTE_MS)
+    const table = tableOf(silent.guest)
+    expect(table.hand).toBeNull()
+    expect(table.runVote).toBeNull()
+    expect(table.lastHand?.record?.board).toHaveLength(5)
+    expect(table.lastHand?.record?.runs).toBeUndefined()
   })
 
   it('никого в сети — будильник прямо на срок хода', async () => {
