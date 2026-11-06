@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { savedHands, type Evening } from '../calc/evenings'
 import type { Game } from '../model'
 import type { HistoryHand } from '../poker/history'
-import { deleteEvening, eveningHands, getGame, getSettings, listEvenings, listGames, saveHands } from './db'
+import { allHands, deleteEvening, eveningHands, eveningRecords, getGame, getSettings, listEvenings, listGames, saveHands } from './db'
 
 function request<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -105,6 +105,19 @@ describe('раздачи прошлых вечеров', () => {
     expect(await eveningHands(FRIDAY.id)).toEqual([])
     expect(await listEvenings()).toEqual([{ ...SATURDAY, hands: 1 }])
     expect(await listGames()).toEqual([])
+  })
+
+  it('свои карты (Р-54): запись той же раздачи без них — карты у прежней записи остаются', async () => {
+    await saveHands(savedHands(FRIDAY, [hand(1)], new Map([[1, ['As', 'Kd']]])))
+    await saveHands(savedHands(FRIDAY, [hand(1, 'Аня', true), hand(2)]))
+
+    const records = await eveningRecords(FRIDAY.id)
+    expect(records.map((r) => r.mine)).toEqual([['As', 'Kd'], undefined])
+    expect(records[0].hand).toEqual(hand(1, 'Аня', true))
+    expect((await allHands()).map((r) => [r.evening, r.number])).toEqual([
+      [FRIDAY.id, 1],
+      [FRIDAY.id, 2],
+    ])
   })
 
   it('пусто — вечеров нет', async () => {

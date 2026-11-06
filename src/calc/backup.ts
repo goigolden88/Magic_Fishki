@@ -11,11 +11,13 @@ import {
   type Regular,
   type Settings,
 } from '../model'
+import type { SavedHand } from './evenings'
 
 // Файл-копия (Р-11): все игры без демо и настройки, с пометкой приложения и версии формата.
-// Формат 2 (Р-12): постоянные игроки — { id, name }, у участников — regularId; формат 1 — игроки строками
+// Формат 2 (Р-12): постоянные игроки — { id, name }, у участников — regularId; формат 1 — игроки строками.
+// Формат 3 (Р-54): ещё раздачи прошлых вечеров покера — записи хранилища hands как есть; у 1 и 2 раздач нет
 export const BACKUP_APP = 'magic_fishki'
-export const BACKUP_FORMAT = 2
+export const BACKUP_FORMAT = 3
 
 export type Backup = {
   app: typeof BACKUP_APP
@@ -23,6 +25,7 @@ export type Backup = {
   savedAt: string // ISO 8601
   games: Game[]
   settings: Settings
+  hands: SavedHand[]
 }
 
 export type ParsedBackup = { ok: true; backup: Backup } | { ok: false; error: string }
@@ -31,16 +34,18 @@ export type RestorePlan = {
   added: Game[] // игр нет по id — записать как есть
   existing: number // игры с тем же id уже есть — не трогаются
   players: Regular[] // постоянные игроки после восстановления
+  hands: SavedHand[] // раздач нет по «вечер + номер» — записать как есть; записанные не трогаются
 }
 
 // Демо-игры в копию не идут (Р-04)
-export function makeBackup(games: Game[], settings: Settings, now: string): Backup {
+export function makeBackup(games: Game[], settings: Settings, now: string, hands: SavedHand[] = []): Backup {
   return {
     app: BACKUP_APP,
     format: BACKUP_FORMAT,
     savedAt: now,
     games: games.filter((g) => !g.demo),
     settings,
+    hands,
   }
 }
 
@@ -158,8 +163,29 @@ function isGame(v: unknown): v is Game {
   )
 }
 
+// Запись раздачи из копии: ключ «вечер + номер» и сама раздача с тем же номером; что внутри
+// раздачи — как пришло за столом, экран и выгрузка читают её как есть
+function isSavedHand(v: unknown): v is SavedHand {
+  return (
+    isObject(v) &&
+    isText(v.evening) &&
+    v.evening !== '' &&
+    (v.code === null || isText(v.code)) &&
+    typeof v.startedAt === 'number' &&
+    Number.isFinite(v.startedAt) &&
+    Number.isSafeInteger(v.number) &&
+    isObject(v.hand) &&
+    v.hand.number === v.number &&
+    Array.isArray(v.hand.pots) &&
+    isObject(v.hand.payouts) &&
+    (v.table === undefined || isObject(v.table)) &&
+    (v.mine === undefined || (Array.isArray(v.mine) && v.mine.every(isText)))
+  )
+}
+
 // Текст файла → копия или понятная ошибка; .json и .txt разбираются одинаково.
-// Копия формата 1 приводится к формату 2: постоянным — новые id, участникам — связь по точному имени (Р-12)
+// Копия формата 1 приводится к формату 2: постоянным — новые id, участникам — связь по точному имени (Р-12).
+// У копий 1 и 2 раздач нет — пустой список (Р-54)
 export function parseBackup(text: string, makeId: () => string): ParsedBackup {
   let data: unknown
   try {
@@ -192,6 +218,13 @@ export function parseBackup(text: string, makeId: () => string): ParsedBackup {
   ) {
     return { ok: false, error: 'Копия повреждена: нет настроек' }
   }
+  let hands: SavedHand[] = []
+  if (data.format >= 3) {
+    if (!Array.isArray(data.hands)) return { ok: false, error: 'Копия повреждена: нет списка раздач' }
+    const badHand = data.hands.findIndex((h) => !isSavedHand(h))
+    if (badHand >= 0) return { ok: false, error: `Копия повреждена: раздача № ${badHand + 1} не читается` }
+    hands = data.hands as SavedHand[]
+  }
   let games = data.games as Game[]
   let players = settings.players as Regular[]
   if (oldFormat) {
@@ -211,6 +244,7 @@ export function parseBackup(text: string, makeId: () => string): ParsedBackup {
       savedAt: isText(data.savedAt) ? data.savedAt : '',
       games,
       settings: settingsWithDefaults({ ...settings, players } as Partial<Settings>),
+      hands,
     },
   }
 }
@@ -218,8 +252,13 @@ export function parseBackup(text: string, makeId: () => string): ParsedBackup {
 // Восстановление ничего не перезаписывает: игры, которых нет по id, добавляются; с тем же id — как были.
 // Постоянные игроки из копии: тот же id — уже есть, остаётся свой; то же имя — один человек, связи
 // в добавленных играх переводятся на здешний id; иначе дописываются в конец со своим id.
-// Прочие настройки не применяются.
-export function planRestore(existingIds: Iterable<string>, regulars: Regular[], backup: Backup): RestorePlan {
+// Прочие настройки не применяются. Раздачи (Р-54): те, что уже есть по «вечер + номер», не трогаются
+export function planRestore(
+  existingIds: Iterable<string>,
+  regulars: Regular[],
+  backup: Backup,
+  existingHands: Iterable<[string, number]> = [],
+): RestorePlan {
   const players = [...regulars]
   const ids = new Set(players.map((r) => r.id))
   const sameAs = new Map<string, string>() // id постоянного в копии → id постоянного здесь с тем же именем
@@ -256,5 +295,14 @@ export function planRestore(existingIds: Iterable<string>, regulars: Regular[], 
     seen.add(game.id)
     added.push(relink(game))
   }
-  return { added, existing, players }
+  const handKey = (evening: string, number: number) => JSON.stringify([evening, number])
+  const known = new Set([...existingHands].map(([e, n]) => handKey(e, n)))
+  const hands: SavedHand[] = []
+  for (const h of backup.hands) {
+    const key = handKey(h.evening, h.number)
+    if (known.has(key)) continue
+    known.add(key)
+    hands.push(h)
+  }
+  return { added, existing, players, hands }
 }

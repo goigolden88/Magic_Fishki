@@ -156,8 +156,49 @@ export async function saveSettings(settings: Settings): Promise<void> {
 }
 
 // Раздачи вечера (#114) — одной транзакцией. Ключ — вечер и номер: та же раздача второй раз
-// заменяет запись (после «Показать» — с показанными картами), дублей нет
+// заменяет запись (после «Показать» — с показанными картами), дублей нет. Свои карты (mine, Р-54)
+// у прежней записи остаются, если в новой их нет: телефон, вернувшийся к столу, их уже не видел
 export async function saveHands(hands: SavedHand[]): Promise<void> {
+  if (hands.length === 0) return
+  const db = await open()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(HANDS, 'readwrite')
+    const store = tx.objectStore(HANDS)
+    for (const hand of hands) {
+      if (hand.mine) {
+        store.put(hand)
+        continue
+      }
+      const old = store.get([hand.evening, hand.number])
+      old.onsuccess = () => {
+        const mine = (old.result as SavedHand | undefined)?.mine
+        store.put(mine ? { ...hand, mine } : hand)
+      }
+    }
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error)
+  })
+}
+
+// Все записи раздач — для «Выгрузить все» и копии данных (Р-54)
+export async function allHands(): Promise<SavedHand[]> {
+  return run<SavedHand[]>(HANDS, 'readonly', (s) => s.getAll())
+}
+
+// Записи вечера целиком (со столом и своими картами) — для «Выгрузить», по номерам
+export async function eveningRecords(id: string): Promise<SavedHand[]> {
+  const saved = await run<SavedHand[]>(HANDS, 'readonly', (s) => s.index(BY_EVENING).getAll(id))
+  return saved.sort((a, b) => a.number - b.number)
+}
+
+// Ключи записанных раздач «вечер + номер» — восстановлению из копии: что уже есть
+export async function handKeys(): Promise<[string, number][]> {
+  return run<IDBValidKey[]>(HANDS, 'readonly', (s) => s.getAllKeys()) as Promise<[string, number][]>
+}
+
+// Восстановление раздач из копии (Р-54): записи как есть, одной транзакцией. Уже записанные отсеяны (planRestore)
+export async function restoreHands(hands: SavedHand[]): Promise<void> {
   if (hands.length === 0) return
   const db = await open()
   await new Promise<void>((resolve, reject) => {
@@ -198,8 +239,7 @@ export async function listEvenings(): Promise<EveningSummary[]> {
 
 // Раздачи вечера по номерам
 export async function eveningHands(id: string): Promise<HistoryHand[]> {
-  const saved = await run<SavedHand[]>(HANDS, 'readonly', (s) => s.index(BY_EVENING).getAll(id))
-  return saved.sort((a, b) => a.number - b.number).map((h) => h.hand)
+  return (await eveningRecords(id)).map((h) => h.hand)
 }
 
 // «Удалить» у вечера: все его раздачи одной транзакцией. Окончательно, как удаление игры
