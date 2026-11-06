@@ -46,6 +46,8 @@ const PLACEHOLDERS: HelpValues = {
   preMin: '‹ББ от›',
   preMax: '‹ББ до›',
   bbExample: '‹в ББ›',
+  tableSizeMin: '‹размер стола от›',
+  tableSizeMax: '‹размер стола до›',
 }
 
 // Код приложения и сервера комнат текстом — без тестов и без самой справки
@@ -210,6 +212,8 @@ describe('справка', () => {
       potPctMax: '300',
       preMin: '2',
       preMax: '20',
+      tableSizeMin: '70',
+      tableSizeMax: '100',
       bbExample: '42,5 ББ',
     })
   })
