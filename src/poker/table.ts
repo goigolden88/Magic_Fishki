@@ -11,16 +11,18 @@ import {
   GAMES,
   isDeckOf,
   publicCards,
-  runOut,
+  runOutTimes,
+  runsPossible,
   type CardsMode,
   type GameDef,
   type GameId,
   type Limit,
 } from './game'
-import { act, awardPots, dealOrder, startHand, type Hand, type HandLogEntry } from './hand'
+import { act, awardPots, awardRuns, dealOrder, startHand, type Hand, type HandLogEntry } from './hand'
 import { addHand, type Hud } from './hud'
 import { isMixShare, MIX_VOTE_MS, mixPasses, type MixResult, type MixShare, type MixVote } from './mix'
 import { PROTOCOL_VERSION, VERSION_ERROR, type BetAction, type ClientBody } from './protocol'
+import { isMaxRuns, RUN_VOTE_MS, runCount, runVoteDone, type MaxRuns, type RunVote } from './runs'
 import {
   addBusts,
   buildLevels,
@@ -66,6 +68,9 @@ export type Settings = {
   // У столов до него полей нет — выкл
   mix?: boolean
   mixAgainst?: MixShare
+  // «Прогнать несколько раз» (#167, Р-58): до скольких раз; 1 — нет. Только карты на телефонах; кэш и турнир.
+  // У столов до него поля нет — нет
+  maxRuns?: MaxRuns
 }
 
 export type TableFormat = 'cash' | 'tournament'
@@ -157,6 +162,16 @@ export type HandRecord = {
   // У дошедших до вскрытия — лучшая пятёрка: сначала карты комбинации, затем кикеры (#96); у записей до неё поля нет
   best?: Record<string, Card[]>
   hidden: { playerId: string; cards: Card[] } | null // взял банк без вскрытия: карты видны только ему, пока не покажет
+  // «Прогнать несколько раз» (#167, Р-58): каждый борд — карты, что у дошедших на нём, их пятёрки и победители
+  // каждого банка (по порядку банков). Первый — тот же, что board, hands и best. Прогон один — поля нет
+  runs?: RunRecord[]
+}
+
+export type RunRecord = {
+  board: Card[]
+  hands: Record<string, string>
+  best: Record<string, Card[]>
+  winners: string[][]
 }
 
 export type TableState = {
@@ -183,6 +198,8 @@ export type TableState = {
   // «Микс» (#166): идущее голосование за игру и итог последнего; у столов до него полей нет — нет
   mixVote?: MixVote | null
   mixResult?: MixResult | null
+  // «Прогнать несколько раз» (#167): идущий выбор в раздаче; у столов до него поля нет — нет
+  runVote?: RunVote | null
 }
 
 // Срок хода: ход — номер раздачи и число ходов в ней (log), чтобы будильник не принял старый срок за новый
@@ -236,11 +253,11 @@ export function handle(state: TableState, from: string, message: unknown, now: n
 }
 
 // Ближайший срок стола — истечение хода, раздача «сама», закрытие ребая, пока его ждут (#94), или
-// конец голосования «Микса» (#166); нет — null. По нему сервер ставит будильник
+// конец голосования «Микса» (#166) или выбора «сколько раз прогнать» (#167); нет — null. По нему сервер ставит будильник
 export function nextDeadline(state: TableState): number | null {
   const t = state.settings.tournament
   const rebuyCloses = t && state.tournament && alone(state) ? rebuyClosesAt(t, state.tournament) : null
-  const times = [state.turn?.deadline, state.nextHandAt, rebuyCloses, state.mixVote?.deadline].filter(
+  const times = [state.turn?.deadline, state.nextHandAt, rebuyCloses, state.mixVote?.deadline, state.runVote?.deadline].filter(
     (x): x is number => typeof x === 'number',
   )
   return times.length > 0 ? Math.min(...times) : null
@@ -249,11 +266,21 @@ export function nextDeadline(state: TableState): number | null {
 // Будильник сервера: ребай закрылся, пока его ждали, — турнир окончен; истёк ход — за игрока
 // чек, если можно, иначе пас («время вышло»); кончилось голосование «Микса» — итог, раздача «сама»
 // взводится заново (раздача тем же будильником не начинается: колоду сервер тасует по игре стола до вызова);
+// кончился выбор «сколько раз прогнать» (#167) — прогон и раздача банков;
 // пора — новая раздача (deck — колода от сервера, как на start). Сверяет срок с состоянием: сработал
 // раньше срока или повторно — null, стол не меняется
 export function onTime(state: TableState, now: number, deck?: Card[]): TableState | null {
   const closed = closeRebuyWait(state, now)
   if (closed) return closed
+  const runs = state.runVote
+  if (runs && now >= runs.deadline) {
+    const next = structuredClone(state)
+    if (settle(next, now)) return null
+    endWait(next, now)
+    rearm(next, now)
+    clock(next, now)
+    return next
+  }
   const vote = state.mixVote
   if (vote && now >= vote.deadline) {
     const next = structuredClone(state)
@@ -439,6 +466,8 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
       return voteGame(state, me, msg.yes)
     case 'mixCancel':
       return isHost ? cancelVote(state) : hostOnly
+    case 'runChoice':
+      return chooseRuns(state, from, msg.times)
     default:
       return 'Неизвестное сообщение — обновите приложение'
   }
@@ -627,8 +656,41 @@ function award(state: TableState, winners: unknown, now: number): string | null 
   return null
 }
 
+// «Сколько раз прогнать» (#167): дошедший до вскрытия выбирает, пока идёт выбор; до срока выбор можно сменить
+function chooseRuns(state: TableState, from: string, times: unknown): string | null {
+  const vote = state.runVote
+  if (!vote) return 'Выбора «сколько раз прогнать» сейчас нет'
+  if (!vote.players.includes(from)) return 'Выбирают те, кто в олл-ине'
+  if (typeof times !== 'number' || !Number.isInteger(times) || times < 1 || times > vote.max) {
+    return `Прогнать — от 1 до ${vote.max} раз`
+  }
+  vote.answers[from] = times
+  return null
+}
+
+// Сколько раз прогнать (#167, Р-58): стол разрешает, у стола не хватает карт (торги закрылись до ривера)
+// и колоды хватит хотя бы на два борда — идёт выбор дошедших до вскрытия (RunVote); пока он не окончен — null.
+// Иначе — 1
+function runsFor(state: TableState, hand: Hand, cards: NonNullable<Hand['cards']>, live: string[], now: number): number | null {
+  const max = Math.min(state.settings.maxRuns ?? 1, runsPossible(cards))
+  if (max < 2) {
+    state.runVote = null
+    return 1
+  }
+  let vote = state.runVote
+  if (!vote || vote.hand !== hand.number) {
+    vote = { hand: hand.number, max, deadline: now + RUN_VOTE_MS, players: live, answers: {} }
+    state.runVote = vote
+  }
+  if (!runVoteDone(vote, now)) return null
+  state.runVote = null
+  return runCount(vote)
+}
+
 // Карты на телефонах, торги закрыты: досдать стол, открыть карты дошедших и раздать каждый
-// банк лучшей руке среди его претендентов; остался один — он берёт всё без вскрытия
+// банк лучшей руке среди его претендентов; остался один — он берёт всё без вскрытия.
+// Олл-ин до ривера, а стол разрешает прогнать несколько раз (#167), — сначала выбор дошедших (runsFor),
+// затем столько бордов: каждый банк делится по бордам (awardRuns)
 function settle(state: TableState, now: number): string | null {
   const hand = state.hand
   const cards = hand?.cards
@@ -637,29 +699,37 @@ function settle(state: TableState, now: number): string | null {
   const live = hand.seats.filter((s) => !s.folded).map((s) => s.id)
   const hole = (id: string) => cards.hole[id] as Card[] // на сервере все карты на месте
   const shown: Record<string, (Card | null)[]> = {}
-  const hands: Record<string, string> = {}
-  const best: Record<string, Card[]> = {}
   let hidden: HandRecord['hidden'] = null
-  let winners: string[][]
+  let runs: RunRecord[]
   if (live.length > 1) {
-    runOut(cards, dealOrder(hand))
-    winners = hand.pots.map((pot) => bestHands(variant, cards.board, pot.eligible.map((id) => ({ id, cards: hole(id) }))))
-    for (const id of live) {
-      const result = bestHand(variant, hole(id), cards.board)
-      shown[id] = hole(id)
-      hands[id] = result.name
-      best[id] = result.cards
-    }
+    const times = runsFor(state, hand, cards, live, now)
+    if (times === null) return null
+    runs = runOutTimes(cards, dealOrder(hand), times).map((board) => {
+      const hands: Record<string, string> = {}
+      const best: Record<string, Card[]> = {}
+      for (const id of live) {
+        const result = bestHand(variant, hole(id), board)
+        hands[id] = result.name
+        best[id] = result.cards
+      }
+      const winners = hand.pots.map((pot) => bestHands(variant, board, pot.eligible.map((id) => ({ id, cards: hole(id) }))))
+      return { board, hands, best, winners }
+    })
+    for (const id of live) shown[id] = hole(id)
   } else {
-    winners = hand.pots.map((pot) => [...pot.eligible])
+    runs = [{ board: [...cards.board], hands: {}, best: {}, winners: hand.pots.map((pot) => [...pot.eligible]) }]
     hidden = { playerId: live[0], cards: hole(live[0]) }
   }
+  const [first] = runs
+  // Банк в итоге раздачи — его взявшие; бордов несколько — взявшие хоть на одном, по местам
+  const winners =
+    runs.length === 1 ? first.winners : hand.pots.map((pot, k) => pot.eligible.filter((id) => runs.some((r) => r.winners[k].includes(id))))
   // Открытые по описанию карты остальных — их и так видели все
   for (const s of hand.seats) {
     const open = publicCards(cards, s.id)
     if (!shown[s.id] && open.some((c) => c !== null)) shown[s.id] = open
   }
-  const payouts = awardPots(hand, winners)
+  const payouts = awardRuns(hand, runs.map((r) => r.winners))
   if (typeof payouts === 'string') return payouts
   const names = new Map(state.players.map((p) => [p.id, p.name]))
   const record: HandRecord = {
@@ -670,12 +740,13 @@ function settle(state: TableState, now: number): string | null {
     // В начале раздачи: стек сейчас минус выигрыш плюс вложенное
     seats: hand.seats.map((s) => ({ id: s.id, name: names.get(s.id) ?? 'Ушёл', chips: s.chips - (payouts[s.id] ?? 0) + s.committed })),
     button: hand.button,
-    board: [...cards.board],
+    board: [...first.board],
     log: hand.log,
     shown,
-    hands,
-    best,
+    hands: first.hands,
+    best: first.best,
     hidden,
+    ...(runs.length > 1 ? { runs } : {}),
   }
   finishHand(state, hand, winners, payouts, now, record)
   return null
@@ -973,6 +1044,8 @@ function settingsError(s: Settings): string | null {
   if (s.mix !== undefined && typeof s.mix !== 'boolean') return '«Микс» — включён или выключен'
   if (s.mix && s.cards !== 'phones') return '«Микс» — только с картами на телефонах'
   if (s.mixAgainst !== undefined && !isMixShare(s.mixAgainst)) return 'Сменить игру, если против не больше трети, половины или двух третей'
+  if (s.maxRuns !== undefined && !isMaxRuns(s.maxRuns)) return 'Прогнать несколько раз — нет, до двух или до трёх'
+  if ((s.maxRuns ?? 1) > 1 && s.cards !== 'phones') return '«Прогнать несколько раз» — только с картами на телефонах'
   const format = s.format ?? 'cash'
   if (format !== 'cash' && format !== 'tournament') return 'Игра — кэш или турнир'
   if (format === 'tournament') return tournamentError(s.tournament)

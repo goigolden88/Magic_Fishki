@@ -165,18 +165,35 @@ export function act(hand: Hand, playerId: string, action: BetAction): string | n
 // Победители каждого банка — от ведущего. Делит банки, нечётная фишка — первому по кругу
 // от кнопки. Ошибка — строка, иначе выплаты по игрокам (уже в стеках раздачи)
 export function awardPots(hand: Hand, winners: string[][]): string | Record<string, number> {
+  return awardRuns(hand, [winners])
+}
+
+// «Прогнать несколько раз» (#167, Р-58): runs — победители каждого банка на каждом борде, по порядку бордов.
+// Каждый банк (и побочный) делится по бордам поровну, доля борда — его победителям, как awardPots;
+// нечётные фишки деления по бордам — по правилу ничьей: по одной, по кругу от кнопки, среди взявших
+// этот банк хоть на одном борде. Один борд — как awardPots
+export function awardRuns(hand: Hand, runs: string[][][]): string | Record<string, number> {
   if (hand.stage !== 'showdown') return 'Торги ещё идут'
-  if (winners.length !== hand.pots.length) return `Нужен победитель каждого банка: банков ${hand.pots.length}`
+  if (runs.length === 0) return 'Нет ни одного борда'
   const payouts: Record<string, number> = {}
-  for (let k = 0; k < hand.pots.length; k++) {
-    const pot = hand.pots[k]
-    const ids = winners[k]
-    if (ids.length === 0) return `Банк ${k + 1}: отметьте победителя`
-    if (new Set(ids).size !== ids.length) return `Банк ${k + 1}: игрок отмечен дважды`
-    if (ids.some((id) => !pot.eligible.includes(id))) return `Банк ${k + 1}: отмечен игрок, который за него не борется`
-    for (const [id, amount] of Object.entries(splitPot(pot.amount, fromButton(hand, ids)))) {
-      payouts[id] = (payouts[id] ?? 0) + amount
+  const add = (part: Record<string, number>) => {
+    for (const [id, amount] of Object.entries(part)) if (amount > 0) payouts[id] = (payouts[id] ?? 0) + amount
+  }
+  for (const winners of runs) {
+    if (winners.length !== hand.pots.length) return `Нужен победитель каждого банка: банков ${hand.pots.length}`
+    for (let k = 0; k < hand.pots.length; k++) {
+      const ids = winners[k]
+      if (ids.length === 0) return `Банк ${k + 1}: отметьте победителя`
+      if (new Set(ids).size !== ids.length) return `Банк ${k + 1}: игрок отмечен дважды`
+      if (ids.some((id) => !hand.pots[k].eligible.includes(id))) return `Банк ${k + 1}: отмечен игрок, который за него не борется`
     }
+  }
+  for (let k = 0; k < hand.pots.length; k++) {
+    const amount = hand.pots[k].amount
+    const share = Math.floor(amount / runs.length)
+    for (const winners of runs) add(splitPot(share, fromButton(hand, winners[k])))
+    const odd = amount - share * runs.length
+    if (odd > 0) add(splitPot(odd, fromButton(hand, runs.flatMap((w) => w[k]))))
   }
   for (const seat of hand.seats) seat.chips += payouts[seat.id] ?? 0
   return payouts

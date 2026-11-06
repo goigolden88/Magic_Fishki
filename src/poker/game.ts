@@ -69,6 +69,8 @@ export type HandCards = {
   open: Record<string, number[]> // какие из них видны всем (открытые по описанию)
   board: Card[]
   dealt: number // сколько кругов описания уже сдано
+  // «Прогнать несколько раз» (#167, Р-58): все борды по порядку, первый — он же board; прогон один — поля нет
+  boards?: Card[][]
 }
 
 // Колода варианта описания — по порядку; перемешивает shuffle
@@ -161,6 +163,36 @@ function take(cards: HandCards, n: number): Card[] {
 // Торги закрыты, а в раздаче двое и больше: досдать оставшиеся круги (олл-ин до ривера)
 export function runOut(cards: HandCards, order: string[]): void {
   while (cards.dealt < cards.game.rounds.length) dealRound(cards, order)
+}
+
+// Сколько карт стола ещё не сдано по описанию: 0 — стол полный (торги закрылись на ривере)
+export function boardLeft(cards: HandCards): number {
+  let left = 0
+  for (const round of cards.game.rounds.slice(cards.dealt)) {
+    for (const step of round.deal) if (step.kind === 'board') left += step.count
+  }
+  return left
+}
+
+// Сколько раз можно прогнать оставшиеся карты стола: каждому прогону — свои карты из колоды
+export function runsPossible(cards: HandCards): number {
+  const left = boardLeft(cards)
+  return left === 0 ? 1 : Math.floor(cards.deck.length / left)
+}
+
+// «Прогнать несколько раз» (#167, Р-58): досдать описание, как runOut, — это первый борд; каждый следующий —
+// те же открытые карты стола и свои оставшиеся из колоды, по порядку. Больше одного прогона — все борды в boards.
+// Возвращает борды по порядку
+export function runOutTimes(cards: HandCards, order: string[], runs: number): Card[][] {
+  const known = cards.board.length
+  const left = boardLeft(cards)
+  runOut(cards, order)
+  const boards = [[...cards.board]]
+  for (let k = 1; k < runs && left > 0 && cards.deck.length >= left; k++) {
+    boards.push([...cards.board.slice(0, known), ...take(cards, left)])
+  }
+  if (boards.length > 1) cards.boards = boards
+  return boards
 }
 
 // Карты игрока, которые видят все: открытые по описанию; закрытые — null
