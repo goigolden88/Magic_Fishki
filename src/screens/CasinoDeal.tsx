@@ -78,6 +78,7 @@ import { GuestField } from './GuestField'
 import { LookFields } from './LookFields'
 import { PlayingCard } from './PokerRoom'
 import { loadCardAnim } from './pokerStorage'
+import { useWide } from './useWide'
 
 const KINDS: DealKind[] = ['holdem', 'omaha']
 const KIND_NOTE: Record<DealKind, string> = {
@@ -670,6 +671,10 @@ function layoutStyle(l: CasinoLayout): CSSProperties {
     '--hand-w': rem(l.hand.w),
     '--hand-h': rem(l.hand.h),
     '--board-w': rem(l.board.w),
+    '--board-cols': String(l.cols),
+    '--board-cards-w': rem(l.boardCards),
+    '--center-w': rem(l.center.w),
+    '--layout-w': rem(l.width),
     '--board-card-w': rem(l.boardCard.w),
     '--board-card-h': rem(l.boardCard.h),
     '--win-card-w': rem(l.winCard.w),
@@ -718,7 +723,7 @@ function Felt(props: { layout: CasinoLayout; seats: SeatData[]; boards: BoardDat
       </div>
     ))
   return (
-    <div ref={ref} className={`casino-table ${lookClass(look)}`} style={layoutStyle(l)}>
+    <div ref={ref} className={`casino-table${l.wide ? ' wide' : ''} ${lookClass(look)}`} style={layoutStyle(l)}>
       <div className="felt casino-felt" />
       <div className="casino-seats">{block(l.top)}</div>
       <div className="casino-boards" data-fly-origin>
@@ -735,19 +740,19 @@ function Felt(props: { layout: CasinoLayout; seats: SeatData[]; boards: BoardDat
                 <PlayingCard key={k} card={c} mark={b.open && c ? (b.win.includes(c) ? 'win' : 'dim') : undefined} />
               ))}
             </div>
-            {b.chances ? (
-              <ChanceLine {...b.chances} />
-            ) : (
-              b.winners.length !== 1 && (
+            {b.chances && <ChanceLine {...b.chances} />}
+            {/* Победитель — под картами; на широком окне (Р-53) — сбоку от них */}
+            <div className="casino-board-side">
+              {!b.chances && b.winners.length !== 1 && (
                 <div className="casino-board-line">{b.winners.length > 1 ? 'Ничья, поровну' : ' '}</div>
-              )
-            )}
-            {b.winners.length > 0 ? (
-              b.winners.map((w, k) => <WinnerLine key={k} winner={w} />)
-            ) : (
-              // Место под ряд карт победителя: открылся стол — столы ниже не сдвигаются
-              <div className="casino-win-row" aria-hidden="true" />
-            )}
+              )}
+              {b.winners.length > 0 ? (
+                b.winners.map((w, k) => <WinnerLine key={k} winner={w} />)
+              ) : (
+                // Место под ряд карт победителя: открылся стол — столы ниже не сдвигаются
+                <div className="casino-win-row" aria-hidden="true" />
+              )}
+            </div>
           </section>
         ))}
       </div>
@@ -861,11 +866,12 @@ function EmptyTable(props: {
   look: Look
 }) {
   const { kind, ids, tables, stake, nameById, look } = props
+  const wide = useWide()
   const back = Array.from({ length: DEAL_KINDS[kind].hand }, () => null)
   const parts = tableParts(stake * ids.length, tables)
   return (
     <Felt
-      layout={casinoLayout(kind, ids.length, tables)}
+      layout={casinoLayout(kind, ids.length, tables, wide)}
       look={look}
       seats={ids.map((pid) => ({ id: pid, name: nameById.get(pid) ?? '?', cards: back, win: null }))}
       boards={parts.map((part) => ({
@@ -893,6 +899,7 @@ function CasinoTable(props: {
 }) {
   const { dealt, opened, shown, flipping, odds, nameById, look } = props
   const { deal, results, stake, fly } = dealt
+  const wide = useWide()
   const name = (pid: string) => nameById.get(pid) ?? '?'
   const parts = tableParts(stake * deal.ids.length, deal.boards.length)
   const current = opened > 0 && !flipping ? results[opened - 1] : null
@@ -916,7 +923,7 @@ function CasinoTable(props: {
   }
   return (
     <Felt
-      layout={casinoLayout(deal.kind, deal.ids.length, deal.boards.length)}
+      layout={casinoLayout(deal.kind, deal.ids.length, deal.boards.length, wide)}
       look={look}
       fly={fly}
       seats={deal.ids.map((pid, p) => ({

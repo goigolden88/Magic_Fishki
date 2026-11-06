@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { maxTables, type DealKind } from './casinoDeal'
-import { casinoLayout, layoutBoxes, MAX_CASINO_SEATS, MIN_WIDTH, overlaps } from './casinoLayout'
+import {
+  boardCols,
+  casinoLayout,
+  layoutBoxes,
+  MAX_CASINO_SEATS,
+  MIN_WIDTH,
+  overlaps,
+  WIDE_WIDTH,
+} from './casinoLayout'
 
 const KINDS: DealKind[] = ['holdem', 'omaha']
 
@@ -87,6 +95,67 @@ describe('раскладка казино-стола', () => {
     // 10 омахой: по пять сверху и снизу — в два ряда, длинный первым
     expect(casinoLayout('omaha', 10, 1).top).toEqual([[0, 1, 2], [3, 4]])
     expect(casinoLayout('omaha', 10, 1).bottom).toEqual([[9, 8, 7], [6, 5]])
+  })
+
+  it('широкое окно (Р-53): не шире колонки экрана, места не наезжают ни на столы, ни друг на друга', () => {
+    for (const { kind, n, m } of every()) {
+      const l = casinoLayout(kind, n, m, true)
+      expect(l.wide).toBe(true)
+      expect(l.width).toBeLessThanOrEqual(WIDE_WIDTH)
+      const { seats, center } = layoutBoxes(l)
+      expect(seats.filter(Boolean)).toHaveLength(n)
+      for (const b of [...seats, center]) {
+        expect(b.x).toBeGreaterThanOrEqual(0)
+        expect(b.x + b.w).toBeLessThanOrEqual(l.width + 1e-6)
+        expect(b.y + b.h).toBeLessThanOrEqual(l.height + 1e-6)
+      }
+      seats.forEach((a, i) => {
+        expect(overlaps(a, center), `${kind} ${n}×${m}: место ${i} на столах`).toBe(false)
+        seats.forEach((b, k) => k > i && expect(overlaps(a, b), `${kind} ${n}×${m}: места ${i} и ${k}`).toBe(false))
+      })
+    }
+  })
+
+  it('широкое окно: столы рядами по 2–3, четыре — 2 × 2; каждый участник — ровно один раз', () => {
+    expect([1, 2, 3, 4, 5].map(boardCols)).toEqual([1, 2, 3, 2, 3])
+    const five = casinoLayout('holdem', 10, 5, true)
+    expect(five.cols).toBe(3)
+    expect(five.center.w).toBeCloseTo(3 * five.board.w + 2 * 0.3)
+    expect(five.center.h).toBeCloseTo(2 * five.board.h + 0.3) // два ряда: 3 + 2
+    const four = casinoLayout('holdem', 8, 4, true)
+    expect(four.cols).toBe(2)
+    expect(four.center.h).toBeCloseTo(2 * four.board.h + 0.3)
+    // Места — в ряд на всю ширину: 10 участников — по пять сверху и снизу одним рядом
+    expect(five.top).toEqual([[0, 1, 2, 3, 4]])
+    expect(five.bottom).toEqual([[9, 8, 7, 6, 5]])
+    for (const { kind, n, m } of every()) {
+      const l = casinoLayout(kind, n, m, true)
+      const seated = [...l.top.flat(), ...l.bottom.flat()]
+      expect([...seated].sort((a, b) => a - b)).toEqual(Array.from({ length: n }, (_, i) => i))
+    }
+  })
+
+  it('широкое окно: строка победителя — сбоку от карт стола, стол ниже на её ряд; карты те же', () => {
+    for (const { kind, n, m } of every()) {
+      const phone = casinoLayout(kind, n, m)
+      const wide = casinoLayout(kind, n, m, true)
+      // сбоку от пяти карт стола входит ряд пяти мелких карт победителя
+      expect(wide.board.w - wide.boardCards - 0.6).toBeGreaterThanOrEqual(wide.winRow.w)
+      expect(wide.board.h).toBeCloseTo(phone.board.h - phone.winRow.h)
+      expect(wide.boardCard).toEqual(phone.boardCard)
+      expect(wide.hand).toEqual(phone.hand)
+      expect(wide.seat).toEqual(phone.seat)
+    }
+  })
+
+  it('телефон — как прежде: столы колонкой, по столу в ряду', () => {
+    for (const { kind, n, m } of every()) {
+      const l = casinoLayout(kind, n, m)
+      expect(l.wide).toBe(false)
+      expect(l.cols).toBe(1)
+      expect(l.center.w).toBe(l.board.w)
+      expect(casinoLayout(kind, n, m, false)).toEqual(l)
+    }
   })
 
   it('больше 10 участников или ноль столов — ошибка', () => {
