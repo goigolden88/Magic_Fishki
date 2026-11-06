@@ -15,8 +15,11 @@ import {
   type Spans,
   type Trend,
 } from '../calc/trend'
+import { allTimeHud } from '../calc/pokerAllTime'
+import { countsView, type HudView } from '../calc/pokerView'
 import { formatDayMonth } from '../dates'
-import { getSettings, listGames } from '../store/db'
+import { allHands, getSettings, listGames } from '../store/db'
+import { HudRows } from './Hud'
 import { StatBody, sign } from './Players'
 
 // Строка разницы: «▲ +500 ₽», «▼ −0,4», «без изменений»
@@ -132,18 +135,44 @@ function SpansCard({ spans, size }: { spans: Spans; size: number }) {
   )
 }
 
-type Data = { stat: RegularStat; trend: Trend; spans: Spans; size: number }
+// Покер за всё время (#164, Р-55): HUD по раздачам всех вечеров на этом телефоне; мало раздач — приглушён
+function PokerAllCard({ hud }: { hud: HudView }) {
+  return (
+    <section className={hud.few ? 'card poker-all few' : 'card poker-all'} aria-label="Покер за всё время">
+      <strong className="poker-all-title">Покер за всё время</strong>
+      <span className="muted">
+        раздач: {formatNumber(hud.hands)}
+        {hud.few && <span className="hud-few"> · мало раздач</span>}
+      </span>
+      <HudRows hud={hud} />
+    </section>
+  )
+}
+
+// poker — null: в покер не играл (или раздачи не прочитались) — блока нет
+type Data = { stat: RegularStat; trend: Trend; spans: Spans; size: number; poker: HudView | null }
 
 export function PlayerScreen({ id }: { id: string }) {
   // undefined — грузится, null — такого постоянного нет
   const [data, setData] = useState<Data | null | undefined>(undefined)
 
   useEffect(() => {
-    void Promise.all([getSettings(), listGames()]).then(([settings, games]) => {
+    // Раздачи не прочитались — карточка без покера, а не пустой экран
+    const hands = allHands().catch(() => [])
+    void Promise.all([getSettings(), listGames(), hands]).then(([settings, games, saved]) => {
       const stat = regularStats(settings.players, games).rows.find((r) => r.regularId === id)
+      const regular = settings.players.find((r) => r.id === id)
       const size = settings.compareWindow
       setData(
-        stat ? { stat, trend: playerTrend(id, games, size), spans: playerSpans(id, games, size), size } : null,
+        stat && regular
+          ? {
+              stat,
+              trend: playerTrend(id, games, size),
+              spans: playerSpans(id, games, size),
+              size,
+              poker: countsView(allTimeHud(regular, saved)),
+            }
+          : null,
       )
     })
   }, [id])
@@ -168,6 +197,7 @@ export function PlayerScreen({ id }: { id: string }) {
             </section>
             {data.stat.games > 0 && <TrendCard trend={data.trend} size={data.size} />}
             {data.trend.recent !== null && <SpansCard spans={data.spans} size={data.size} />}
+            {data.poker && <PokerAllCard hud={data.poker} />}
           </div>
         </>
       )}

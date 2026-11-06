@@ -929,6 +929,22 @@ button.seat.free {
   margin: 0;
 }
 
+/* «Покер за всё время» в карточке игрока (#164): те же строки, что у HUD стола; мало раздач — приглушены,
+   как строка у места */
+.poker-all {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.poker-all-title {
+  font-size: 1.05rem;
+}
+
+.poker-all.few .hud-rows {
+  color: var(--muted);
+}
+
 /* Секунды на ход — у места того, чей ход (#75): значком на левом верхнем углу, место не растёт */
 .seat-timer {
   position: absolute;

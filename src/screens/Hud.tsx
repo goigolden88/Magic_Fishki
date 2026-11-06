@@ -19,8 +19,8 @@ export function HudLine({ hud, onOpen }: { hud: HudView; onOpen: () => void }) {
 
 const pct = (n: number | null) => (n === null ? '—' : `${n}%`)
 
-// Подробно — поверх стола, «Закрыть» или касание карточки
-export function HudCard({ name, hud, onClose }: { name: string; hud: HudView; onClose: () => void }) {
+// Пять чисел с пояснениями — в карточке у стола и в «Покер за всё время» карточки игрока (#164)
+export function HudRows({ hud }: { hud: HudView }) {
   const rows: [string, string, string][] = [
     ['VPIP', pct(hud.vpip), 'входит в раздачу'],
     ['PFR', pct(hud.pfr), 'рейз до флопа'],
@@ -29,22 +29,29 @@ export function HudCard({ name, hud, onClose }: { name: string; hud: HudView; on
     ['CB', pct(hud.cb), 'ставка на флопе после рейза'],
   ]
   return (
+    <dl className="hud-rows">
+      {rows.map(([label, value, hint]) => (
+        <div key={label}>
+          <dt>{label}</dt>
+          <dd>
+            <strong>{value}</strong> <span className="muted">{hint}</span>
+          </dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+// Подробно — поверх стола, «Закрыть» или касание карточки
+export function HudCard({ name, hud, onClose }: { name: string; hud: HudView; onClose: () => void }) {
+  return (
     <div className="hud-pop" role="dialog" aria-label={`Статистика: ${name}`} onClick={onClose}>
       <strong className="hud-name">{name}</strong>
       <span className="muted">
         Раздач за вечер: {hud.hands}
         {hud.few && <span className="hud-few"> · мало раздач</span>}
       </span>
-      <dl className="hud-rows">
-        {rows.map(([label, value, hint]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd>
-              <strong>{value}</strong> <span className="muted">{hint}</span>
-            </dd>
-          </div>
-        ))}
-      </dl>
+      <HudRows hud={hud} />
       <button type="button" className="big wide" onClick={onClose}>
         Закрыть
       </button>

@@ -6,7 +6,7 @@
 // ATS — из BTN, CO, SB (хедз-ап — только кнопка, она же SB), когда до игрока рейза не было: сколько раз
 // открылся рейзом; CB — агрессор до флопа, торговавшийся на флопе: сколько раз поставил или повысил там.
 // «До флопа» — первый круг торгов по описанию игры, «флоп» — второй
-import type { Hand, Street } from './hand'
+import type { Hand, HandLogEntry, Street } from './hand'
 
 export type HudCounts = {
   hands: number // сдан в раздаче
@@ -28,8 +28,16 @@ export const HUD_FEW_HANDS = 30
 
 const EMPTY: HudCounts = { hands: 0, vpip: 0, pfr: 0, stealChances: 0, steals: 0, cbChances: 0, cbs: 0, raises: 0, calls: 0 }
 
+// Что addHand читает из раздачи: идущая раздача стола (Hand) подходит целиком; сохранённую раздачу
+// прошлого вечера собирают из её записи (покер за всё время, #164)
+export type HudHand = Pick<Hand, 'button' | 'bb'> & {
+  seats: { id: string }[]
+  log: HandLogEntry[]
+  cards?: { game: { rounds: { street: Street }[] } }
+}
+
 // Счётчики после конца раздачи: прежние плюс эта. Чистая — прежние не меняет
-export function addHand(hud: Hud, hand: Hand): Hud {
+export function addHand(hud: Hud, hand: HudHand): Hud {
   const streets = hand.cards ? hand.cards.game.rounds.map((r) => r.street) : (['preflop', 'flop'] as Street[])
   const [first, second] = streets
   const n = hand.seats.length
