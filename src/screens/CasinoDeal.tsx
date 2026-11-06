@@ -672,7 +672,6 @@ function layoutStyle(l: CasinoLayout): CSSProperties {
     '--hand-h': rem(l.hand.h),
     '--board-w': rem(l.board.w),
     '--board-cols': String(l.cols),
-    '--board-cards-w': rem(l.boardCards),
     '--center-w': rem(l.center.w),
     '--layout-w': rem(l.width),
     '--board-card-w': rem(l.boardCard.w),
@@ -741,10 +740,12 @@ function Felt(props: { layout: CasinoLayout; seats: SeatData[]; boards: BoardDat
               ))}
             </div>
             {b.chances && <ChanceLine {...b.chances} />}
-            {/* Победитель — под картами; на широком окне (Р-53) — сбоку от них */}
+            {/* Победитель — под картами; на широком окне (Р-60) — тоже, имя и рука переносятся */}
             <div className="casino-board-side">
               {!b.chances && b.winners.length !== 1 && (
-                <div className="casino-board-line">{b.winners.length > 1 ? 'Ничья, поровну' : ' '}</div>
+                <div className={b.winners.length > 1 ? 'casino-board-line' : 'casino-board-line casino-win-gap'}>
+                  {b.winners.length > 1 ? 'Ничья, поровну' : ' '}
+                </div>
               )}
               {b.winners.length > 0 ? (
                 b.winners.map((w, k) => <WinnerLine key={k} winner={w} />)
@@ -762,7 +763,8 @@ function Felt(props: { layout: CasinoLayout; seats: SeatData[]; boards: BoardDat
 }
 
 // Строка победителя стола (Р-50): «Имя · рука» — длинное имя сжимается многоточием, рука видна;
-// под ней — пять мелких карт его лучшей руки, как у победителя в покерной комнате
+// под ней — пять мелких карт его лучшей руки, как у победителя в покерной комнате.
+// На широком окне (Р-60) — то же, но имя и рука переносятся целиком, карты крупнее (стили .casino-table.wide)
 function WinnerLine({ winner: w }: { winner: Winner }) {
   return (
     <>

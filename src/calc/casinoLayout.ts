@@ -35,10 +35,12 @@ const WIN_GAP = 0.06
 const WIN_ROW_PAD = 0.2 // поля ряда сверху и снизу
 
 // Широкое окно (Р-53): колонка экрана от 1024 px — 66rem без полей по 2rem, ≈ 1116 px при rem = 18 px.
-// Столы — рядами по 2–3, строка победителя — сбоку от карт своего стола, места — в ряд на всю ширину
+// Столы — рядами по 2–3, места — в ряд на всю ширину. Строка победителя (Р-60) — под картами своего стола,
+// как на телефоне, но «Имя · рука» переносится, а не сжимается (место — на две строки), и карты руки
+// крупнее — не меньше половины карты стола
 export const WIDE_WIDTH = 62
-const SIDE_W = 7.4 // «Имя · рука» и пять мелких карт победителя справа от карт стола
-const SIDE_GAP = 0.4 // от карт стола до строки победителя
+const WIDE_WIN_CARD = { w: 1.4, h: 1.95 }
+const WIDE_WIN_LINE = 0.96 // вторая строка «Имя · рука»: 1,2 × 0,8rem
 
 export type Size = { w: number; h: number }
 export type Box = { x: number; y: number; w: number; h: number } // rem: x — слева, y — сверху
@@ -51,7 +53,7 @@ export type CasinoLayout = {
   winCard: Size // мелкая карта в строке победителя (Р-50)
   winRow: Size // ряд пяти мелких карт победителя
   boardCards: number // ширина пяти карт стола, rem
-  wide: boolean // раскладка широкого окна (Р-53): столы рядами, победитель сбоку
+  wide: boolean // раскладка широкого окна (Р-53, Р-60): столы рядами, победитель под картами, карты руки крупнее
   cols: number // столов в ряду: на телефоне — один (колонка), на широком окне — 2–3
   center: Size // столы: колонка или ряды
   perRow: number // мест в ряду, не больше
@@ -63,7 +65,8 @@ export type CasinoLayout = {
 
 // Раскладка на n участников и m столов. Порядок — по часовой: первая половина — над столами слева
 // направо, вторая — под столами справа налево. Мест больше MAX_CASINO_SEATS или меньше одного — ошибка.
-// wide — широкое окно (Р-53): ширина до WIDE_WIDTH, столы рядами, строка победителя — сбоку от карт стола
+// wide — широкое окно (Р-53, Р-60): ширина до WIDE_WIDTH, столы рядами, строка победителя — под картами стола
+// в две строки, карты руки крупнее
 export function casinoLayout(kind: DealKind, players: number, tables: number, wide = false): CasinoLayout {
   if (!Number.isInteger(players) || players < 1 || players > MAX_CASINO_SEATS) {
     throw new Error(`За столом казино от 1 до ${MAX_CASINO_SEATS} участников`)
@@ -75,15 +78,17 @@ export function casinoLayout(kind: DealKind, players: number, tables: number, wi
     w: round(Math.max(SEAT_MIN_W, cards * hand.w + (cards - 1) * HAND_GAP + SEAT_PAD)),
     h: round(hand.h + SEAT_TEXT_H),
   }
+  const winCard = wide ? WIDE_WIN_CARD : WIN_CARD
   const winRow = {
-    w: round(BOARD_CARDS * WIN_CARD.w + (BOARD_CARDS - 1) * WIN_GAP),
-    h: round(WIN_CARD.h + WIN_ROW_PAD),
+    w: round(BOARD_CARDS * winCard.w + (BOARD_CARDS - 1) * WIN_GAP),
+    h: round(winCard.h + WIN_ROW_PAD),
   }
   const boardCards = round(BOARD_CARDS * BOARD_CARD.w + (BOARD_CARDS - 1) * BOARD_GAP)
-  // Телефон: строка победителя — под картами; широкое окно: сбоку, стол ниже на её ряд
-  const board = wide
-    ? { w: round(boardCards + SIDE_GAP + SIDE_W + BOARD_PAD), h: round(BOARD_CARD.h + BOARD_TEXT_H + BOARD_PAD) }
-    : { w: round(boardCards + BOARD_PAD), h: round(BOARD_CARD.h + BOARD_TEXT_H + winRow.h + BOARD_PAD) }
+  // Строка победителя — под картами; на широком окне под «Имя · рука» — две строки
+  const board = {
+    w: round(boardCards + BOARD_PAD),
+    h: round(BOARD_CARD.h + BOARD_TEXT_H + (wide ? WIDE_WIN_LINE : 0) + winRow.h + BOARD_PAD),
+  }
   const limit = wide ? WIDE_WIDTH : MIN_WIDTH
   const perRow = Math.max(1, Math.floor((limit + GAP) / (seat.w + GAP)))
   const upper = Math.ceil(players / 2)
@@ -103,7 +108,7 @@ export function casinoLayout(kind: DealKind, players: number, tables: number, wi
     seat,
     boardCard: BOARD_CARD,
     board,
-    winCard: WIN_CARD,
+    winCard,
     winRow,
     boardCards,
     wide,
