@@ -5,7 +5,7 @@ import { parseSavedCasinoRound, type SavedCasinoRound } from '../calc/savedCasin
 // Ставка прошлого раунда казино с картами (#76) — в модели раунда её нет, помнится на устройстве:
 // в localStorage, не в IndexedDB и не в копии
 const STAKE_KEY = 'fishki.casino.stake'
-// Сукно и рубашка казино-стола (#129) — так же, на устройстве
+// Сукно и рубашка казино-стола (#129) — так же, на устройстве. С Р-59 только читается: выбор — «Вид стола» в «Настройках»
 const LOOK_KEY = 'fishki.casino.look'
 // «Открывать столы сами» (#134) — секунды, 0 — «Нет»; так же, на устройстве
 const AUTO_OPEN_KEY = 'fishki.casino.autoOpen'
@@ -41,14 +41,6 @@ export function loadLook(): Look {
     })
   } catch {
     return lookOf({})
-  }
-}
-
-export function saveLook(look: Look) {
-  try {
-    localStorage.setItem(LOOK_KEY, JSON.stringify(look))
-  } catch {
-    // так же — не запомним
   }
 }
 

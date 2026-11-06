@@ -118,7 +118,11 @@ export function RoomFields({ form, players, onChange }: { form: RoomForm; player
       <TimerFields form={form.timer} onChange={(timer) => set({ timer })} />
 
       <LookFields look={form.look} backs onChange={(l) => set({ look: { ...form.look, ...l } })} />
-      {cards === 'live' && <p className="muted">Карты живые — рубашка на экране не видна.</p>}
+      {/* Р-59: вид стола — для всех за этим столом; свой на этом телефоне — «Вид стола» в «Настройках» */}
+      <p className="muted">
+        {cards === 'live' ? 'Карты живые — рубашка на экране не видна. ' : ''}Вид этого стола у всех за ним; свой — в
+        «Настройках», «Вид стола».
+      </p>
 
       {/* #79: стол на одном телефоне — HUD видят все, выбора там нет */}
       <HudFields all={form.publicHud} onChange={(publicHud) => set({ publicHud })} />
