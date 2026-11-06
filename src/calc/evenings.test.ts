@@ -57,8 +57,24 @@ describe('вечер стола', () => {
       ante: 5,
       maxSeats: 6,
       tournament: false,
+      regulars: {},
     })
     expect(eveningTable(table(0), null)).toMatchObject({ me: null, game: 'holdem', limit: 'nolimit', ante: 0 })
+  })
+
+  it('постоянные стола (Р-55): сидящие и ушедшие под постоянным; гостей нет', () => {
+    const r = createTable('p0', 'Аня', {}, 0, 'r-anya')
+    if (!r.ok) throw new Error(r.error)
+    const t: TableState = {
+      ...r.state,
+      players: [...r.state.players, { ...r.state.players[0], id: 'p1', name: 'Гость', regularId: null, seat: 1 }],
+      chipLog: [
+        ...r.state.chipLog,
+        { kind: 'leave', playerId: 'p2', by: 'p2', chips: 0, at: 1, name: 'Боря', regularId: 'r-borya' },
+        { kind: 'leave', playerId: 'p3', by: 'p3', chips: 0, at: 2, name: 'Старый' }, // запись до #60
+      ],
+    }
+    expect(eveningTable(t, 'p0').regulars).toEqual({ p0: 'r-anya', p2: 'r-borya' })
   })
 
   it('записи раздач — с вечером, номером, столом и своими картами, если телефон их видел', () => {

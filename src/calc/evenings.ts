@@ -26,6 +26,9 @@ export type EveningTable = {
   ante: number
   maxSeats: number
   tournament: boolean // в турнире блайнды растут — sb и bb только стартовые
+  // Постоянные стола (#164, Р-55): id игрока за столом → id постоянного, с ушедшими; кого нет — гость.
+  // Покеру за всё время — отличить гостя от постоянного с тем же именем. У записей до Р-55 поля нет
+  regulars?: Record<string, string>
 }
 
 // Запись хранилища: раздача и её вечер; раздача — как пришла за столом (HistoryHand).
@@ -58,7 +61,16 @@ export function eveningTable(table: TableState, me: string | null): EveningTable
     ante: s.format === 'tournament' ? 0 : (s.ante ?? 0),
     maxSeats: s.maxSeats,
     tournament: s.format === 'tournament',
+    regulars: tableRegulars(table),
   }
+}
+
+// Ушедшие — из записи ухода (у записей до #60 постоянного в ней нет), сидящие — из стола
+function tableRegulars(table: TableState): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const e of table.chipLog) if (e.kind === 'leave' && e.regularId) out[e.playerId] = e.regularId
+  for (const p of table.players) if (p.regularId) out[p.id] = p.regularId
+  return out
 }
 
 // Комната: код комнаты не уникален во времени (освобождается после конца) — вечер по коду и началу стола.

@@ -4,7 +4,7 @@
 import { bestHand, type Card } from '../poker/cards'
 import { publicCards } from '../poker/game'
 import { potLimit, type HandLogEntry, type Stage } from '../poker/hand'
-import { HUD_FEW_HANDS } from '../poker/hud'
+import { HUD_FEW_HANDS, type HudCounts } from '../poker/hud'
 import { buildPots } from '../poker/pots'
 import type { HistoryHand } from '../poker/history'
 import { blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type HandRecord, type HandResult, type TableState } from '../poker/table'
@@ -295,7 +295,12 @@ export function tournamentView(table: TableState, meId: string, now: number): To
 // tableView — по настройке стола, стол на одном телефоне — всем
 export function hudView(table: TableState, playerId: string): HudView | null {
   const c = table.hud?.[playerId]
-  if (!c || c.hands === 0) return null
+  return c ? countsView(c) : null
+}
+
+// Счётчики → показ: у HUD вечера и у «Покер за всё время» карточки игрока (#164). Раздач нет — null
+export function countsView(c: HudCounts): HudView | null {
+  if (c.hands === 0) return null
   const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : null)
   return {
     hands: c.hands,
