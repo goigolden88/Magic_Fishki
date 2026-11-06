@@ -2031,49 +2031,56 @@ input.bet-amount {
   display: block;
 }
 
-/* Казино-стол на широком окне (Р-53): класс wide ставит экран по тому же порогу (useWide), размеры —
-   из casinoLayout(…, wide). Столы — рядами по 2–3, строка победителя — сбоку от карт своего стола;
-   сукно — по ширине раскладки, не шире колонки экрана */
+/* Казино-стол на широком окне (Р-53, Р-60): класс wide ставит экран по тому же порогу (useWide), размеры —
+   из casinoLayout(…, wide). Столы — рядами по 2–3, неполный последний ряд — по центру; строка победителя —
+   под картами своего стола, как на телефоне; сукно — по ширине раскладки, не шире колонки экрана */
 .casino-table.wide {
   max-width: min(100%, calc(var(--layout-w) + 4rem));
 }
 
+/* Ряды — flex с переносом: неполный ряд стоит по центру, справа нет дыры. Ширина — чуть шире рядов
+   (--center-w), чтобы округление не перенесло последний стол ряда вниз; столы ряда — одной высоты:
+   ничья у одного — ряд выше целиком, соседний ряд не наезжает */
 .casino-table.wide .casino-boards {
-  display: grid;
-  grid-template-columns: repeat(var(--board-cols), minmax(0, var(--board-w)));
+  flex-direction: row;
+  flex-wrap: wrap;
   justify-content: center;
-  width: min(100%, var(--center-w));
+  align-items: stretch;
+  width: min(100%, calc(var(--center-w) + 0.5rem));
 }
 
-/* Стол: подпись сверху, слева пять карт, справа победитель; шансы — строкой под картами
-   (ряд держится и пустым: шансы пропали — столы ниже не сдвигаются) */
 .casino-table.wide .casino-board {
-  display: grid;
-  grid-template-columns: minmax(0, var(--board-cards-w)) minmax(0, 1fr);
-  grid-template-rows: auto auto minmax(0.96rem, auto);
-  grid-template-areas:
-    'title title'
-    'cards side'
-    'odds odds';
-  column-gap: 0.4rem;
+  flex: 0 1 var(--board-w);
+  min-width: 0;
+}
+
+/* Под картами — две строки подписи (2 × 0,96rem): «Имя · рука» переносится, а не сжимается многоточием.
+   Те же две строки держат шансы и пустая строка у не открытого стола — открылся стол, столы не прыгают */
+.casino-table.wide .casino-win-line,
+.casino-table.wide .casino-win-gap,
+.casino-table.wide .casino-board-line.casino-odds {
+  min-height: 1.92rem;
   align-items: center;
 }
 
-.casino-table.wide .casino-board > .casino-board-line:first-child {
-  grid-area: title;
+.casino-table.wide .casino-win-line {
+  flex-wrap: wrap;
+  align-content: center;
+  white-space: normal;
 }
 
-.casino-table.wide .casino-board > .card-row {
-  grid-area: cards;
+.casino-table.wide .win-name,
+.casino-table.wide .win-hand {
+  flex: 0 1 auto;
+  max-width: 100%;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
 }
 
-.casino-table.wide .casino-board > .casino-odds-toggle {
-  grid-area: odds;
-}
-
-.casino-table.wide .casino-board-side {
-  grid-area: side;
-  min-width: 0;
+/* Карты руки победителя — не меньше половины карты стола (--win-card-w из casinoLayout) */
+.casino-table.wide .casino-board .casino-win-row .playing-card {
+  border-radius: 0.25rem;
+  font-size: calc(var(--win-card-w) * 0.55);
 }
 
 /* Широкое окно — ноутбук, монитор (Р-53, как Р-20 ТоргСина): от 1024 px раскладка резиновая.

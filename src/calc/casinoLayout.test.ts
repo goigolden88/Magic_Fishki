@@ -135,16 +135,39 @@ describe('раскладка казино-стола', () => {
     }
   })
 
-  it('широкое окно: строка победителя — сбоку от карт стола, стол ниже на её ряд; карты те же', () => {
+  it('широкое окно (Р-60): строка победителя — под картами стола, карты руки не меньше половины карт стола', () => {
     for (const { kind, n, m } of every()) {
       const phone = casinoLayout(kind, n, m)
       const wide = casinoLayout(kind, n, m, true)
-      // сбоку от пяти карт стола входит ряд пяти мелких карт победителя
-      expect(wide.board.w - wide.boardCards - 0.6).toBeGreaterThanOrEqual(wide.winRow.w)
-      expect(wide.board.h).toBeCloseTo(phone.board.h - phone.winRow.h)
+      // стол той же ширины, что на телефоне: пять карт стола и поля; ряд карт победителя — внутри
+      expect(wide.board.w).toBe(phone.board.w)
+      expect(wide.winRow.w).toBeLessThanOrEqual(wide.board.w - 0.6)
+      // карты руки читаемые: не меньше половины карты стола, крупнее, чем на телефоне
+      expect(wide.winCard.w).toBeGreaterThanOrEqual(wide.boardCard.w / 2)
+      expect(wide.winCard.h).toBeGreaterThanOrEqual(wide.boardCard.h / 2)
+      expect(wide.winCard.w).toBeGreaterThan(phone.winCard.w)
+      expect(wide.winRow.h).toBeGreaterThanOrEqual(wide.winCard.h)
+      // стол выше телефонного на вторую строку «Имя · рука» и на разницу рядов карт победителя
+      expect(wide.board.h).toBeCloseTo(phone.board.h + 0.96 + wide.winRow.h - phone.winRow.h)
       expect(wide.boardCard).toEqual(phone.boardCard)
       expect(wide.hand).toEqual(phone.hand)
       expect(wide.seat).toEqual(phone.seat)
+    }
+  })
+
+  it('широкое окно: 1, 2, 3, 6 столов — полными рядами, 5 — 3 + 2, высота — по рядам', () => {
+    const cases: [number, number, number][] = [
+      [1, 1, 1],
+      [2, 2, 1],
+      [3, 3, 1],
+      [5, 3, 2],
+      [6, 3, 2],
+    ]
+    for (const [m, cols, boardRows] of cases) {
+      const l = casinoLayout('holdem', 2, m, true)
+      expect(l.cols).toBe(cols)
+      expect(l.center.w).toBeCloseTo(cols * l.board.w + (cols - 1) * 0.3)
+      expect(l.center.h).toBeCloseTo(boardRows * l.board.h + (boardRows - 1) * 0.3)
     }
   })
 
