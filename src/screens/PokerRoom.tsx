@@ -181,7 +181,7 @@ export function PokerRoomScreen({ code, server }: { code: string; server?: strin
             <h2>Другая версия сервера</h2>
             <p>{versionText(room.versionGap)}</p>
             <p className="muted">
-              Подробнее — в <a href="#/help">справке</a>, «Покер онлайн».
+              Подробнее — в <a href="#/help">справке</a>, «Конец игры и связь».
             </p>
             <button type="button" className="big primary wide" onClick={() => location.reload()}>
               Подключиться снова
