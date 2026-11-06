@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { BOT_LEVELS } from '../calc/bot'
+import { botsEvening } from '../calc/evenings'
+import { NO_COPY, useHandCopy, useMyCards } from './handCopy'
 import {
   autoDealBotHand,
   BOT_PAUSE_MS,
@@ -29,6 +31,8 @@ import { clearBotTable, loadBotTable, saveBotTable, storageWorks } from './poker
 
 // Адрес стола с ботами: под код комнаты (6 знаков) не подходит
 export const BOTS_HASH = '#/poker/bots'
+
+export const FINISH_BOTS = 'Закончить игру с ботами? Стол удалится, в учёт игр ничего не запишется; раздачи останутся в «Прошлых вечерах».'
 
 type Apply = (make: (bots: BotTable, now: number) => BotStep) => boolean
 
@@ -107,9 +111,9 @@ export function PokerBotsScreen() {
     }
   }, [nextAt, visible])
 
-  // «Закончить»: стол удаляется; в историю, учёт и «Прошлые вечера» ничего не идёт
+  // «Закончить»: стол удаляется; в учёт игр ничего не идёт, раздачи уже в «Прошлых вечерах» (Р-54)
   function finish() {
-    if (!confirm('Закончить игру с ботами? Стол удалится, в историю ничего не запишется.')) return
+    if (!confirm(FINISH_BOTS)) return
     clearBotTable()
     location.hash = '#/poker'
   }
@@ -150,6 +154,11 @@ function BotTableCard(props: {
   const [showHistory, setShowHistory] = useState(false)
   const table = bots.table
   const v = botTableView(bots, Date.now())
+  // История — в моём виде: карты бота, взявшего банк без вскрытия, не видны. Каждая раздача — в «Прошлые вечера»
+  // своим вечером «Против ботов» (Р-54), со своими картами; «Закончить» их не стирает
+  const history = useMemo(() => bots.history.map((h) => handFor(h, bots.meId)), [bots.history, bots.meId])
+  const mine = useMyCards(table, v.myCards)
+  const copyWorks = useHandCopy(botsEvening(bots.id, table, bots.meId), history, mine)
   const sb = table.hand?.sb ?? table.settings.sb
   // Мои фишки кончились — вместо «Начать раздачу» карточка «Докупиться» / «Закончить»
   const broke = iAmBroke(bots)
@@ -190,12 +199,13 @@ function BotTableCard(props: {
 
         {/* История раздач — на этом телефоне, вместе со столом; карты бота, взявшего банк без вскрытия, не видны */}
         {showHistory ? (
-          <HandHistory hands={bots.history.map((h) => handFor(h, bots.meId))} onClose={() => setShowHistory(false)} />
+          <HandHistory hands={history} onClose={() => setShowHistory(false)} />
         ) : (
           <button type="button" className="big wide" onClick={() => setShowHistory(true)}>
             История раздач
           </button>
         )}
+        {!copyWorks && <p className="warn">{NO_COPY}</p>}
 
         <section className="card">
           <h2>Стол с ботами</h2>

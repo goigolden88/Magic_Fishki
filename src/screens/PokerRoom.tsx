@@ -62,7 +62,7 @@ import { FINISHED, type ClientBody } from '../poker/protocol'
 import { limitFor, type TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
-import { NO_COPY, useHandCopy } from './handCopy'
+import { NO_COPY, useHandCopy, useMyCards } from './handCopy'
 import { openGameYear } from './openYears'
 import { HudCard, HudFields, HudLine } from './Hud'
 import { LookFields } from './LookFields'
@@ -317,7 +317,6 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   useEffect(() => {
     if (online) askHistory()
   }, [online, lastKey])
-  const copyWorks = useHandCopy(roomEvening(code, table), room.history)
 
   // Анимация раздачи (#133) — только для стола, сменившегося на глазах. Первый стол после (пере)подключения
   // догоняет пропущенное: карты уже лежат; стол при входе на экран — уже догнавший. Без связи стол не меняется
@@ -336,6 +335,9 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   const live = room.online && sy.first !== null && table !== sy.first
 
   const v = tableView(table, me, room.serverNow())
+  // Копия раздач (#114) — со своими картами каждой раздачи (Р-54): к ответу истории они уже запомнены
+  const mine = useMyCards(table, v.myCards)
+  const copyWorks = useHandCopy(roomEvening(code, table, me), room.history, mine)
   const sb = table.hand?.sb ?? table.settings.sb
   const dock = dockOf(v)
   const host = serverHost(room.server) // не постоянный сервер (#83) — мелкой строкой под строкой стола

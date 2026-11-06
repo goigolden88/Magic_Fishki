@@ -4,7 +4,23 @@ import { backupText, makeBackup, parseBackup, planRestore } from '../calc/backup
 import { playerTotals } from '../calc/totals'
 import { transfers } from '../calc/transfers'
 import { linkRegulars, type Game, type Regular } from '../model'
-import { deleteGame, getSettings, listGames, restoreGames, saveGame, saveSettings } from './db'
+import { savedHands, type Evening } from '../calc/evenings'
+import type { HistoryHand } from '../poker/history'
+import {
+  allHands,
+  deleteEvening,
+  deleteGame,
+  eveningRecords,
+  getSettings,
+  handKeys,
+  listEvenings,
+  listGames,
+  restoreGames,
+  restoreHands,
+  saveGame,
+  saveHands,
+  saveSettings,
+} from './db'
 
 // Постоянные игроки с id «r-Имя»
 function regulars(names: string[]): Regular[] {
@@ -32,8 +48,10 @@ async function restore(text: string) {
     (await listGames()).map((g) => g.id),
     settings.players,
     parsed.backup,
+    await handKeys(),
   )
   await restoreGames(plan.added)
+  await restoreHands(plan.hands)
   await saveSettings({ ...settings, players: plan.players })
   return plan
 }
@@ -130,7 +148,38 @@ describe('файл-копия через базу (Р-11)', () => {
     const kept = await saveGame(game('03A', '2026-10-09', ['Аня'], [[1000, 1000]]))
 
     const plan = await restore(empty)
-    expect(plan).toEqual({ added: [], existing: 0, players: [] })
+    expect(plan).toEqual({ added: [], existing: 0, players: [], hands: [] })
     expect(await listGames()).toEqual([kept])
+  })
+
+  // Р-54: прошлые вечера покера и их раздачи — в копии; после очистки они на месте, записанные не перезаписываются
+  it('раздачи прошлых вечеров: после очистки — те же вечера и раздачи со своими картами', async () => {
+    await clearAll()
+    const hand = (number: number, amount = 100): HistoryHand => ({ number, pots: [{ amount, winners: ['p0'] }], payouts: { p0: amount } })
+    const friday: Evening = { id: 'KQ7MZP-1000', code: 'KQ7MZP', startedAt: 1000 }
+    const bots: Evening = { id: 'bots-B1', code: null, startedAt: 2000 }
+    await saveHands(savedHands(friday, [hand(1), hand(2)], new Map([[1, ['As', 'Kd']]])))
+    await saveHands(savedHands(bots, [hand(1)]))
+    const before = await allHands()
+    const text = backupText(makeBackup(await listGames(), await getSettings(), '2026-11-06T19:00:00.000Z', before))
+
+    await deleteEvening(friday.id)
+    await deleteEvening(bots.id)
+    expect(await listEvenings()).toEqual([])
+
+    const plan = await restore(text)
+    expect(plan.hands).toHaveLength(3)
+    expect(await allHands()).toEqual(before)
+    expect((await listEvenings()).map((e) => [e.id, e.hands])).toEqual([
+      ['bots-B1', 1],
+      ['KQ7MZP-1000', 2],
+    ])
+    expect((await eveningRecords(friday.id))[0].mine).toEqual(['As', 'Kd'])
+
+    // Своя запись той же раздачи остаётся своей
+    await saveHands(savedHands(bots, [hand(1, 500)]))
+    const again = await restore(text)
+    expect(again.hands).toEqual([])
+    expect((await eveningRecords(bots.id))[0].hand.payouts).toEqual({ p0: 500 })
   })
 })

@@ -34,14 +34,16 @@ import type { Regular } from '../model'
 import type { CardsMode, Limit } from '../poker/game'
 import { PROTOCOL_VERSION, type CreateRoomRequest, type CreateRoomResponse } from '../poker/protocol'
 import { DEFAULT_SETTINGS, type AutoStart, type Felt } from '../poker/table'
-import { formatDate } from '../dates'
+import { formatDate, today } from '../dates'
+import { handsFileName, handsText } from '../calc/handText'
 import type { HistoryHand } from '../poker/history'
-import { deleteEvening, eveningHands, getSettings, listEvenings } from '../store/db'
+import { allHands, deleteEvening, eveningHands, eveningRecords, getSettings, listEvenings } from '../store/db'
+import { download } from './download'
 import { ulid } from '../ulid'
 import { HudFields } from './Hud'
 import { LookFields } from './LookFields'
 import { CasinoPickCard } from './CasinoPick'
-import { BOTS_HASH } from './PokerBots'
+import { BOTS_HASH, FINISH_BOTS } from './PokerBots'
 import { LOCAL_HASH, NO_STORAGE } from './PokerLocal'
 import { HandHistory } from './PokerRoom'
 import {
@@ -127,9 +129,9 @@ export function PokerHomeScreen() {
     setLocal(false)
   }
 
-  // Стол с ботами (#117) — тоже один, свой: «Закончить» стирает его без записи
+  // Стол с ботами (#117) — тоже один, свой: «Закончить» стирает его без записи в учёт; раздачи — в «Прошлых вечерах»
   function removeBots() {
-    if (!confirm('Закончить игру с ботами? Стол удалится, в историю ничего не запишется.')) return
+    if (!confirm(FINISH_BOTS)) return
     clearBotTable()
     setBots(false)
   }
@@ -253,7 +255,8 @@ export function PokerHomeScreen() {
 
 // «Прошлые вечера» (#114): копия раздач на этом телефоне — строка на вечер (дата, стол, раздач);
 // касание — его раздачи той же карточкой, что «История раздач» за столом; «Удалить» — с вопросом.
-// Вечеров нет или память браузера не читается — раздела нет
+// «Выгрузить» у вечера и «Выгрузить все» под списком — файл текстом покер-румов (Р-54).
+// Вечеров нет или память браузера не читается — раздела нет (и «Выгрузить все» нет)
 function PastEvenings() {
   const [evenings, setEvenings] = useState<EveningSummary[]>([])
   const [open, setOpen] = useState<{ evening: EveningSummary; hands: HistoryHand[] } | null>(null)
@@ -268,6 +271,18 @@ function PastEvenings() {
   async function show(evening: EveningSummary) {
     try {
       setOpen({ evening, hands: await eveningHands(evening.id) })
+      setError(null)
+    } catch {
+      setError('Не удалось прочитать раздачи с этого телефона')
+    }
+  }
+
+  // «Выгрузить» (Р-54): раздачи вечера — текстом покер-румов для трекера или ИИ; evening null — все вечера одним файлом
+  async function exportHands(evening: EveningSummary | null) {
+    try {
+      const records = evening ? await eveningRecords(evening.id) : await allHands()
+      const day = evening ? eveningDay(evening) : today()
+      download(handsText(records), handsFileName(day, evening === null), 'text/plain')
       setError(null)
     } catch {
       setError('Не удалось прочитать раздачи с этого телефона')
@@ -296,6 +311,9 @@ function PastEvenings() {
           onClose={() => setOpen(null)}
         />
         {error && <p className="warn">{error}</p>}
+        <button type="button" className="big wide" onClick={() => void exportHands(open.evening)}>
+          Выгрузить
+        </button>
         <button type="button" className="big wide danger-text" onClick={() => void remove(open.evening)}>
           Удалить вечер
         </button>
@@ -306,6 +324,7 @@ function PastEvenings() {
   return (
     <section className="card">
       <h2>Прошлые вечера</h2>
+      <p className="muted">Раздачи — на этом телефоне и в копии данных. «Выгрузить» — файл для трекера или разбора.</p>
       <ul className="list">
         {evenings.map((e) => (
           <li key={e.id} className="row">
@@ -319,6 +338,9 @@ function PastEvenings() {
           </li>
         ))}
       </ul>
+      <button type="button" className="big wide" onClick={() => void exportHands(null)}>
+        Выгрузить все
+      </button>
       {error && <p className="warn">{error}</p>}
     </section>
   )
