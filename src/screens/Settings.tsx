@@ -4,8 +4,10 @@ import { demoGames, hasDemo } from '../calc/demo'
 import { formatNumber, formatRate, parseChips, parseRate } from '../calc/format'
 import { today } from '../dates'
 import { MAX_WINDOW, MIN_WINDOW, moveItem, type Game, type Regular, type Settings } from '../model'
-import { deleteDemoGames, getSettings, listGames, restoreGames, saveSettings } from '../store/db'
+import type { SavedHand } from '../calc/evenings'
+import { allHands, deleteDemoGames, getSettings, handKeys, listGames, restoreGames, restoreHands, saveSettings } from '../store/db'
 import { ulid } from '../ulid'
+import { download } from './download'
 import { loadLastBackup, saveLastBackup } from './lastBackup'
 import { DEFAULT_SERVER, serverBase } from '../calc/pokerLink'
 import { loadCardAnim, loadServer, loadTurnSound, saveCardAnim, saveServer, saveTurnSound } from './pokerStorage'
@@ -314,30 +316,22 @@ function canShareFiles(): boolean {
   }
 }
 
-function download(text: string, name: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }))
-  const a = document.createElement('a')
-  a.href = url
-  a.download = name
-  document.body.append(a)
-  a.click()
-  a.remove()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
-}
-
 type Note = { ok: boolean; text: string }
 
-// Файл-копия (Р-11): игры живут только в браузере — копия переносит их на другое устройство и спасает при очистке
+// Файл-копия (Р-11): игры живут только в браузере — копия переносит их на другое устройство и спасает при очистке.
+// С Р-54 в копии и раздачи прошлых вечеров покера
 function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (players: Regular[]) => void }) {
   const [games, setGames] = useState<Game[] | null>(null)
+  const [hands, setHands] = useState<SavedHand[]>([])
   const [note, setNote] = useState<Note | null>(null)
   const [last, setLast] = useState(loadLastBackup)
   const fileInput = useRef<HTMLInputElement>(null)
   const shareFiles = canShareFiles()
 
-  // Игры читаются заранее: Safari открывает «Поделиться» только сразу после касания, без ожидания базы
+  // Игры и раздачи читаются заранее: Safari открывает «Поделиться» только сразу после касания, без ожидания базы
   useEffect(() => {
     void listGames().then(setGames)
+    allHands().then(setHands, () => setHands([]))
   }, [])
 
   // Отдана — запоминаем момент копии: игры, изменённые позже, — «после неё»
@@ -350,14 +344,14 @@ function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (p
   // Сохранил ли браузер файл, приложению не узнать (на iPhone — не всегда): обещать нельзя
   function save() {
     const now = new Date().toISOString()
-    download(backupText(makeBackup(games ?? [], settings, now)), backupFileName(today()))
+    download(backupText(makeBackup(games ?? [], settings, now, hands)), backupFileName(today()))
     remember(now)
     setNote({ ok: true, text: 'Файл отдан браузеру — проверьте, что он сохранился' })
   }
 
   async function share() {
     const now = new Date().toISOString()
-    const text = backupText(makeBackup(games ?? [], settings, now))
+    const text = backupText(makeBackup(games ?? [], settings, now, hands))
     const file = new File([text], backupFileName(today(), 'txt'), { type: 'text/plain' })
     try {
       await navigator.share({ files: [file], title: 'Копия «Фишек»' })
@@ -386,13 +380,25 @@ function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (p
       return
     }
     const current = await getSettings()
+    // Раздач в копии нет (копия до Р-54) — их хранилище не читаем: восстановление игр как раньше
+    let keys: [string, number][] = []
+    if (parsed.backup.hands.length > 0) {
+      try {
+        keys = await handKeys()
+      } catch {
+        setNote({ ok: false, text: 'Не удалось прочитать раздачи на этом телефоне — попробуйте ещё раз' })
+        return
+      }
+    }
     const plan = planRestore(
       (await listGames()).map((g) => g.id),
       current.players,
       parsed.backup,
+      keys,
     )
     try {
       await restoreGames(plan.added)
+      await restoreHands(plan.hands)
       if (plan.players.length !== current.players.length) await saveSettings({ ...current, players: plan.players })
     } catch {
       setNote({ ok: false, text: 'Не удалось записать игры — попробуйте ещё раз' })
@@ -400,7 +406,9 @@ function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (p
     }
     onPlayers(plan.players)
     setGames(await listGames())
-    setNote({ ok: true, text: `Добавлено ${plan.added.length}, уже были ${plan.existing}` })
+    if (plan.hands.length > 0) allHands().then(setHands, () => undefined)
+    const handsNote = plan.hands.length > 0 ? `; раздач покера добавлено ${plan.hands.length}` : ''
+    setNote({ ok: true, text: `Добавлено ${plan.added.length}, уже были ${plan.existing}${handsNote}` })
   }
 
   return (
@@ -408,7 +416,8 @@ function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (p
       <h2>Копия игр</h2>
       <p className="muted">
         Игры хранятся только в этом браузере: очистка данных сайта или новый телефон их сотрут. Копия — файл со всеми
-        играми и настройками; восстановление добавляет недостающие игры и ничего не перезаписывает.
+        играми, настройками и раздачами прошлых вечеров покера; восстановление добавляет недостающее и ничего не
+        перезаписывает.
       </p>
       {games !== null && <p>{lastBackupText(last, games, today())}</p>}
       <button type="button" className="big primary wide" disabled={games === null} onClick={save}>
