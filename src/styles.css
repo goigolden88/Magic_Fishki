@@ -1872,6 +1872,31 @@ input.bet-range::-moz-range-thumb {
   white-space: nowrap;
 }
 
+/* «Микс» (#166): над кнопками ведущего — одна панель из двух частей; отступ под «домой» — только у нижней */
+.dock:has(+ .dock) {
+  padding-bottom: 0.4rem;
+}
+
+.dock + .dock {
+  border-top-width: 1px;
+  border-radius: 0;
+}
+
+.dock.mix-result {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.mix-tally {
+  align-items: center;
+  margin-top: 0.3rem;
+}
+
+.mix-tally .dock-note {
+  margin: 0;
+  min-width: 0;
+}
+
 /* Быстрые суммы — один ряд, подпись над числом */
 .quick-row {
   display: grid;

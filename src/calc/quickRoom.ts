@@ -2,6 +2,7 @@
 // Быстрая — начальные значения формы и стек из закупа по умолчанию «Настроек»
 import type { Regular } from '../model'
 import type { CardsMode, GameId, Limit } from '../poker/game'
+import type { MixShare } from '../poker/mix'
 import { DEFAULT_SETTINGS, type AutoStart, type Settings } from '../poker/table'
 import { formatNumber } from './format'
 import { lookOf, type Look } from './pokerLook'
@@ -35,7 +36,17 @@ export type RoomChoice = {
   look: Look
   format: Pick<Settings, 'format' | 'ante' | 'tournament'>
   publicHud: boolean
+  // «Микс» (#166): доля «против», при которой смена игры ещё проходит; нет или null — выкл.
+  // Только с картами на телефонах: при живых не уходит
+  mix?: MixShare | null
 }
+
+// «Сменить игру, если против не больше …» — выбор ведущего; сначала — половины
+export const MIX_SHARE_CHOICES: [MixShare, string][] = [
+  ['third', 'трети'],
+  ['half', 'половины'],
+  ['twothirds', 'двух третей'],
+]
 
 const cashForm = formSettings(tournamentForm(0))
 
@@ -66,6 +77,7 @@ export function roomSettings(c: RoomChoice): Partial<Settings> {
     ...c.look,
     ...c.format,
     publicHud: c.publicHud,
+    ...(c.mix && c.cards === 'phones' ? { mix: true, mixAgainst: c.mix } : {}),
   }
 }
 
