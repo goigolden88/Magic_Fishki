@@ -549,7 +549,7 @@ function MixDock(props: { mix: MixView; online: boolean; onSend: (body: ClientBo
         {picking ? (
           <>
             <p className="dock-title muted">Предложить игру — остальные проголосуют</p>
-            <div className="dock-row">
+            <div className="dock-row mix-pick">
               {mix.choices.map(([game, label]) => (
                 <button
                   key={game}

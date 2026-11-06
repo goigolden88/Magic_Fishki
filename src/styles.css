@@ -1887,6 +1887,12 @@ input.bet-range::-moz-range-thumb {
   font-weight: 600;
 }
 
+/* Две игры и «Нет» в ряд — уже на 320 px */
+.mix-pick button.big {
+  min-width: 0;
+  padding: 0 0.5rem;
+}
+
 .mix-tally {
   align-items: center;
   margin-top: 0.3rem;
