@@ -12,12 +12,14 @@ import {
   type Settings,
 } from '../model'
 import type { SavedHand } from './evenings'
+import { parseLabels, parseNotes, type NoteLabels, type PlayerNotes } from './playerNotes'
 
 // Файл-копия (Р-11): все игры без демо и настройки, с пометкой приложения и версии формата.
 // Формат 2 (Р-12): постоянные игроки — { id, name }, у участников — regularId; формат 1 — игроки строками.
-// Формат 3 (Р-54): ещё раздачи прошлых вечеров покера — записи хранилища hands как есть; у 1 и 2 раздач нет
+// Формат 3 (Р-54): ещё раздачи прошлых вечеров покера — записи хранилища hands как есть; у 1 и 2 раздач нет.
+// Формат 4 (Р-56): ещё заметки об игроках и переименованные подписи цветов; у 1–3 их нет
 export const BACKUP_APP = 'magic_fishki'
-export const BACKUP_FORMAT = 3
+export const BACKUP_FORMAT = 4
 
 export type Backup = {
   app: typeof BACKUP_APP
@@ -26,6 +28,8 @@ export type Backup = {
   games: Game[]
   settings: Settings
   hands: SavedHand[]
+  notes: PlayerNotes
+  noteLabels: NoteLabels
 }
 
 export type ParsedBackup = { ok: true; backup: Backup } | { ok: false; error: string }
@@ -38,7 +42,14 @@ export type RestorePlan = {
 }
 
 // Демо-игры в копию не идут (Р-04)
-export function makeBackup(games: Game[], settings: Settings, now: string, hands: SavedHand[] = []): Backup {
+export function makeBackup(
+  games: Game[],
+  settings: Settings,
+  now: string,
+  hands: SavedHand[] = [],
+  notes: PlayerNotes = {},
+  noteLabels: NoteLabels = {},
+): Backup {
   return {
     app: BACKUP_APP,
     format: BACKUP_FORMAT,
@@ -46,6 +57,8 @@ export function makeBackup(games: Game[], settings: Settings, now: string, hands
     games: games.filter((g) => !g.demo),
     settings,
     hands,
+    notes,
+    noteLabels,
   }
 }
 
@@ -185,7 +198,7 @@ function isSavedHand(v: unknown): v is SavedHand {
 
 // Текст файла → копия или понятная ошибка; .json и .txt разбираются одинаково.
 // Копия формата 1 приводится к формату 2: постоянным — новые id, участникам — связь по точному имени (Р-12).
-// У копий 1 и 2 раздач нет — пустой список (Р-54)
+// У копий 1 и 2 раздач нет — пустой список (Р-54); у копий 1–3 заметок и подписей нет — пусто (Р-56)
 export function parseBackup(text: string, makeId: () => string): ParsedBackup {
   let data: unknown
   try {
@@ -225,6 +238,16 @@ export function parseBackup(text: string, makeId: () => string): ParsedBackup {
     if (badHand >= 0) return { ok: false, error: `Копия повреждена: раздача № ${badHand + 1} не читается` }
     hands = data.hands as SavedHand[]
   }
+  let notes: PlayerNotes = {}
+  let noteLabels: NoteLabels = {}
+  if (data.format >= 4) {
+    const parsedNotes = parseNotes(data.notes)
+    if (parsedNotes === null) return { ok: false, error: 'Копия повреждена: заметки об игроках не читаются' }
+    const parsedLabels = parseLabels(data.noteLabels)
+    if (parsedLabels === null) return { ok: false, error: 'Копия повреждена: подписи цветов заметок не читаются' }
+    notes = parsedNotes
+    noteLabels = parsedLabels
+  }
   let games = data.games as Game[]
   let players = settings.players as Regular[]
   if (oldFormat) {
@@ -245,6 +268,8 @@ export function parseBackup(text: string, makeId: () => string): ParsedBackup {
       games,
       settings: settingsWithDefaults({ ...settings, players } as Partial<Settings>),
       hands,
+      notes,
+      noteLabels,
     },
   }
 }

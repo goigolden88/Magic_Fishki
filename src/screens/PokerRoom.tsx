@@ -65,6 +65,8 @@ import { ulid } from '../ulid'
 import { NO_COPY, useHandCopy, useMyCards } from './handCopy'
 import { openGameYear } from './openYears'
 import { HudCard, HudFields, HudLine } from './Hud'
+import { noteOf, type NoteLabels, type PlayerNote } from '../calc/playerNotes'
+import { NoteDot, NotePop, useNotes } from './PlayerNote'
 import { LookFields } from './LookFields'
 import { playFlights, useLandOnHide } from './cardFly'
 import {
@@ -826,15 +828,22 @@ function ShowCard(props: {
 // на телефоне — всё место над панелью хода. open — свои карты лицом без пальца (#86).
 // onSeat — касание свободного места пересаживает меня туда; нет — свободные места только видны.
 // HUD вечера (#79) — строкой у места, касание строки — подробно поверх стола
-// live — стол меняется на глазах: раздачу и улицы можно проигрывать (#133); первый стол после (пере)подключения — нет
+// live — стол меняется на глазах: раздачу и улицы можно проигрывать (#133); первый стол после (пере)подключения — нет.
+// Заметки (Р-56, #165) — только этого телефона: точка у места, касание точки — заметка, касание имени — правка
 export function PokerTable(props: { view: TableView; open?: boolean; live?: boolean; onSeat?: (seat: number) => void }) {
   const { view: v, open = false, live = true, onSeat } = props
   const [hudOf, setHudOf] = useState<string | null>(null)
+  const [noteFor, setNoteFor] = useState<{ name: string; edit: boolean } | null>(null)
+  const { notes, labels } = useNotes()
   const wrap = useRef<HTMLDivElement>(null)
   const dealing = useTableDeal(wrap, v, live)
   const bottom = v.me?.seat ?? 0
   const spots = spotsBySeat(v.maxSeats, v.me?.seat ?? null)
   const hudSeat = v.seats.find((s) => s.id === hudOf && s.hud !== null)
+  const showNote = (name: string, edit: boolean) => {
+    setHudOf(null)
+    setNoteFor({ name, edit })
+  }
   return (
     <div className="felt-wrap" ref={wrap}>
       <div className="felt" />
@@ -873,7 +882,13 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
             myCards={s.isMe ? v.myCards : null}
             myHand={s.isMe ? v.myHand : null}
             open={open && !dealing}
-            onHud={() => setHudOf(s.id)}
+            onHud={() => {
+              setNoteFor(null)
+              setHudOf(s.id)
+            }}
+            note={noteOf(notes, s.name)}
+            labels={labels}
+            onNote={(edit) => showNote(s.name, edit)}
           />
         ))}
         {v.freeSeats.map((k) => (
@@ -881,6 +896,9 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
         ))}
       </div>
       {hudSeat?.hud && <HudCard name={hudSeat.name} hud={hudSeat.hud} onClose={() => setHudOf(null)} />}
+      {noteFor && (
+        <NotePop key={`${noteFor.name}/${noteFor.edit}`} name={noteFor.name} edit={noteFor.edit} onClose={() => setNoteFor(null)} />
+      )}
     </div>
   )
 }
@@ -953,7 +971,8 @@ function FreeSeat(props: { seat: number; at: Spot; bottom: boolean; onSeat?: (se
 // Место у стола. bottom — нижнее по центру (я): растёт вверх от низа рамки, остальные — от своей точки
 // в обе стороны. myCards — мои карты в раздаче: крупнее чужих, лицом — пока держишь палец или «всегда открыты»;
 // myHand — подпись моей комбинации сейчас, у открытых карт.
-// onHud — касание строки HUD (#79): подробно
+// onHud — касание строки HUD (#79): подробно.
+// note — заметка этого телефона об игроке с этим именем (Р-56): точка у имени; onNote(false) — касание точки, onNote(true) — имени
 function SeatSpot(props: {
   seat: SeatView
   at: Spot
@@ -962,8 +981,11 @@ function SeatSpot(props: {
   myHand: string | null
   open: boolean
   onHud: () => void
+  note: PlayerNote | null
+  labels: NoteLabels
+  onNote: (edit: boolean) => void
 }) {
-  const { seat: s, at, bottom, myCards, myHand, open, onHud } = props
+  const { seat: s, at, bottom, myCards, myHand, open, onHud, note, labels, onNote } = props
   const marks = [
     s.place !== null && `${s.place} место`,
     s.allIn && 'олл-ин',
@@ -993,9 +1015,11 @@ function SeatSpot(props: {
         </span>
       )}
       {s.turnLeft !== null && <span className="seat-timer">{s.turnLeft} с</span>}
-      <span className="seat-name">
-        {s.name}
-        {s.isMe && <span className="visually-hidden"> (вы)</span>}
+      <span className="seat-head">
+        {note && <NoteDot note={note} labels={labels} onOpen={() => onNote(false)} />}
+        <button type="button" className="seat-name" aria-label={`${s.name}${s.isMe ? ' (вы)' : ''} — заметка`} onClick={() => onNote(true)}>
+          {s.name}
+        </button>
       </span>
       {s.tag && <span className="seat-tag">{s.tag}</span>}
       <span className="seat-chips">{formatNumber(s.chips)}</span>

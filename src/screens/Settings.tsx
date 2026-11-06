@@ -10,7 +10,17 @@ import { ulid } from '../ulid'
 import { download } from './download'
 import { loadLastBackup, saveLastBackup } from './lastBackup'
 import { DEFAULT_SERVER, serverBase } from '../calc/pokerLink'
-import { loadCardAnim, loadServer, loadTurnSound, saveCardAnim, saveServer, saveTurnSound } from './pokerStorage'
+import { NOTE_COLORS, NOTE_LABEL_MAX, labelOf, mergeNotes, setLabel, type NoteColor } from '../calc/playerNotes'
+import {
+  loadCardAnim,
+  loadNotes,
+  loadServer,
+  loadTurnSound,
+  saveCardAnim,
+  saveNotes,
+  saveServer,
+  saveTurnSound,
+} from './pokerStorage'
 
 export function SettingsScreen() {
   const [settings, setSettings] = useState<Settings | null>(null)
@@ -101,6 +111,7 @@ export function SettingsScreen() {
           />
           <BackupCard settings={settings} onPlayers={(players) => setSettings((s) => s && { ...s, players })} />
           <PokerServerCard />
+          <NoteColorsCard />
           <DemoCard />
         </div>
       )}
@@ -341,17 +352,23 @@ function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (p
     setLast(next)
   }
 
+  // Заметки об игроках и подписи цветов (Р-56) — из памяти телефона, читаются сразу, без ожидания
+  function backupNow(now: string) {
+    const { notes, labels } = loadNotes()
+    return makeBackup(games ?? [], settings, now, hands, notes, labels)
+  }
+
   // Сохранил ли браузер файл, приложению не узнать (на iPhone — не всегда): обещать нельзя
   function save() {
     const now = new Date().toISOString()
-    download(backupText(makeBackup(games ?? [], settings, now, hands)), backupFileName(today()))
+    download(backupText(backupNow(now)), backupFileName(today()))
     remember(now)
     setNote({ ok: true, text: 'Файл отдан браузеру — проверьте, что он сохранился' })
   }
 
   async function share() {
     const now = new Date().toISOString()
-    const text = backupText(makeBackup(games ?? [], settings, now, hands))
+    const text = backupText(backupNow(now))
     const file = new File([text], backupFileName(today(), 'txt'), { type: 'text/plain' })
     try {
       await navigator.share({ files: [file], title: 'Копия «Фишек»' })
@@ -404,11 +421,16 @@ function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (p
       setNote({ ok: false, text: 'Не удалось записать игры — попробуйте ещё раз' })
       return
     }
+    // Заметки и подписи (Р-56): дописываются недостающие, свои не перезаписываются
+    const local = loadNotes()
+    const merged = mergeNotes(local.notes, local.labels, parsed.backup)
+    saveNotes({ notes: merged.notes, labels: merged.labels })
     onPlayers(plan.players)
     setGames(await listGames())
     if (plan.hands.length > 0) allHands().then(setHands, () => undefined)
     const handsNote = plan.hands.length > 0 ? `; раздач покера добавлено ${plan.hands.length}` : ''
-    setNote({ ok: true, text: `Добавлено ${plan.added.length}, уже были ${plan.existing}${handsNote}` })
+    const notesNote = merged.added > 0 ? `; заметок об игроках добавлено ${merged.added}` : ''
+    setNote({ ok: true, text: `Добавлено ${plan.added.length}, уже были ${plan.existing}${handsNote}${notesNote}` })
   }
 
   return (
@@ -416,8 +438,8 @@ function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (p
       <h2>Копия игр</h2>
       <p className="muted">
         Игры хранятся только в этом браузере: очистка данных сайта или новый телефон их сотрут. Копия — файл со всеми
-        играми, настройками и раздачами прошлых вечеров покера; восстановление добавляет недостающее и ничего не
-        перезаписывает.
+        играми, настройками, раздачами прошлых вечеров покера и заметками об игроках; восстановление добавляет
+        недостающее и ничего не перезаписывает.
       </p>
       {games !== null && <p>{lastBackupText(last, games, today())}</p>}
       <button type="button" className="big primary wide" disabled={games === null} onClick={save}>
@@ -511,6 +533,52 @@ function PokerServerCard() {
         появляются сразу. Только на этом устройстве.
       </p>
     </form>
+  )
+}
+
+// Заметки об игроках (Р-56): подписи цветов — переименовываются здесь, сохраняются сразу; пусто — подпись по умолчанию.
+// Хранятся на устройстве (localStorage) и идут в копию
+function NoteColorsCard() {
+  const [open, setOpen] = useState(false)
+  const [texts, setTexts] = useState<Record<NoteColor, string>>(() => {
+    const { labels } = loadNotes()
+    return Object.fromEntries(NOTE_COLORS.map((c) => [c.id, labelOf(labels, c.id)])) as Record<NoteColor, string>
+  })
+
+  function rename(color: NoteColor, text: string) {
+    setTexts((t) => ({ ...t, [color]: text }))
+    const state = loadNotes()
+    saveNotes({ ...state, labels: setLabel(state.labels, color, text) })
+  }
+
+  return (
+    <section className="card">
+      <h2>Заметки об игроках</h2>
+      <p className="muted">
+        За столом касание имени игрока — заметка: цвет и текст. У места — точка этого цвета. Заметки видны только на этом
+        телефоне, в комнату и на сервер не уходят; есть в копии.
+      </p>
+      <button type="button" className="big wide" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? 'Свернуть цвета' : 'Цвета заметок'}
+      </button>
+      {open && (
+        <ul className="note-labels">
+          {NOTE_COLORS.map((c) => (
+            <li key={c.id}>
+              <span className="note-swatch" style={{ background: c.hex }} />
+              <input
+                aria-label={`Подпись — ${c.name}`}
+                maxLength={NOTE_LABEL_MAX}
+                placeholder={c.label}
+                value={texts[c.id]}
+                onChange={(e) => rename(c.id, e.target.value)}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+      {open && <p className="muted">Подпись меняется сразу везде, где стоит этот цвет. Пусто — снова по умолчанию.</p>}
+    </section>
   )
 }
 

@@ -831,6 +831,156 @@ button.seat.free {
   color: var(--gold);
 }
 
+/* Имя у места — кнопкой: касание — заметка (Р-56, #165); точка заметки — слева от имени */
+.seat-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+button.seat-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 0;
+  padding: 0;
+  border-radius: 0.3rem;
+  background: none;
+  color: inherit;
+  line-height: inherit;
+}
+
+button.note-dot {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  min-height: 0;
+  padding: 0;
+  border-radius: 50%;
+  background: none;
+}
+
+.note-swatch {
+  display: inline-block;
+  flex: none;
+  width: 0.8rem;
+  height: 0.8rem;
+  border: 1px solid rgba(0, 0, 0, 0.45);
+  border-radius: 50%;
+  vertical-align: middle;
+}
+
+.note-swatch.empty {
+  border: 2px solid var(--text);
+  background: none;
+}
+
+.note-label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+
+.note-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.note-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.note-form .field {
+  margin-bottom: 0;
+}
+
+.note-colors {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 7.5rem), 1fr));
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.note-colors legend {
+  margin-bottom: 0.3rem;
+}
+
+button.note-color {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.9rem;
+  padding: 0 0.6rem;
+  border: 2px solid transparent;
+  text-align: left;
+}
+
+button.note-color.on {
+  border-color: var(--gold);
+  background: #24543a;
+}
+
+.note-color-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+textarea.note-input {
+  display: block;
+  width: 100%;
+  min-height: 4.5em;
+  margin-top: 0.25rem;
+  padding: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 1rem;
+}
+
+/* Цвета заметок в «Настройках»: точка и поле подписи в строку */
+.note-labels {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.note-labels li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.note-labels .note-swatch {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+
+.note-labels input {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.note-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .seat-chips {
   display: block;
   font-variant-numeric: tabular-nums;

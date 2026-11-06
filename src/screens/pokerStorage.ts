@@ -1,10 +1,12 @@
 import { parseBotTable, type BotTable } from '../calc/botTable'
 import { parseLocalTable, type LocalTable } from '../calc/localTable'
 import { serverBase, type SavedSeat } from '../calc/pokerLink'
+import { parseLabels, parseNotes, type NoteLabels, type PlayerNotes } from '../calc/playerNotes'
 
 // Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги,
 // звук «ваш ход», «карты всегда открыты», «анимация карт», стол на этом телефоне и стол против ботов — данные этого устройства,
-// а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21, Р-38)
+// а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21, Р-38).
+// Заметки об игроках и подписи их цветов (Р-56) — тоже в localStorage, но в копию идут
 const PASSWORD_KEY = 'fishki.poker.password'
 const SERVER_KEY = 'fishki.poker.server'
 const SEATS_KEY = 'fishki.poker.seats'
@@ -16,6 +18,8 @@ const CHECK_KEY = 'fishki.poker.check'
 const SOUND_KEY = 'fishki.poker.sound'
 const OPEN_KEY = 'fishki.poker.open'
 const ANIM_KEY = 'fishki.poker.anim'
+const NOTES_KEY = 'fishki.poker.notes'
+const LABELS_KEY = 'fishki.poker.noteLabels'
 
 function read(key: string): string {
   try {
@@ -171,6 +175,41 @@ export function saveBotTable(bots: BotTable): boolean {
 export function clearBotTable() {
   botTable = null
   write(BOTS_KEY, '')
+}
+
+// Заметки об игроках и подписи цветов (Р-56): копия — в памяти страницы, экраны подписаны на перемены —
+// заметка, поправленная за столом, сразу видна у всех мест с этим именем
+export type NotesState = { notes: PlayerNotes; labels: NoteLabels }
+
+let notesState: NotesState | undefined // undefined — ещё не читали
+const notesListeners = new Set<() => void>()
+
+function parseStored<T>(key: string, parse: (raw: unknown) => T | null): T | null {
+  try {
+    return parse(JSON.parse(read(key) || '{}'))
+  } catch {
+    return null
+  }
+}
+
+export function loadNotes(): NotesState {
+  notesState ??= {
+    notes: parseStored(NOTES_KEY, parseNotes) ?? {},
+    labels: parseStored(LABELS_KEY, parseLabels) ?? {},
+  }
+  return notesState
+}
+
+export function saveNotes(next: NotesState) {
+  notesState = next
+  write(NOTES_KEY, Object.keys(next.notes).length ? JSON.stringify(next.notes) : '')
+  write(LABELS_KEY, Object.keys(next.labels).length ? JSON.stringify(next.labels) : '')
+  for (const listener of notesListeners) listener()
+}
+
+export function subscribeNotes(listener: () => void): () => void {
+  notesListeners.add(listener)
+  return () => notesListeners.delete(listener)
 }
 
 // Память браузера работает: записать и прочитать
