@@ -10,6 +10,7 @@ import type { RandomBytes } from '../poker/tokens'
 import { BOT_LEVELS, BOT_STYLES, botMove, pickStyles, seededRandom, styleLabel, type BotLevel, type BotStyle, type Random } from './bot'
 import { actFor, hostDo, parseLocalTable, rebuyNow, seatPlayer, toActId } from './localTable'
 import { tableView, type TableView } from './pokerView'
+import type { QuickBets } from './quickBets'
 
 export const BOTS_MIN = 1
 export const BOTS_MAX = 5
@@ -206,9 +207,9 @@ function rebuyBots(table: TableState, meId: string, now: number): TableState {
 
 // Вид стола мне: как у игрока комнаты — свои карты, у ботов рубашки. «Карты ботов открыты» — у ботов
 // в раздаче карты лицом; только для глаз, в ход бота это не идёт. Под именем бота — его стиль (tag): «ЛАГ»;
-// «Стиль ботов виден» снят — подписи нет (#145)
-export function botTableView(bt: BotTable, now: number): TableView {
-  const base = tableView(viewFor(bt.table, bt.meId), bt.meId, now)
+// «Стиль ботов виден» снят — подписи нет (#145). bets — быстрые ставки этого телефона (Р-62)
+export function botTableView(bt: BotTable, now: number, bets?: QuickBets): TableView {
+  const base = tableView(viewFor(bt.table, bt.meId), bt.meId, now, bets)
   const tagged = (s: TableView['seats'][number]) => (s.isMe ? s : { ...s, tag: styleLabel(botStyleOf(bt, s.id)) })
   const v = bt.showStyles ? { ...base, seats: base.seats.map(tagged) } : base
   const cards = bt.table.hand?.cards

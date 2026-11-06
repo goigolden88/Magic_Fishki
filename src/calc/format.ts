@@ -44,6 +44,19 @@ export function formatTenths(n: number, withSign = false): string {
   return signed(rounded, Math.abs(rounded).toFixed(1).replace('.', ','))
 }
 
+// Фишки в больших блайндах (Р-62): 425 при ББ 10 → «42,5 ББ», 400 → «40 ББ»; десятые — округлением
+export function formatBB(chips: number, bb: number): string {
+  const tenths = Math.round((Math.abs(chips) * 10) / bb)
+  const rest = tenths % 10
+  const text = `${formatNumber(Math.trunc(tenths / 10))}${rest ? `,${rest}` : ''}${NBSP}ББ`
+  return chips < 0 && tenths > 0 ? MINUS + text : text
+}
+
+// Сумма за столом: bb — показ в больших блайндах, null — фишками
+export function stackText(chips: number, bb: number | null): string {
+  return bb !== null && bb > 0 ? formatBB(chips, bb) : formatNumber(chips)
+}
+
 // «из 1 фишки», «из 21 фишки», «из 5 фишек», «из 11 фишек»
 export function chipsGenitive(n: number): string {
   const abs = Math.abs(n)

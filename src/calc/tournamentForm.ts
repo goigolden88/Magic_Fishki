@@ -49,6 +49,26 @@ export function tournamentForm(players: number): TournamentForm {
   }
 }
 
+// Форма из уже разобранного выбора — своя «Быстрая комната» в «Настройках» (Р-62): formSettings вернёт то же
+export function tournamentFormOf(s: Pick<Settings, 'format' | 'ante' | 'tournament'>, players: number): TournamentForm {
+  const base = tournamentForm(players)
+  const t = s.tournament
+  if (s.format !== 'tournament' || !t) return { ...base, ante: String(s.ante ?? 0) }
+  return {
+    ...base,
+    format: 'tournament',
+    buyIn: String(t.buyIn),
+    scheme: t.scheme,
+    growth: String(t.growthPct),
+    minutes: String(t.levelMinutes),
+    antePct: String(t.antePct),
+    rebuy: t.rebuyLevels > 0,
+    rebuyLevels: String(t.rebuyLevels || 1),
+    prizesOwn: t.prizes !== null,
+    prizes: (t.prizes ?? defaultPrizes(players)).map(String),
+  }
+}
+
 // Настройки стола из формы; ошибка — та же строка, что скажет стол
 export function formSettings(
   form: TournamentForm,
