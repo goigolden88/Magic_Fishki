@@ -262,14 +262,19 @@ export function saveBigBlinds(on: boolean) {
   write(BB_KEY, on ? 'on' : 'off')
 }
 
+// Свои быстрые ставки: копия в памяти страницы — стол спрашивает их при каждой перемене
+let quickBets: QuickBets | null | undefined // undefined — ещё не читали
+
 export function loadQuickBetsChoice(): QuickBets | null {
-  return parseStored(BETS_KEY, parseQuickBets)
+  if (quickBets === undefined) quickBets = parseStored(BETS_KEY, parseQuickBets)
+  return quickBets
 }
 
 export const loadQuickBets = (): QuickBets => loadQuickBetsChoice() ?? QUICK_BETS_DEFAULT
 
 // null — «Сбросить»: снова начальные
 export function saveQuickBets(bets: QuickBets | null) {
+  quickBets = bets
   write(BETS_KEY, bets ? JSON.stringify(bets) : '')
 }
 

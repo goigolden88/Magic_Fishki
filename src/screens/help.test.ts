@@ -38,6 +38,14 @@ const PLACEHOLDERS: HelpValues = {
   flipSeconds: '‹стол переворачивается›',
   mixVoteSeconds: '‹голосование микса›',
   runVoteSeconds: '‹выбор прогона›',
+  quickBetsPot: '‹ставки после флопа›',
+  quickBetsPre: '‹ставки до флопа›',
+  quickBetsMax: '‹своих ставок до›',
+  potPctMin: '‹доля банка от›',
+  potPctMax: '‹доля банка до›',
+  preMin: '‹ББ от›',
+  preMax: '‹ББ до›',
+  bbExample: '‹в ББ›',
 }
 
 describe('справка', () => {
@@ -106,6 +114,14 @@ describe('справка', () => {
       flipSeconds: '1,5',
       mixVoteSeconds: '15',
       runVoteSeconds: '10',
+      quickBetsPot: '«⅓ банка», «½ банка», «¾ банка» и «Банк»',
+      quickBetsPre: '«2,5 ББ», «3 ББ» и «4 ББ»',
+      quickBetsMax: '5',
+      potPctMin: '10',
+      potPctMax: '300',
+      preMin: '2',
+      preMax: '20',
+      bbExample: '42,5 ББ',
     })
   })
 })

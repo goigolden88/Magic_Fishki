@@ -9,7 +9,7 @@ import {
   tableSnapshot,
   type DealSnapshot,
 } from '../calc/dealAnimation'
-import { formatChips, formatNumber, formatRub, parseChips } from '../calc/format'
+import { formatChips, formatNumber, formatRub, parseChips, stackText } from '../calc/format'
 import {
   betSide,
   betSlider,
@@ -74,9 +74,11 @@ import { NoteDot, NotePop, useNotes } from './PlayerNote'
 import { LookFields } from './LookFields'
 import { playFlights, useLandOnHide } from './cardFly'
 import {
+  loadBigBlinds,
   loadCardAnim,
   loadMyLook,
   loadOpenCards,
+  loadQuickBets,
   loadRecordedGame,
   loadTurnSound,
   saveOpenCards,
@@ -341,7 +343,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   if (room.online && sy.first === null && table !== sy.before) sy.first = table
   const live = room.online && sy.first !== null && table !== sy.first
 
-  const v = tableView(table, me, room.serverNow())
+  const v = tableView(table, me, room.serverNow(), loadQuickBets()) // свои быстрые ставки (Р-62)
   const mix = mixView(table, me, room.serverNow()) // «Микс» (#166) — между раздачами, над кнопками ведущего
   const runs = runView(table, me, room.serverNow()) // «Сколько раз прогнать» (#167) — вместо полосы «Ждём хода»
   // Копия раздач (#114) — со своими картами каждой раздачи (Р-54): к ответу истории они уже запомнены
@@ -443,6 +445,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
           key={`${v.handNumber}-${v.stage}-${v.actions.raise?.min ?? ''}`}
           actions={v.actions}
           sb={sb}
+          bb={v.bb}
           who={null}
           left={v.turnLeft}
           online={room.online}
@@ -664,14 +667,21 @@ export function blindsLine(table: TableState, v: TableView): string {
   return `${game}${t ? 'Турнир · ' : ''}Блайнды ${levelText(blinds)}${runs ? ` · ${runs}` : ''}`
 }
 
+// Суммы за столом (Р-62): «Стеки и ставки в больших блайндах» на этом телефоне — в ББ раздачи, иначе фишками.
+// Только показ: ввод суммы, история раздач и выгрузка — фишками
+export function bbUnit(bb: number): number | null {
+  return loadBigBlinds() ? bb : null
+}
+
 // Под столом — банки с претендентами
 export function PotList({ view: v }: { view: TableView }) {
   if (v.pots.length === 0) return null
+  const unit = bbUnit(v.bb)
   return (
     <ul className="list pots muted">
       {v.pots.map((p) => (
         <li key={p.label}>
-          {p.label}: {formatNumber(p.amount)} — {p.eligible.map((x) => x.name).join(', ')}
+          {p.label}: {stackText(p.amount, unit)} — {p.eligible.map((x) => x.name).join(', ')}
         </li>
       ))}
     </ul>
@@ -971,6 +981,7 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
   const { notes, labels } = useNotes()
   const wrap = useRef<HTMLDivElement>(null)
   const dealing = useTableDeal(wrap, v, live)
+  const unit = bbUnit(v.bb)
   const bottom = v.me?.seat ?? 0
   const spots = spotsBySeat(v.maxSeats, v.me?.seat ?? null)
   const hudSeat = v.seats.find((s) => s.id === hudOf && s.hud !== null)
@@ -985,13 +996,13 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
         <div className="muted">{v.stageLabel}</div>
         {v.stage !== null && (
           <div className="pot-total">
-            Банк <strong>{formatNumber(v.pot)}</strong>
+            Банк <strong>{stackText(v.pot, unit)}</strong>
           </div>
         )}
         {v.pots.length > 1 &&
           v.pots.map((p) => (
             <div key={p.label}>
-              {p.label} {formatNumber(p.amount)}
+              {p.label} {stackText(p.amount, unit)}
             </div>
           ))}
         {v.runs ? (
@@ -1035,6 +1046,7 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
             note={noteOf(notes, s.name)}
             labels={labels}
             onNote={(edit) => showNote(s.name, edit)}
+            unit={unit}
           />
         ))}
         {v.freeSeats.map((k) => (
@@ -1130,8 +1142,9 @@ function SeatSpot(props: {
   note: PlayerNote | null
   labels: NoteLabels
   onNote: (edit: boolean) => void
+  unit: number | null // стек и ставка — в ББ (Р-62); null — фишками
 }) {
-  const { seat: s, at, bottom, myCards, myHand, open, onHud, note, labels, onNote } = props
+  const { seat: s, at, bottom, myCards, myHand, open, onHud, note, labels, onNote, unit } = props
   const marks = [
     s.place !== null && `${s.place} место`,
     s.allIn && 'олл-ин',
@@ -1168,7 +1181,7 @@ function SeatSpot(props: {
         </button>
       </span>
       {s.tag && <span className="seat-tag">{s.tag}</span>}
-      <span className="seat-chips">{formatNumber(s.chips)}</span>
+      <span className="seat-chips">{stackText(s.chips, unit)}</span>
       {s.hud && <HudLine hud={s.hud} onOpen={onHud} />}
       {myCards ? (
         <PeekCards cards={myCards} open={open} size="mid" label={myHand} className="seat-cards" fly={seatGroup(s.seat)} />
@@ -1178,7 +1191,7 @@ function SeatSpot(props: {
       {s.handName && <span className="seat-mark">{s.handName}</span>}
       {s.best && <CardRow cards={s.best} size="small" best />}
       {marks.length > 0 && <span className="seat-mark">{marks.join(' · ')}</span>}
-      {s.bet > 0 && <span className={`bet-chip ${betSide(at)}`}>{formatNumber(s.bet)}</span>}
+      {s.bet > 0 && <span className={`bet-chip ${betSide(at)}`}>{stackText(s.bet, unit)}</span>}
     </div>
   )
 }
@@ -1188,16 +1201,21 @@ function SeatSpot(props: {
 // Повысить можно только олл-ином — вместо ползунка кнопка «Олл-ин N». Пот-лимит (#80) — среди быстрых сумм
 // «Пот», под ползунком «Не больше банка: N»; олл-ина больше «пота» нет.
 // who — за кого ход на одном телефоне («Ход: имя»); null — свои: «Ваш ход».
-// left — секунд на мой ход (таймер стола); online — есть связь: без неё кнопки неактивны
+// left — секунд на мой ход (таймер стола); online — есть связь: без неё кнопки неактивны.
+// Быстрые суммы — свои кнопки этого телефона (Р-62); bb — большой блайнд раздачи: суммы на кнопках — в ББ,
+// если так выбрано в «Настройках»; число в поле — всегда фишками
 export function ActionsCard(props: {
   actions: ActionsView
   sb: number
+  bb: number
   who: string | null
   left?: number | null
   online: boolean
   onAct: (body: Extract<ClientBody, { type: 'act' }>) => void
 }) {
-  const { actions: a, sb, who, left = null, online, onAct: act } = props
+  const { actions: a, sb, bb, who, left = null, online, onAct: act } = props
+  const unit = bbUnit(bb)
+  const money = (n: number) => stackText(n, unit)
   const r = a.raise
   const slider = a.myTurn ? betSlider(r, sb) : null
   const [text, setText] = useState(r ? String(r.min) : '')
@@ -1221,17 +1239,17 @@ export function ActionsCard(props: {
           <div className="quick-row">
             {r.quick.map((q) => (
               <button key={q.label} type="button" onClick={() => setAmount(q.to)}>
-                <span>{q.label}</span> <span className="num">{formatNumber(q.to)}</span>
+                <span>{q.label}</span> <span className="num">{money(q.to)}</span>
               </button>
             ))}
             {r.allIn && (
               <button type="button" onClick={() => setAmount(r.max)}>
-                <span>Олл-ин</span> <span className="num">{formatNumber(r.max)}</span>
+                <span>Олл-ин</span> <span className="num">{money(r.max)}</span>
               </button>
             )}
           </div>
           <BetRange slider={slider} amount={to ?? r.min} onChange={setAmount} />
-          {r.potLimit !== null && <p className="muted dock-note">Не больше банка: {formatNumber(r.potLimit)}</p>}
+          {r.potLimit !== null && <p className="muted dock-note">Не больше банка: {money(r.potLimit)}</p>}
           <div className="dock-row">
             <input
               className="bet-amount"
@@ -1242,7 +1260,7 @@ export function ActionsCard(props: {
               onChange={(e) => setText(e.target.value)}
             />
             <button className="big primary grow" disabled={off || !okTo}>
-              {raiseLabel} {to !== null ? formatNumber(to) : '…'}
+              {raiseLabel} {to !== null ? money(to) : '…'}
             </button>
           </div>
         </form>
@@ -1257,12 +1275,12 @@ export function ActionsCard(props: {
           </button>
         ) : (
           <button type="button" className="big primary" disabled={off} onClick={() => act({ type: 'act', action: { type: 'call' } })}>
-            Колл {formatNumber(a.call)}
+            Колл {money(a.call)}
           </button>
         )}
         {!slider && a.allIn !== null && (
           <button type="button" className="big cashout" disabled={off} onClick={() => act({ type: 'act', action: { type: 'allin' } })}>
-            Олл-ин {formatNumber(a.allIn)}
+            Олл-ин {money(a.allIn)}
           </button>
         )}
       </div>
