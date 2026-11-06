@@ -20,6 +20,7 @@ import { countsView, type HudView } from '../calc/pokerView'
 import { formatDayMonth } from '../dates'
 import { allHands, getSettings, listGames } from '../store/db'
 import { HudRows } from './Hud'
+import { NoteCard } from './PlayerNote'
 import { StatBody, sign } from './Players'
 
 // Строка разницы: «▲ +500 ₽», «▼ −0,4», «без изменений»
@@ -198,6 +199,7 @@ export function PlayerScreen({ id }: { id: string }) {
             {data.stat.games > 0 && <TrendCard trend={data.trend} size={data.size} />}
             {data.trend.recent !== null && <SpansCard spans={data.spans} size={data.size} />}
             {data.poker && <PokerAllCard hud={data.poker} />}
+            <NoteCard name={data.stat.name} />
           </div>
         </>
       )}

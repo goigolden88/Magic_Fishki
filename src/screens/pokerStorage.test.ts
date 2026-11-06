@@ -150,6 +150,31 @@ describe('стол на этом телефоне в памяти устройс
     })
   })
 
+  it('заметки об игроках (Р-56): помнятся после перезапуска, подписчик узнаёт о правке; пустые — следов нет', async () => {
+    const storage = fakeStorage()
+    vi.stubGlobal('localStorage', storage)
+    let s = await reload()
+    expect(s.loadNotes()).toEqual({ notes: {}, labels: {} })
+    let calls = 0
+    const stop = s.subscribeNotes(() => calls++)
+    const next = { notes: { Аня: { color: 'green' as const, text: 'фиш' } }, labels: { red: 'агро' } }
+    s.saveNotes(next)
+    expect(calls).toBe(1)
+    expect(s.loadNotes()).toBe(next)
+    stop()
+    s.saveNotes(next)
+    expect(calls).toBe(1)
+
+    s = await reload()
+    expect(s.loadNotes()).toEqual(next)
+    s.saveNotes({ notes: {}, labels: {} })
+    expect(storage.data.size).toBe(0)
+
+    storage.data.set('fishki.poker.notes', 'не JSON')
+    s = await reload()
+    expect(s.loadNotes()).toEqual({ notes: {}, labels: {} })
+  })
+
   it('память работает — проверка говорит «да» и следов не оставляет', async () => {
     const storage = fakeStorage()
     vi.stubGlobal('localStorage', storage)
