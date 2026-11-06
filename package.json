@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "shots": "node scripts/shots.ts",
     "test": "vitest run",
     "server:check": "tsc --noEmit -p server",
     "server:build": "wrangler deploy --dry-run --config server/wrangler.toml --outdir server/dist",
