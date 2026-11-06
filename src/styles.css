@@ -712,6 +712,19 @@ button.bar-button {
   --felt-3: #1c2125;
 }
 
+/* Сукна только для личного «Вида стола» (Р-61): тёмно-синее и чёрное */
+.felt-navy {
+  --felt-1: #1d2f5c;
+  --felt-2: #152447;
+  --felt-3: #0d1730;
+}
+
+.felt-black {
+  --felt-1: #26262a;
+  --felt-2: #19191c;
+  --felt-3: #0c0c0e;
+}
+
 .felt {
   border-radius: 50%;
   background: radial-gradient(
@@ -1213,6 +1226,23 @@ textarea.note-input {
   color: #c62828;
 }
 
+/* Колода в четыре цвета (Р-61): класс по масти; цвета тёмные — читаются на светлой карте */
+.playing-card.suit-s {
+  color: #111;
+}
+
+.playing-card.suit-h {
+  color: #c62828;
+}
+
+.playing-card.suit-d {
+  color: #1565c0;
+}
+
+.playing-card.suit-c {
+  color: #2e7d32;
+}
+
 .playing-card.back {
   border: 2px solid #f7f7f2;
   background: repeating-linear-gradient(45deg, #7a1f2b 0 4px, #a8323f 4px 8px);
@@ -1233,6 +1263,21 @@ textarea.note-input {
     #5a1c28;
 }
 
+/* Рубашки только для личного «Вида стола» (Р-61): однотонная с фишкой в середине и тёмная с тонким узором */
+.back-chip .playing-card.back {
+  background:
+    radial-gradient(circle, #f7f7f2 0 18%, #1f6f8b 18% 26%, #f7f7f2 26% 32%, transparent 32%),
+    #1f6f8b;
+}
+
+.back-dark .playing-card.back {
+  border-color: #3a3a40;
+  background:
+    repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 5px),
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 5px),
+    #16161a;
+}
+
 /* Образцы в выборе вида стола: кружок сукна и маленькая рубашка */
 .look-swatch {
   display: inline-block;
@@ -1248,6 +1293,12 @@ textarea.note-input {
 .look-back {
   margin-right: 6px;
   vertical-align: middle;
+}
+
+/* Образец колоды в «Виде стола» (Р-61): по карте каждой масти */
+.deck-sample {
+  gap: 0.3rem;
+  margin-top: 0.6rem;
 }
 
 .playing-card.small {

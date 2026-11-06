@@ -13,13 +13,15 @@ import {
 } from '../model'
 import type { SavedHand } from './evenings'
 import { parseLabels, parseNotes, type NoteLabels, type PlayerNotes } from './playerNotes'
+import { MY_LOOK_DEFAULT, parseMyLook, type MyLook } from './pokerLook'
 
 // Файл-копия (Р-11): все игры без демо и настройки, с пометкой приложения и версии формата.
 // Формат 2 (Р-12): постоянные игроки — { id, name }, у участников — regularId; формат 1 — игроки строками.
 // Формат 3 (Р-54): ещё раздачи прошлых вечеров покера — записи хранилища hands как есть; у 1 и 2 раздач нет.
-// Формат 4 (Р-56): ещё заметки об игроках и переименованные подписи цветов; у 1–3 их нет
+// Формат 4 (Р-56): ещё заметки об игроках и переименованные подписи цветов; у 1–3 их нет.
+// Формат 5 (Р-61): ещё личный «Вид стола» — сукно, рубашка, колода; у 1–4 его нет — «Как у стола»
 export const BACKUP_APP = 'magic_fishki'
-export const BACKUP_FORMAT = 4
+export const BACKUP_FORMAT = 5
 
 export type Backup = {
   app: typeof BACKUP_APP
@@ -30,6 +32,7 @@ export type Backup = {
   hands: SavedHand[]
   notes: PlayerNotes
   noteLabels: NoteLabels
+  look: MyLook
 }
 
 export type ParsedBackup = { ok: true; backup: Backup } | { ok: false; error: string }
@@ -49,6 +52,7 @@ export function makeBackup(
   hands: SavedHand[] = [],
   notes: PlayerNotes = {},
   noteLabels: NoteLabels = {},
+  look: MyLook = MY_LOOK_DEFAULT,
 ): Backup {
   return {
     app: BACKUP_APP,
@@ -59,6 +63,7 @@ export function makeBackup(
     hands,
     notes,
     noteLabels,
+    look,
   }
 }
 
@@ -198,7 +203,8 @@ function isSavedHand(v: unknown): v is SavedHand {
 
 // Текст файла → копия или понятная ошибка; .json и .txt разбираются одинаково.
 // Копия формата 1 приводится к формату 2: постоянным — новые id, участникам — связь по точному имени (Р-12).
-// У копий 1 и 2 раздач нет — пустой список (Р-54); у копий 1–3 заметок и подписей нет — пусто (Р-56)
+// У копий 1 и 2 раздач нет — пустой список (Р-54); у копий 1–3 заметок и подписей нет — пусто (Р-56);
+// у копий 1–4 вида стола нет — «Как у стола» (Р-61)
 export function parseBackup(text: string, makeId: () => string): ParsedBackup {
   let data: unknown
   try {
@@ -248,6 +254,8 @@ export function parseBackup(text: string, makeId: () => string): ParsedBackup {
     notes = parsedNotes
     noteLabels = parsedLabels
   }
+  // Вид стола (Р-61): значение не из готовых — «Как у стола», копия из-за него не отвергается
+  const look = data.format >= 5 ? parseMyLook(data.look) : MY_LOOK_DEFAULT
   let games = data.games as Game[]
   let players = settings.players as Regular[]
   if (oldFormat) {
@@ -270,6 +278,7 @@ export function parseBackup(text: string, makeId: () => string): ParsedBackup {
       hands,
       notes,
       noteLabels,
+      look,
     },
   }
 }

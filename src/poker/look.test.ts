@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import { hostDo, parseLocalTable, startLocalTable } from '../calc/localTable'
-import { lookClass, lookOf } from '../calc/pokerLook'
+import {
+  DECK_LABELS,
+  lookClass,
+  lookOf,
+  mergeMyLook,
+  MY_BACK_LABELS,
+  MY_FELT_LABELS,
+  MY_LOOK_DEFAULT,
+  parseMyLook,
+  suitClass,
+} from '../calc/pokerLook'
+import { CARD_BACKS, FELTS } from './table'
 import { PROTOCOL_VERSION, type ClientBody } from './protocol'
 import { handle, viewFor, type TableState } from './table'
 import { call, newTable, play, start } from './testing'
@@ -71,5 +82,46 @@ describe('вид стола (#77)', () => {
     delete old.table.settings.cardBack
     const parsed = parseLocalTable(JSON.stringify(old))
     expect(parsed && lookOf(parsed.table.settings)).toEqual({ felt: 'green', cardBack: 'classic' })
+  })
+})
+
+describe('личный вид стола (Р-61)', () => {
+  it('списки: прежние четыре и по два новых; у ведущего — прежние, их знает сервер', () => {
+    expect(MY_FELT_LABELS.map(([f]) => f)).toEqual([...FELTS, 'navy', 'black'])
+    expect(MY_BACK_LABELS.map(([b]) => b)).toEqual([...CARD_BACKS, 'chip', 'dark'])
+    expect(MY_FELT_LABELS.slice(-2).map(([, l]) => l)).toEqual(['Тёмно-синее', 'Чёрное'])
+    expect(DECK_LABELS).toEqual([
+      ['two', 'Две масти цветом'],
+      ['four', 'Четыре цвета'],
+    ])
+  })
+
+  it('«Как у стола» — выбор ведущего; свой выбор — поверх него', () => {
+    const settings = { felt: 'burgundy' as const, cardBack: 'geo' as const }
+    expect(lookClass(settings, MY_LOOK_DEFAULT)).toBe('table-look felt-burgundy back-geo')
+    expect(lookClass(settings, { ...MY_LOOK_DEFAULT, felt: 'black' })).toBe('table-look felt-black back-geo')
+    expect(lookClass(settings, { felt: null, cardBack: 'dark', deck: 'four' })).toBe('table-look felt-burgundy back-dark')
+  })
+
+  it('стол до #77 без полей вида — свой выбор всё равно свой', () => {
+    expect(lookClass({}, { felt: 'navy', cardBack: 'chip', deck: 'two' })).toBe('table-look felt-navy back-chip')
+  })
+
+  it('цвет масти: две масти — черви и бубны красные; четыре цвета — класс по масти', () => {
+    expect(['As', 'Kh', 'Qd', 'Jc'].map((c) => suitClass(c, 'two'))).toEqual(['', 'red', 'red', ''])
+    expect(['As', 'Kh', 'Qd', 'Jc'].map((c) => suitClass(c, 'four'))).toEqual(['suit-s', 'suit-h', 'suit-d', 'suit-c'])
+  })
+
+  it('из памяти: не из готовых, не объект или нет поля — «Как у стола» и две масти', () => {
+    expect(parseMyLook(null)).toEqual(MY_LOOK_DEFAULT)
+    expect(parseMyLook([1])).toEqual(MY_LOOK_DEFAULT)
+    expect(parseMyLook({ felt: 'black', cardBack: 'toString', deck: 'four' })).toEqual({ felt: 'black', cardBack: null, deck: 'four' })
+  })
+
+  it('восстановление: из копии — что здесь не выбрано; свой выбор остаётся', () => {
+    const backup = { felt: 'navy' as const, cardBack: 'chip' as const, deck: 'four' as const }
+    expect(mergeMyLook(MY_LOOK_DEFAULT, backup)).toEqual(backup)
+    expect(mergeMyLook({ felt: 'green', cardBack: null, deck: 'two' }, backup)).toEqual({ felt: 'green', cardBack: 'chip', deck: 'four' })
+    expect(mergeMyLook(backup, MY_LOOK_DEFAULT)).toEqual(backup)
   })
 })

@@ -27,7 +27,7 @@ import { lookClass } from '../calc/pokerLook'
 import { handFor } from '../poker/history'
 import { NO_STORAGE } from './PokerLocal'
 import { ActionsCard, blindsLine, HandHistory, HostDock, LastHand, PokerTable, PotList } from './PokerRoom'
-import { clearBotTable, loadBotTable, saveBotTable, storageWorks } from './pokerStorage'
+import { clearBotTable, loadBotTable, loadMyLook, saveBotTable, storageWorks } from './pokerStorage'
 
 // Адрес стола с ботами: под код комнаты (6 знаков) не подходит
 export const BOTS_HASH = '#/poker/bots'
@@ -171,7 +171,7 @@ function BotTableCard(props: {
 
   // Колонка (#97): стол — на весь первый экран, под ним листается остальное, панель хода — внизу
   return (
-    <div className={`table-layout ${lookClass(table.settings)}`}>
+    <div className={`table-layout ${lookClass(table.settings, loadMyLook())}`}>
       <div className="table-scroll">
         <div className="table-stage">
           <p className="muted table-info">

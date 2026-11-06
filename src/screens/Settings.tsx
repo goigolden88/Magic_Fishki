@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
 import { backupFileName, backupText, lastBackupText, makeBackup, parseBackup, planRestore } from '../calc/backup'
 import { demoGames, hasDemo } from '../calc/demo'
 import { formatNumber, formatRate, parseChips, parseRate } from '../calc/format'
@@ -11,12 +11,16 @@ import { download } from './download'
 import { loadLastBackup, saveLastBackup } from './lastBackup'
 import { DEFAULT_SERVER, serverBase } from '../calc/pokerLink'
 import { NOTE_COLORS, NOTE_LABEL_MAX, labelOf, mergeNotes, setLabel, type NoteColor } from '../calc/playerNotes'
+import { DECK_LABELS, MY_BACK_LABELS, MY_FELT_LABELS, mergeMyLook, type MyLook } from '../calc/pokerLook'
+import { PlayingCard } from './PokerRoom'
 import {
   loadCardAnim,
+  loadMyLook,
   loadNotes,
   loadServer,
   loadTurnSound,
   saveCardAnim,
+  saveMyLook,
   saveNotes,
   saveServer,
   saveTurnSound,
@@ -27,6 +31,7 @@ export function SettingsScreen() {
   const [rateText, setRateText] = useState<string | null>(null)
   const [buyinText, setBuyinText] = useState('')
   const [saved, setSaved] = useState(false)
+  const [myLook, setMyLook] = useState(loadMyLook) // личный «Вид стола» (Р-61): меняется и восстановлением из копии
 
   useEffect(() => {
     void getSettings().then((s) => {
@@ -109,8 +114,13 @@ export function SettingsScreen() {
             size={settings.compareWindow}
             onChange={(compareWindow) => update({ ...settings, compareWindow })}
           />
-          <BackupCard settings={settings} onPlayers={(players) => setSettings((s) => s && { ...s, players })} />
+          <BackupCard
+            settings={settings}
+            onPlayers={(players) => setSettings((s) => s && { ...s, players })}
+            onLook={() => setMyLook(loadMyLook())}
+          />
           <PokerServerCard />
+          <MyLookCard look={myLook} onChange={setMyLook} />
           <NoteColorsCard />
           <DemoCard />
         </div>
@@ -331,7 +341,8 @@ type Note = { ok: boolean; text: string }
 
 // Файл-копия (Р-11): игры живут только в браузере — копия переносит их на другое устройство и спасает при очистке.
 // С Р-54 в копии и раздачи прошлых вечеров покера
-function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (players: Regular[]) => void }) {
+function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[]) => void; onLook: () => void }) {
+  const { settings, onPlayers, onLook } = props
   const [games, setGames] = useState<Game[] | null>(null)
   const [hands, setHands] = useState<SavedHand[]>([])
   const [note, setNote] = useState<Note | null>(null)
@@ -355,7 +366,7 @@ function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (p
   // Заметки об игроках и подписи цветов (Р-56) — из памяти телефона, читаются сразу, без ожидания
   function backupNow(now: string) {
     const { notes, labels } = loadNotes()
-    return makeBackup(games ?? [], settings, now, hands, notes, labels)
+    return makeBackup(games ?? [], settings, now, hands, notes, labels, loadMyLook())
   }
 
   // Сохранил ли браузер файл, приложению не узнать (на iPhone — не всегда): обещать нельзя
@@ -425,6 +436,9 @@ function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (p
     const local = loadNotes()
     const merged = mergeNotes(local.notes, local.labels, parsed.backup)
     saveNotes({ notes: merged.notes, labels: merged.labels })
+    // Вид стола (Р-61): из копии — то, что здесь не выбрано; свой выбор не перезаписывается
+    saveMyLook(mergeMyLook(loadMyLook(), parsed.backup.look))
+    onLook()
     onPlayers(plan.players)
     setGames(await listGames())
     if (plan.hands.length > 0) allHands().then(setHands, () => undefined)
@@ -438,7 +452,7 @@ function BackupCard({ settings, onPlayers }: { settings: Settings; onPlayers: (p
       <h2>Копия игр</h2>
       <p className="muted">
         Игры хранятся только в этом браузере: очистка данных сайта или новый телефон их сотрут. Копия — файл со всеми
-        играми, настройками, раздачами прошлых вечеров покера и заметками об игроках; восстановление добавляет
+        играми, настройками, раздачами прошлых вечеров покера, заметками об игроках и видом стола; восстановление добавляет
         недостающее и ничего не перезаписывает.
       </p>
       {games !== null && <p>{lastBackupText(last, games, today())}</p>}
@@ -533,6 +547,91 @@ function PokerServerCard() {
         появляются сразу. Только на этом устройстве.
       </p>
     </form>
+  )
+}
+
+// Личный «Вид стола» (Р-61): сукно и рубашка поверх выбора ведущего («Как у стола» — его выбор) и колода.
+// Только на этом телефоне, сохраняется сразу; есть в копии
+function MyLookCard({ look, onChange }: { look: MyLook; onChange: (look: MyLook) => void }) {
+  const [open, setOpen] = useState(false)
+
+  function update(change: Partial<MyLook>) {
+    const next = { ...look, ...change }
+    saveMyLook(next)
+    onChange(next)
+  }
+
+  return (
+    <section className="card">
+      <h2>Вид стола</h2>
+      <p className="muted">
+        Сукно, рубашка карт и колода — как столы выглядят на этом телефоне: в комнате, на одном телефоне, против ботов и в
+        казино. У других игроков — их выбор. «Как у стола» — то, что выбрал ведущий.
+      </p>
+      <button type="button" className="big wide" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? 'Свернуть вид стола' : 'Выбрать вид стола'}
+      </button>
+      {open && (
+        <>
+          <fieldset className="players-pick">
+            <legend className="muted">Сукно</legend>
+            <div className="amounts">
+              <LookChoice on={look.felt === null} onPick={() => update({ felt: null })}>
+                Как у стола
+              </LookChoice>
+              {MY_FELT_LABELS.map(([felt, label]) => (
+                <LookChoice key={felt} on={look.felt === felt} onPick={() => update({ felt })}>
+                  <span className={`look-swatch felt-${felt}`} aria-hidden="true" />
+                  {label}
+                </LookChoice>
+              ))}
+            </div>
+          </fieldset>
+          <fieldset className="players-pick">
+            <legend className="muted">Рубашка</legend>
+            <div className="amounts">
+              <LookChoice on={look.cardBack === null} onPick={() => update({ cardBack: null })}>
+                Как у стола
+              </LookChoice>
+              {MY_BACK_LABELS.map(([back, label]) => (
+                <LookChoice key={back} on={look.cardBack === back} onPick={() => update({ cardBack: back })}>
+                  <span className={`look-back back-${back}`} aria-hidden="true">
+                    <span className="playing-card small back" />
+                  </span>
+                  {label}
+                </LookChoice>
+              ))}
+            </div>
+          </fieldset>
+          <fieldset className="players-pick">
+            <legend className="muted">Колода</legend>
+            <div className="amounts">
+              {DECK_LABELS.map(([deck, label]) => (
+                <LookChoice key={deck} on={look.deck === deck} onPick={() => update({ deck })}>
+                  {label}
+                </LookChoice>
+              ))}
+            </div>
+            <div className="card-row deck-sample" aria-hidden="true">
+              {DECK_SAMPLE.map((c) => (
+                <PlayingCard key={c} card={c} size="mid" />
+              ))}
+            </div>
+          </fieldset>
+        </>
+      )}
+    </section>
+  )
+}
+
+// Образец колоды: по карте каждой масти
+const DECK_SAMPLE = ['As', 'Kh', 'Qd', 'Jc']
+
+function LookChoice(props: { on: boolean; onPick: () => void; children: ReactNode }) {
+  return (
+    <button type="button" className={props.on ? 'big primary' : 'big'} aria-pressed={props.on} onClick={props.onPick}>
+      {props.children}
+    </button>
   )
 }
 

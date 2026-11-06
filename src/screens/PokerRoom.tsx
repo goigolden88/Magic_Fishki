@@ -55,7 +55,7 @@ import { mixView, type MixView } from '../calc/pokerMix'
 import { runView, type RunView } from '../calc/pokerRuns'
 import { runsText } from '../calc/quickRoom'
 import { gameFromTable, gameFromTournament } from '../calc/pokerGame'
-import { lookClass, lookOf } from '../calc/pokerLook'
+import { lookClass, lookOf, suitClass } from '../calc/pokerLook'
 import { timerSettings, turnSecondsOf } from '../calc/pokerTimer'
 import { levelText, prizesOf } from '../calc/tournamentForm'
 import { formatDate, today } from '../dates'
@@ -75,6 +75,7 @@ import { LookFields } from './LookFields'
 import { playFlights, useLandOnHide } from './cardFly'
 import {
   loadCardAnim,
+  loadMyLook,
   loadOpenCards,
   loadRecordedGame,
   loadTurnSound,
@@ -364,10 +365,10 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
     room.send({ type: 'act', action: autoMove })
   }, [mark, autoMove?.type])
 
-  // Вид стола (#77) — классом на обёртке: сукно и рубашки своих и чужих карт.
+  // Вид стола (#77) — классом на обёртке: сукно и рубашки своих и чужих карт; свой выбор телефона — поверх (Р-61).
   // Колонка (#97): стол — на весь первый экран, под ним листается остальное, панель хода — внизу
   return (
-    <div className={`table-layout ${lookClass(table.settings)}`}>
+    <div className={`table-layout ${lookClass(table.settings, loadMyLook())}`}>
       <div className="table-scroll">
         <div className="table-stage">
           <p className="muted table-info">
@@ -812,11 +813,13 @@ export function HandHistory(props: {
 // size: small — у чужих мест, mid — свои на моём месте (#97), big — «Банк ваш без вскрытия»
 type CardSize = 'small' | 'mid' | 'big'
 
-// fly — ключ карты для анимации раздачи (#133, cardFly): группа и номер в ней; без него карта не летает
+// fly — ключ карты для анимации раздачи (#133, cardFly): группа и номер в ней; без него карта не летает.
+// Цвет масти — по колоде из личного «Вида стола» (Р-61): две масти цветом или четыре цвета
 export function PlayingCard(props: { card: Card | null; size?: CardSize; mark?: 'win' | 'dim'; fly?: string }) {
   const { card, size, mark, fly } = props
   const f = card === null ? null : cardFace(card)
-  const cls = ['playing-card', size, !f && 'back', f?.red && 'red', mark].filter(Boolean).join(' ')
+  const color = card === null ? '' : suitClass(card, loadMyLook().deck)
+  const cls = ['playing-card', size, !f && 'back', color, mark].filter(Boolean).join(' ')
   if (!f) return <span className={cls} data-fly={fly} aria-label="карта рубашкой" />
   return (
     <span className={cls} data-fly={fly}>

@@ -68,11 +68,12 @@ describe('файл-копия: сохранение (Р-11)', () => {
     const real = game('g1')
     const backup = backupOf([real, game('demo1', { demo: true }), game('g2')])
     expect(backup.app).toBe('magic_fishki')
-    expect(backup.format).toBe(4)
+    expect(backup.format).toBe(5)
     expect(backup.savedAt).toBe(NOW)
     expect(backup.hands).toEqual([])
     expect(backup.notes).toEqual({})
     expect(backup.noteLabels).toEqual({})
+    expect(backup.look).toEqual({ felt: null, cardBack: null, deck: 'two' })
     expect(backup.games.map((g) => g.id)).toEqual(['g1', 'g2'])
     expect(backup.games[0]).toEqual(real)
     expect(backup.settings).toEqual(SETTINGS)
@@ -129,7 +130,7 @@ describe('файл-копия: разбор', () => {
   })
 
   it('копия из более новой версии — ошибка', () => {
-    const text = JSON.stringify({ ...backupOf([]), format: 5 })
+    const text = JSON.stringify({ ...backupOf([]), format: 6 })
     expect(parse(text)).toEqual({ ok: false, error: 'Копия из более новой версии «Фишек» — обновите приложение' })
   })
 
@@ -160,7 +161,7 @@ describe('файл-копия: разбор', () => {
     const casinoOnly = game('g1', { entries: [], mode: 'casino' })
     const mixed = game('g2', { mode: 'mixed' })
     const parsed = parse(backupText(backupOf([casinoOnly, mixed, game('g3')])))
-    expect(parsed.ok && parsed.backup.format).toBe(4)
+    expect(parsed.ok && parsed.backup.format).toBe(5)
     expect(parsed.ok && parsed.backup.games.map((g) => g.mode)).toEqual(['casino', 'mixed', undefined])
     const bad = { ...game('g4'), mode: 'bingo' }
     expect(parse(JSON.stringify({ ...backupOf([]), games: [bad] })).ok).toBe(false)
@@ -191,7 +192,7 @@ describe('файл-копия прежней версии (формат 1): иг
     const g = game('g1', { players: [...game('g1').players, { id: 'g1-c', name: 'Ира' }] })
     const parsed = parse(oldText([g], ['Боря', ' Аня ', '', 'Боря']))
     if (!parsed.ok) throw new Error(parsed.error)
-    expect(parsed.backup.format).toBe(4)
+    expect(parsed.backup.format).toBe(5)
     expect(parsed.backup.hands).toEqual([])
     expect(parsed.backup.notes).toEqual({})
     expect(parsed.backup.settings.players).toEqual([
@@ -333,6 +334,32 @@ describe('файл-копия формата 4: заметки', () => {
       ok: false,
       error: 'Копия повреждена: подписи цветов заметок не читаются',
     })
+  })
+})
+
+// Личный «Вид стола» в копии (Р-61)
+describe('файл-копия формата 5: вид стола', () => {
+  const LOOK = { felt: 'navy' as const, cardBack: 'chip' as const, deck: 'four' as const }
+
+  it('выбор вида — в копии и читается обратно без потерь', () => {
+    const backup = makeBackup([game('g1')], SETTINGS, NOW, [], {}, {}, LOOK)
+    const text = backupText(backup)
+    expect(JSON.parse(text).look).toEqual(LOOK)
+    expect(parse(text)).toEqual({ ok: true, backup })
+  })
+
+  it('копия формата 4 (без вида) читается как раньше — «Как у стола», две масти цветом', () => {
+    const { look: _l, ...old } = makeBackup([game('g1')], SETTINGS, NOW, [], {}, {}, LOOK)
+    const parsed = parse(JSON.stringify({ ...old, format: 4 }))
+    expect(parsed).toEqual({ ok: true, backup: backupOf([game('g1')]) })
+  })
+
+  it('формат 5: вида нет или значение не из готовых — «Как у стола», копия читается', () => {
+    const { look: _l, ...noLook } = backupOf([])
+    const parsed = parse(JSON.stringify(noLook))
+    expect(parsed.ok && parsed.backup.look).toEqual({ felt: null, cardBack: null, deck: 'two' })
+    const odd = parse(JSON.stringify({ ...backupOf([]), look: { felt: 'pink', cardBack: 'dark', deck: 'six' } }))
+    expect(odd.ok && odd.backup.look).toEqual({ felt: null, cardBack: 'dark', deck: 'two' })
   })
 })
 
