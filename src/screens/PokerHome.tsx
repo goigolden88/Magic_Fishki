@@ -795,6 +795,7 @@ function NewLocalCard({ onCancel }: { onCancel: () => void }) {
 
       {/* Карты живые (Р-21) — рубашки нет, только сукно */}
       <LookFields look={{ ...lookOf(DEFAULT_SETTINGS), felt }} backs={false} onChange={(l) => l.felt && setFelt(l.felt)} />
+      <p className="muted">Сукно этого стола; свой вид на этом телефоне — в «Настройках», «Вид стола».</p>
 
       <p className="muted">За столом: {players.length}</p>
       {countError && <p className="warn">{countError}</p>}

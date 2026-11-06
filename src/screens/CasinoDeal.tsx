@@ -68,14 +68,12 @@ import {
   loadRound,
   loadStake,
   saveAutoOpen,
-  saveLook,
   saveOdds,
   saveRound,
   saveStake,
 } from './casinoStake'
 import { playFlights, useLandOnHide } from './cardFly'
 import { GuestField } from './GuestField'
-import { LookFields } from './LookFields'
 import { PlayingCard } from './PokerRoom'
 import { loadCardAnim, loadMyLook } from './pokerStorage'
 import { useWide } from './useWide'
@@ -104,7 +102,8 @@ export function CasinoDealScreen({ id }: { id: string }) {
   const [stakeText, setStakeText] = useState(() => String((loadStake() ?? DEFAULT_STAKE) / 100))
   const [kind, setKind] = useState<DealKind>('holdem')
   const [tables, setTables] = useState(DEFAULT_TABLES)
-  const [look, setLook] = useState<Look>(loadLook)
+  // «Как у стола» казино: сукно и рубашка, выбранные здесь до Р-59 (нет — зелёное и классика); свой — «Вид стола»
+  const [look] = useState<Look>(loadLook)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [autoOpen, setAutoOpen] = useState(loadAutoOpen) // «Открывать столы сами», секунд; 0 — «Нет» (#134)
   const [showOdds, setShowOdds] = useState(loadOdds) // «Шансы» (#137)
@@ -349,12 +348,6 @@ export function CasinoDealScreen({ id }: { id: string }) {
     }
   }
 
-  function changeLook(l: Partial<Look>) {
-    const next = { ...look, ...l }
-    setLook(next)
-    saveLook(next)
-  }
-
   // Промежуток помнится на устройстве; посреди раунда — отсчёт заново с новым, «Нет» — снят
   function changeAutoOpen(seconds: number) {
     setAutoOpen(seconds)
@@ -561,8 +554,8 @@ export function CasinoDealScreen({ id }: { id: string }) {
             </p>
           </fieldset>
 
-          {/* Вид стола — как у покерного (#77): помнится на этом устройстве */}
-          <LookFields look={look} backs onChange={changeLook} />
+          {/* Р-59: свой выбор вида в казино дублировал «Вид стола» в «Настройках» — выбор там; прежний читается */}
+          <p className="muted">Сукно, рубашка и колода — в «Настройках», «Вид стола».</p>
 
           {ready && (
             <p>

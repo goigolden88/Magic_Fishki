@@ -103,10 +103,13 @@ export function SettingsScreen() {
       </header>
       <h1>Настройки</h1>
 
-      {/* Р-53: на широком окне карточки — в две колонки, каждая не шире ≈ 640 px */}
+      {/* Р-53: на широком окне карточки — в две колонки, каждая не шире ≈ 640 px.
+          Р-59: разделы по смыслу, заголовок раздела — над его карточками; ключи хранения прежние */}
       {settings !== null && rateText !== null && (
         <div className="cards">
+          <h2 className="group-title">Учёт игр</h2>
           <form className="card" onSubmit={(e) => void save(e)}>
+            <h3>Новая игра</h3>
             <label className="field">
               Курс новой игры, ₽ за фишку
               <input
@@ -132,7 +135,9 @@ export function SettingsScreen() {
                 }}
               />
             </label>
-            <p className="muted">При новой игре — вопрос, записать ли всем такой закуп.</p>
+            <p className="muted">
+              При новой игре — вопрос, записать ли всем такой закуп. Он же сначала — стартовый стек в формах столов покера.
+            </p>
             {buyin === null && <p className="warn">Закуп — целое число фишек больше нуля, например 1000</p>}
             {saved && <p className="ok">Сохранено</p>}
             <button className="big primary wide" disabled={rate === null || buyin === null}>
@@ -140,15 +145,29 @@ export function SettingsScreen() {
             </button>
           </form>
 
-          <PlayersCard players={settings.players} onChange={(players) => update({ ...settings, players })} />
           <AmountsCard
             amounts={settings.quickAmounts}
             onChange={(quickAmounts) => update({ ...settings, quickAmounts })}
           />
+
+          <h2 className="group-title">Игроки</h2>
+          <PlayersCard players={settings.players} onChange={(players) => update({ ...settings, players })} />
           <WindowCard
             size={settings.compareWindow}
             onChange={(compareWindow) => update({ ...settings, compareWindow })}
           />
+
+          <h2 className="group-title">Покер онлайн и стол</h2>
+          <PokerServerCard />
+          {/* Р-62: своя «Быстрая комната» и привычки покер-румов; восстановление из копии перечитывает их */}
+          <QuickRoomCard key={`room-${restored}`} defaultBuyin={settings.defaultBuyin} players={settings.players.length} />
+          <AtTableCard key={`bets-${restored}`} />
+          <MyLookCard look={myLook} onChange={setMyLook} />
+
+          <h2 className="group-title">Заметки об игроках</h2>
+          <NoteColorsCard />
+
+          <h2 className="group-title">Копия данных</h2>
           <BackupCard
             settings={settings}
             onPlayers={(players) => setSettings((s) => s && { ...s, players })}
@@ -157,12 +176,8 @@ export function SettingsScreen() {
               setRestored((n) => n + 1)
             }}
           />
-          <PokerServerCard />
-          {/* Р-62: своя «Быстрая комната» и привычки покер-румов; восстановление из копии перечитывает их */}
-          <QuickRoomCard key={`room-${restored}`} defaultBuyin={settings.defaultBuyin} players={settings.players.length} />
-          <PokerRoomCard key={`bets-${restored}`} />
-          <MyLookCard look={myLook} onChange={setMyLook} />
-          <NoteColorsCard />
+
+          <h2 className="group-title">Демо-данные</h2>
           <DemoCard />
         </div>
       )}
@@ -224,7 +239,7 @@ function PlayersCard({ players, onChange }: { players: Regular[]; onChange: (pla
 
   return (
     <section className="card">
-      <h2>Постоянные игроки</h2>
+      <h3>Постоянные игроки</h3>
       <p className="muted">В новой игре они сразу отмечены — лишних можно снять.</p>
       {players.length > 0 && (
         <ul className="list items">
@@ -296,7 +311,7 @@ function AmountsCard({ amounts, onChange }: { amounts: number[]; onChange: (amou
 
   return (
     <section className="card">
-      <h2>Быстрые суммы, фишек</h2>
+      <h3>Быстрые суммы, фишек</h3>
       <p className="muted">Кнопки у «Закуп», «Докуп» и «Выход» — запись одним касанием.</p>
       {amounts.length > 0 && (
         <ul className="list items">
@@ -338,7 +353,7 @@ function AmountsCard({ amounts, onChange }: { amounts: number[]; onChange: (amou
 function WindowCard({ size, onChange }: { size: number; onChange: (size: number) => void }) {
   return (
     <section className="card">
-      <h2>Окно сравнения, игр</h2>
+      <h3>Окно сравнения, игр</h3>
       <p className="muted">
         Карточка игрока: последние игры против предыдущих, лучший и худший промежуток — по столько игр подряд. От{' '}
         {MIN_WINDOW} до {MAX_WINDOW}.
@@ -495,7 +510,6 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
 
   return (
     <section className="card">
-      <h2>Копия игр</h2>
       <p className="muted">
         Игры хранятся только в этом браузере: очистка данных сайта или новый телефон их сотрут. Копия — файл со всеми
         играми, настройками, раздачами прошлых вечеров покера, заметками об игроках, видом стола, быстрой комнатой и
@@ -526,12 +540,10 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
 }
 
 // Адрес сервера покера (Р-19): пусто — постоянный; свой — на случай резервного сервера или переезда.
-// Хранится на устройстве (localStorage), не в базе и не в копии
+// Хранится на устройстве (localStorage), не в базе и не в копии. До Р-59 — карточка «Покер онлайн» со звуком и анимацией
 function PokerServerCard() {
   const [text, setText] = useState(loadServer)
   const [saved, setSaved] = useState(false)
-  const [sound, setSound] = useState(loadTurnSound) // звук «ваш ход» на этом устройстве (#75) — сохраняется сразу
-  const [anim, setAnim] = useState(loadCardAnim) // «Анимация карт» на этом устройстве (#133) — так же
   const base = serverBase(text)
 
   function save(e: FormEvent) {
@@ -544,7 +556,7 @@ function PokerServerCard() {
 
   return (
     <form className="card" onSubmit={save}>
-      <h2>Покер онлайн</h2>
+      <h3>Сервер покера</h3>
       <label className="field">
         Адрес сервера
         <input
@@ -559,12 +571,42 @@ function PokerServerCard() {
           }}
         />
       </label>
-      <p className="muted">Пусто — постоянный сервер. Новые комнаты и входы идут на этот адрес.</p>
+      <p className="muted">
+        Пусто — постоянный сервер. Свой адрес — если сервер переехал или есть свой: новые комнаты и входы по коду идут на
+        него. Игрокам вписывать не нужно — ссылка на стол несёт адрес сама.
+      </p>
       {base === null && <p className="warn">Адрес — вида https://сервер, без пробелов</p>}
       {saved && <p className="ok">Сохранено</p>}
       <button className="big primary wide" disabled={base === null}>
         Сохранить
       </button>
+    </form>
+  )
+}
+
+// Покер-рум этого телефона (Р-62) — для копии: что задано здесь; не задано — null
+function localPokerPrefs(): PokerPrefs {
+  return { quickRoom: loadQuickRoom(), bigBlinds: loadBigBlindsChoice(), quickBets: loadQuickBetsChoice() }
+}
+
+// «За столом» (Р-59): всё, что меняет стол на этом телефоне, — сохраняется сразу.
+// Звук «ваш ход» (#75) и «Анимация карт» (#133) — только на устройстве, не в копии (до Р-59 — в «Покер онлайн»);
+// суммы в больших блайндах и свои быстрые ставки (Р-62) — есть в копии (до Р-59 — карточка «Покер-рум»)
+function AtTableCard() {
+  const [sound, setSound] = useState(loadTurnSound)
+  const [anim, setAnim] = useState(loadCardAnim)
+  const [bb, setBb] = useState(loadBigBlinds)
+  const [bets, setBets] = useState(loadQuickBets)
+  const [open, setOpen] = useState(false)
+
+  function update(next: QuickBets | null) {
+    saveQuickBets(next && !isDefaultBets(next) ? next : null)
+    setBets(next ?? QUICK_BETS_DEFAULT)
+  }
+
+  return (
+    <section className="card">
+      <h3>За столом</h3>
       <label className="check">
         <input
           type="checkbox"
@@ -592,13 +634,56 @@ function PokerServerCard() {
         Карты раздачи прилетают к местам по одной, общие карты выкладываются по одной — за столом покера и казино. Выключено — карты
         появляются сразу. Только на этом устройстве.
       </p>
-    </form>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={bb}
+          onChange={(e) => {
+            setBb(e.target.checked)
+            saveBigBlinds(e.target.checked)
+          }}
+        />
+        Стеки и ставки в больших блайндах
+      </label>
+      <p className="muted">
+        За столом стеки, ставки, банк и суммы на кнопках хода — в больших блайндах раздачи: «42,5 ББ». История раздач и
+        выгрузка — фишками. Только на этом телефоне; есть в копии.
+      </p>
+      <p className="muted">Свои кнопки сумм над ползунком в свой ход. Только на этом телефоне; есть в копии.</p>
+      <button type="button" className="big wide" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? 'Свернуть быстрые ставки' : 'Быстрые ставки'}
+      </button>
+      {open && (
+        <>
+          <p className="muted">
+            Кнопки над ползунком в свой ход, после «Мин». Сумма вне того, что можно поставить, — кнопки нет; в пот-лимите
+            «Банк» — до предела банка. До {QUICK_BETS_MAX} кнопок каждого вида.
+          </p>
+          <BetsList
+            title="После флопа — доля банка, %"
+            placeholder="Например, 33"
+            list={bets.pot}
+            label={potBetLabel}
+            parse={parsePotPct}
+            hint={`Целое число от ${POT_PCT_MIN} до ${POT_PCT_MAX}; 33 — треть, 100 — банк`}
+            onChange={(pot) => update({ ...bets, pot })}
+          />
+          <BetsList
+            title="До флопа — больших блайндов"
+            placeholder="Например, 2,5"
+            list={bets.pre}
+            label={preBetLabel}
+            parse={parsePreTenths}
+            hint={`От ${PRE_TENTHS_MIN / 10} до ${PRE_TENTHS_MAX / 10}, до десятых: 2,5`}
+            onChange={(pre) => update({ ...bets, pre })}
+          />
+          <button type="button" className="big wide" disabled={isDefaultBets(bets)} onClick={() => update(null)}>
+            Сбросить быстрые ставки
+          </button>
+        </>
+      )}
+    </section>
   )
-}
-
-// Покер-рум этого телефона (Р-62) — для копии: что задано здесь; не задано — null
-function localPokerPrefs(): PokerPrefs {
-  return { quickRoom: loadQuickRoom(), bigBlinds: loadBigBlindsChoice(), quickBets: loadQuickBetsChoice() }
 }
 
 // Своя «Быстрая комната» (Р-62): те же поля, что в форме «Новая комната», без игроков и пароля. Сохраняется
@@ -636,10 +721,10 @@ function QuickRoomCard({ defaultBuyin, players }: { defaultBuyin: number; player
 
   return (
     <form className="card" onSubmit={save}>
-      <h2>Быстрая комната</h2>
+      <h3>Быстрая комната</h3>
       <p className="muted">
-        С какой игрой, блайндами, стеком и таймером «Быстрая комната» на «Играть» создаёт стол одним касанием. Только на
-        этом телефоне; есть в копии.
+        По умолчанию для кнопки «Быстрая комната» на «Играть»: с какой игрой, блайндами, стеком и таймером она создаёт
+        стол одним касанием. Для одного стола — «Настроить…» там же. Только на этом телефоне; есть в копии.
       </p>
       <p>{quickRoomLine(quickRoomSettings(defaultBuyin, own))}</p>
       <button type="button" className="big wide" aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -661,72 +746,6 @@ function QuickRoomCard({ defaultBuyin, players }: { defaultBuyin: number; player
         </>
       )}
     </form>
-  )
-}
-
-// Привычки покер-румов (Р-62): суммы за столом в больших блайндах — только показ; свои быстрые ставки панели хода.
-// Только на этом телефоне, сохраняется сразу; есть в копии
-function PokerRoomCard() {
-  const [bb, setBb] = useState(loadBigBlinds)
-  const [bets, setBets] = useState(loadQuickBets)
-  const [open, setOpen] = useState(false)
-
-  function update(next: QuickBets | null) {
-    saveQuickBets(next && !isDefaultBets(next) ? next : null)
-    setBets(next ?? QUICK_BETS_DEFAULT)
-  }
-
-  return (
-    <section className="card">
-      <h2>Покер-рум</h2>
-      <label className="check">
-        <input
-          type="checkbox"
-          checked={bb}
-          onChange={(e) => {
-            setBb(e.target.checked)
-            saveBigBlinds(e.target.checked)
-          }}
-        />
-        Стеки и ставки в больших блайндах
-      </label>
-      <p className="muted">
-        За столом стеки, ставки, банк и суммы на кнопках хода — в больших блайндах раздачи: «42,5 ББ». История раздач и
-        выгрузка — фишками. Только на этом телефоне.
-      </p>
-      <button type="button" className="big wide" aria-expanded={open} onClick={() => setOpen(!open)}>
-        {open ? 'Свернуть быстрые ставки' : 'Быстрые ставки'}
-      </button>
-      {open && (
-        <>
-          <p className="muted">
-            Кнопки над ползунком в свой ход, после «Мин». Сумма вне того, что можно поставить, — кнопки нет; в пот-лимите
-            «Банк» — до предела банка. До {QUICK_BETS_MAX} кнопок каждого вида.
-          </p>
-          <BetsList
-            title="После флопа — доля банка, %"
-            placeholder="Например, 33"
-            list={bets.pot}
-            label={potBetLabel}
-            parse={parsePotPct}
-            hint={`Целое число от ${POT_PCT_MIN} до ${POT_PCT_MAX}; 33 — треть, 100 — банк`}
-            onChange={(pot) => update({ ...bets, pot })}
-          />
-          <BetsList
-            title="До флопа — больших блайндов"
-            placeholder="Например, 2,5"
-            list={bets.pre}
-            label={preBetLabel}
-            parse={parsePreTenths}
-            hint={`От ${PRE_TENTHS_MIN / 10} до ${PRE_TENTHS_MAX / 10}, до десятых: 2,5`}
-            onChange={(pre) => update({ ...bets, pre })}
-          />
-          <button type="button" className="big wide" disabled={isDefaultBets(bets)} onClick={() => update(null)}>
-            Сбросить быстрые ставки
-          </button>
-        </>
-      )}
-    </section>
   )
 }
 
@@ -808,10 +827,11 @@ function MyLookCard({ look, onChange }: { look: MyLook; onChange: (look: MyLook)
 
   return (
     <section className="card">
-      <h2>Вид стола</h2>
+      <h3>Вид стола</h3>
       <p className="muted">
         Сукно, рубашка карт и колода — как столы выглядят на этом телефоне: в комнате, на одном телефоне, против ботов и в
-        казино. У других игроков — их выбор. «Как у стола» — то, что выбрал ведущий.
+        казино. У других игроков — их выбор. «Как у стола» — то, что выбрано для стола: ведущим комнаты или при начале
+        стола на этом телефоне.
       </p>
       <button type="button" className="big wide" aria-expanded={open} onClick={() => setOpen(!open)}>
         {open ? 'Свернуть вид стола' : 'Выбрать вид стола'}
@@ -897,7 +917,6 @@ function NoteColorsCard() {
 
   return (
     <section className="card">
-      <h2>Заметки об игроках</h2>
       <p className="muted">
         За столом касание имени игрока — заметка: цвет и текст. У места — точка этого цвета. Заметки видны только на этом
         телефоне, в комнату и на сервер не уходят; есть в копии.
@@ -970,7 +989,6 @@ function DemoCard() {
 
   return (
     <section className="card">
-      <h2>Демо-данные</h2>
       <p className="muted">
         Несколько выдуманных игр с выдуманными игроками — показать приложение, не трогая настоящие игры. В статистику и
         в копию они не идут, постоянные игроки не меняются.
