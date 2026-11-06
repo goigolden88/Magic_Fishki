@@ -26,7 +26,7 @@ import { getSettings, saveGame, saveHands } from '../store/db'
 import { ulid } from '../ulid'
 import { openGameYear } from './openYears'
 import { LookFields } from './LookFields'
-import { clearLocalTable, loadLocalTable, loadMyLook, saveLocalTable, storageWorks } from './pokerStorage'
+import { clearLocalTable, loadLocalTable, loadMyLook, loadQuickBets, saveLocalTable, storageWorks } from './pokerStorage'
 import {
   ActionsCard,
   AwardPanel,
@@ -217,7 +217,7 @@ function LocalTableCard(props: {
   const { table, history, amounts, regulars, error, finishing, onError, apply, onFinish, onRemove } = props
   const [, setTick] = useState(0)
   const [showHistory, setShowHistory] = useState(false)
-  const v = localTableView(table, Date.now())
+  const v = localTableView(table, Date.now(), loadQuickBets()) // свои быстрые ставки (Р-62)
   const sb = table.hand?.sb ?? table.settings.sb
   const actId = toActId(table)
   const hand = table.hand
@@ -330,6 +330,7 @@ function LocalTableCard(props: {
           key={`${v.handNumber}-${v.stage}-${actId}-${v.actions.raise?.min ?? ''}`}
           actions={v.actions}
           sb={sb}
+          bb={v.bb}
           who={v.toActName}
           online
           onAct={(body) => apply((t, now) => actFor(t, body.action, now))}

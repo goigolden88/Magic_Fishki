@@ -41,10 +41,12 @@ describe('экран стола', () => {
         max: 1000,
         allIn: true,
         potLimit: null,
+        // До флопа — «Мин» и множители ББ (Р-62)
         quick: [
           { label: 'Мин', to: 20 },
-          { label: '½ банка', to: 22 },
-          { label: 'Банк', to: 35 },
+          { label: '2,5 ББ', to: 25 },
+          { label: '3 ББ', to: 30 },
+          { label: '4 ББ', to: 40 },
         ],
       },
       allIn: 1000,

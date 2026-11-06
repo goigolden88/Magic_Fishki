@@ -16,27 +16,21 @@ import { parseChips } from '../calc/format'
 import { localStartError, startLocalTable } from '../calc/localTable'
 import { allPicked, toggleAll } from '../calc/pick'
 import { createFailure, DEFAULT_SERVER, NO_CONNECTION, parseRoomLink, roomHash, roomsUrl, serverBase } from '../calc/pokerLink'
-import { lookOf, type Look } from '../calc/pokerLook'
-import { turnSecondsOf } from '../calc/pokerTimer'
+import { lookOf } from '../calc/pokerLook'
 import {
   DEFAULT_GAME,
-  GAME_CHOICES,
   gameSettings,
-  MAX_RUNS_CHOICES,
-  MIX_SHARE_CHOICES,
+  QUICK_ROOM_DEFAULT,
   quickRoomHost,
   quickRoomLine,
   quickRoomSettings,
-  ROOM_DEFAULTS,
   roomSettings,
   type GameChoice,
+  type QuickRoom,
 } from '../calc/quickRoom'
 import { formSettings, tournamentForm, type TournamentForm } from '../calc/tournamentForm'
 import type { Regular } from '../model'
-import type { CardsMode, Limit } from '../poker/game'
-import { MIX_SHARE_DEFAULT, MIX_VOTE_MS, type MixShare } from '../poker/mix'
 import { PROTOCOL_VERSION, type CreateRoomRequest, type CreateRoomResponse } from '../poker/protocol'
-import { RUN_VOTE_MS, type MaxRuns } from '../poker/runs'
 import { DEFAULT_SETTINGS, type AutoStart, type Felt } from '../poker/table'
 import { formatDate, today } from '../dates'
 import { handsFileName, handsText } from '../calc/handText'
@@ -44,7 +38,6 @@ import type { HistoryHand } from '../poker/history'
 import { allHands, deleteEvening, eveningHands, eveningRecords, getSettings, listEvenings } from '../store/db'
 import { download } from './download'
 import { ulid } from '../ulid'
-import { HudFields } from './Hud'
 import { LookFields } from './LookFields'
 import { CasinoPickCard } from './CasinoPick'
 import { BOTS_HASH, FINISH_BOTS } from './PokerBots'
@@ -57,6 +50,7 @@ import {
   loadLocalTable,
   loadMe,
   loadPassword,
+  loadQuickRoom,
   loadSeats,
   loadServer,
   saveBotTable,
@@ -66,7 +60,8 @@ import {
   saveSeat,
   storageWorks,
 } from './pokerStorage'
-import { AutoStartField, TimerFields, timerForm, type TimerForm } from './TimerFields'
+import { GameFields, RoomFields, roomChoiceOf, roomFormOf, TableFields, type RoomForm } from './RoomFields'
+import { AutoStartField } from './TimerFields'
 import { FormatFields } from './Tournament'
 
 const GUEST = '' // «Вы за столом» — не из постоянных
@@ -76,7 +71,8 @@ const GUEST = '' // «Вы за столом» — не из постоянны�
 export function PokerHomeScreen() {
   const [creating, setCreating] = useState<'room' | 'local' | 'bots' | 'casino' | null>(null)
   const [firstTime, setFirstTime] = useState(false) // форму открыла «Быстрая комната» без пароля
-  const [quick, setQuick] = useState<{ players: Regular[]; buyin: number } | null>(null)
+  // Своя «Быстрая комната» (Р-62) — из «Настроек» этого телефона; не задана — начальные значения формы
+  const [quick, setQuick] = useState<{ players: Regular[]; buyin: number; room: QuickRoom | null } | null>(null)
   const [quickBusy, setQuickBusy] = useState(false)
   const [quickError, setQuickError] = useState<string | null>(null)
   const quickSending = useRef(false) // двойное касание — одна комната
@@ -88,7 +84,7 @@ export function PokerHomeScreen() {
   const link = parsed && !('error' in parsed) ? parsed : null
 
   useEffect(() => {
-    void getSettings().then((s) => setQuick({ players: s.players, buyin: s.defaultBuyin }))
+    void getSettings().then((s) => setQuick({ players: s.players, buyin: s.defaultBuyin, room: loadQuickRoom() }))
   }, [])
 
   function openForm(first: boolean) {
@@ -97,7 +93,8 @@ export function PokerHomeScreen() {
     setCreating('room')
   }
 
-  // «Быстрая комната» (#127): начальные значения формы, играют все постоянные, ведущий — кем был в прошлый раз.
+  // «Быстрая комната» (#127): своя из «Настроек» (Р-62) или начальные значения формы, играют все постоянные,
+  // ведущий — кем был в прошлый раз.
   // Пароль не запомнен или телефон не знает, кто ведущий, — форма
   async function quickRoom() {
     if (!quick || quickSending.current) return
@@ -117,7 +114,7 @@ export function PokerHomeScreen() {
         name: me.name,
         regularId: me.id,
         roster: quick.players,
-        settings: quickRoomSettings(quick.buyin),
+        settings: quickRoomSettings(quick.buyin, quick.room),
       },
       me.id,
     )
@@ -208,7 +205,7 @@ export function PokerHomeScreen() {
               Настроить…
             </button>
           </div>
-          {quick && <p className="muted">{quickRoomLine(quickRoomSettings(quick.buyin))}</p>}
+          {quick && <p className="muted">{quickRoomLine(quickRoomSettings(quick.buyin, quick.room))}</p>}
           {quickError && <p className="warn">{quickError}</p>}
           {!local && (
             <button type="button" className="big primary wide" onClick={() => setCreating('local')}>
@@ -386,18 +383,8 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
   const [myName, setMyName] = useState('')
   const [hasPassword, setHasPassword] = useState(() => loadPassword() !== '')
   const [password, setPassword] = useState('')
-  // Начальные значения — те же, что у «Быстрой комнаты» (ROOM_DEFAULTS); стек — закуп по умолчанию
-  const [sbText, setSbText] = useState(String(ROOM_DEFAULTS.sb))
-  const [bbText, setBbText] = useState(String(ROOM_DEFAULTS.bb))
-  const [stackText, setStackText] = useState('')
-  const [cards, setCards] = useState<CardsMode>(ROOM_DEFAULTS.cards)
-  const [variant, setVariant] = useState<GameChoice>(ROOM_DEFAULTS.variant)
-  const [timer, setTimer] = useState<TimerForm>(() => timerForm(ROOM_DEFAULTS.turnSeconds, ROOM_DEFAULTS.autoStart))
-  const [look, setLook] = useState<Look>(ROOM_DEFAULTS.look)
-  const [format, setFormat] = useState<TournamentForm>(() => tournamentForm(0))
-  const [publicHud, setPublicHud] = useState(ROOM_DEFAULTS.publicHud)
-  const [mix, setMix] = useState<MixShare | null>(null)
-  const [maxRuns, setMaxRuns] = useState<MaxRuns>(1)
+  // Начальные значения формы (ROOM_DEFAULTS); стек — закуп по умолчанию. Своя «Быстрая комната» (Р-62) их не меняет
+  const [form, setForm] = useState<RoomForm>(() => roomFormOf(QUICK_ROOM_DEFAULT, '', 0))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -405,7 +392,7 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
     void getSettings().then((s) => {
       setRegulars(s.players)
       setPicked(new Set(s.players.map((r) => r.id)))
-      setStackText(String(s.defaultBuyin))
+      setForm((f) => ({ ...f, stack: String(s.defaultBuyin) }))
       const me = loadMe()
       setMeId(s.players.some((r) => r.id === me) ? me : (s.players[0]?.id ?? GUEST))
     })
@@ -425,21 +412,16 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
     if (!next.has(meId)) setMeId(GUEST)
   }
 
-  const sb = parseChips(sbText)
-  const bb = parseChips(bbText)
-  const stack = parseChips(stackText)
   const roster = (regulars ?? []).filter((r) => picked.has(r.id))
   const regularIds = (regulars ?? []).map((r) => r.id)
   const me = roster.find((r) => r.id === meId)
   const name = me ? me.name : myName.trim()
-  const blindsOk = sb !== null && bb !== null && sb <= bb
-  const turn = turnSecondsOf(timer.choice, timer.text)
-  const game = formSettings(format)
-  const ready = name !== '' && blindsOk && stack !== null && turn.ok && game.ok && (hasPassword || password !== '') && !busy
+  const choice = roomChoiceOf(form)
+  const ready = name !== '' && choice !== null && (hasPassword || password !== '') && !busy
 
   async function create(e: FormEvent) {
     e.preventDefault()
-    if (!ready || sb === null || bb === null || stack === null || !turn.ok || !game.ok) return
+    if (!ready || choice === null) return
     const secret = hasPassword ? loadPassword() : password
     const body: CreateRoomRequest = {
       v: PROTOCOL_VERSION,
@@ -447,20 +429,7 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
       name,
       ...(me ? { regularId: me.id } : {}),
       roster,
-      settings: roomSettings({
-        sb,
-        bb,
-        startingStack: stack,
-        cards,
-        variant,
-        turnSeconds: turn.seconds,
-        autoStart: timer.autoStart,
-        look,
-        format: game.settings,
-        publicHud,
-        mix,
-        maxRuns,
-      }),
+      settings: roomSettings(choice),
     }
     setBusy(true)
     setError(null)
@@ -538,53 +507,8 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
         </label>
       )}
 
-      <TableFields
-        sb={[sbText, setSbText]}
-        bb={[bbText, setBbText]}
-        stack={[stackText, setStackText]}
-        tournament={format.format === 'tournament'}
-      />
-      {/* #78: кэш с анте или турнир; призы по умолчанию — по отмеченным, гостей до входа не видно */}
-      <FormatFields form={format} players={roster.length} onChange={setFormat} />
-      {!game.ok && <p className="warn">{game.error}</p>}
-
-      {/* Р-23: стол на одном телефоне — только живые, выбора там нет */}
-      <fieldset className="players-pick">
-        <legend className="muted">Карты</legend>
-        <div className="row">
-          {CARDS_MODES.map(([mode, label]) => (
-            <button
-              key={mode}
-              type="button"
-              className={cards === mode ? 'big primary grow' : 'big grow'}
-              aria-pressed={cards === mode}
-              onClick={() => setCards(mode)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <p className="muted">
-          {cards === 'live'
-            ? 'Настоящая колода на столе; банк после торгов отдаёт ведущий.'
-            : 'Программа тасует и раздаёт: у каждого свои карты на своём телефоне, банк раздаётся сам.'}
-        </p>
-      </fieldset>
-
-      <GameFields choice={variant} phones={cards === 'phones'} onChange={setVariant} />
-      {/* #166: «Микс» — только карты на телефонах */}
-      {cards === 'phones' && <MixFields mix={mix} onChange={setMix} />}
-      {/* #167: «Прогнать несколько раз» — только карты на телефонах, кэш и турнир */}
-      {cards === 'phones' && <RunsFields max={maxRuns} onChange={setMaxRuns} />}
-
-      {/* #75: стол на одном телефоне — без таймера и раздачи «сама» */}
-      <TimerFields form={timer} onChange={setTimer} />
-
-      <LookFields look={look} backs onChange={(l) => setLook({ ...look, ...l })} />
-      {cards === 'live' && <p className="muted">Карты живые — рубашка на экране не видна.</p>}
-
-      {/* #79: стол на одном телефоне — HUD видят все, выбора там нет */}
-      <HudFields all={publicHud} onChange={setPublicHud} />
+      {/* Поля стола — общие с «Быстрой комнатой» в «Настройках» (Р-62) */}
+      <RoomFields form={form} players={roster.length} onChange={setForm} />
 
       {error && <p className="warn">{error}</p>}
       <div className="row">
@@ -596,159 +520,6 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
         </button>
       </div>
     </form>
-  )
-}
-
-const CARDS_MODES: [CardsMode, string][] = [
-  ['live', 'Живые'],
-  ['phones', 'На телефонах'],
-]
-
-// «Покер» — игра (GAME_CHOICES) и лимит омахи (#80); «Игра» в форме уже есть — кэш или турнир (#78)
-const LIMIT_CHOICES: [Limit, string][] = [
-  ['pot', 'Пот-лимит'],
-  ['nolimit', 'Без лимита'],
-]
-
-function GameFields({ choice, phones, onChange }: { choice: GameChoice; phones: boolean; onChange: (c: GameChoice) => void }) {
-  const omaha = choice.game === 'omaha'
-  return (
-    <fieldset className="players-pick">
-      <legend className="muted">Покер</legend>
-      <div className="amounts">
-        {GAME_CHOICES.map(([game, label]) => (
-          <button
-            key={game}
-            type="button"
-            className={choice.game === game ? 'big primary' : 'big'}
-            aria-pressed={choice.game === game}
-            onClick={() => onChange({ ...choice, game })}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {omaha && (
-        <>
-          <p className="muted">Лимит</p>
-          <div className="row">
-            {LIMIT_CHOICES.map(([limit, label]) => (
-              <button
-                key={limit}
-                type="button"
-                className={choice.limit === limit ? 'big primary grow' : 'big grow'}
-                aria-pressed={choice.limit === limit}
-                onClick={() => onChange({ ...choice, limit })}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </>
-      )}
-      <p className="muted">
-        {choice.game === 'shortdeck'
-          ? `Колода 36 карт, без двоек–пятёрок; флеш старше фулл-хауса, A-6-7-8-9 — стрит${phones ? '' : ' (карты живые)'}. Две карты на руках, ставки без лимита.`
-          : !omaha
-          ? 'Две карты на руках, ставки без лимита.'
-          : `Четыре карты на руках, рука — ровно две свои и три со стола${phones ? '' : ' (карты живые)'}. ${
-              choice.limit === 'pot' ? 'Рейз — не больше банка.' : 'Ставки без лимита.'
-            }`}
-      </p>
-    </fieldset>
-  )
-}
-
-// «Микс» (#166, Р-57): батон предлагает игру перед раздачей, остальные голосуют; смена — если «против»
-// не больше выбранной доли. mix — доля или null (выкл)
-function MixFields({ mix, onChange }: { mix: MixShare | null; onChange: (m: MixShare | null) => void }) {
-  return (
-    <fieldset className="players-pick">
-      <legend className="muted">Микс</legend>
-      <label className="check">
-        <input type="checkbox" checked={mix !== null} onChange={(e) => onChange(e.target.checked ? MIX_SHARE_DEFAULT : null)} />
-        Батон предлагает игру перед раздачей
-      </label>
-      {mix !== null && (
-        <>
-          <p className="muted">Сменить игру, если против не больше …</p>
-          <div className="row">
-            {MIX_SHARE_CHOICES.map(([share, label]) => (
-              <button
-                key={share}
-                type="button"
-                className={mix === share ? 'big primary grow' : 'big grow'}
-                aria-pressed={mix === share}
-                onClick={() => onChange(share)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <p className="muted">
-            Остальные голосуют «За» или «Против» {MIX_VOTE_MS / 1000} секунд, не ответил — «За». Новая игра держится, пока
-            следующий батон не предложит другую.
-          </p>
-        </>
-      )}
-    </fieldset>
-  )
-}
-
-// «Прогнать несколько раз» (#167, Р-58): нет / до двух / до трёх; в кэше и в турнире
-function RunsFields({ max, onChange }: { max: MaxRuns; onChange: (m: MaxRuns) => void }) {
-  return (
-    <fieldset className="players-pick">
-      <legend className="muted">Прогнать несколько раз</legend>
-      <div className="row">
-        {MAX_RUNS_CHOICES.map(([runs, label]) => (
-          <button
-            key={runs}
-            type="button"
-            className={max === runs ? 'big primary grow' : 'big grow'}
-            aria-pressed={max === runs}
-            onClick={() => onChange(runs)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {max > 1 && (
-        <p className="muted">
-          Все в олл-ине до ривера — каждый выбирает, сколько раз раздать оставшиеся карты, {RUN_VOTE_MS / 1000} секунд; не
-          ответил — один раз. Раздают наименьшее из выбранного, каждый банк делится по бордам.
-        </p>
-      )}
-    </fieldset>
-  )
-}
-
-type Field = [string, (text: string) => void]
-
-// Блайнды и стартовый стек — одни у комнаты и у стола на телефоне; в турнире блайнды — стартовые
-function TableFields({ sb, bb, stack, tournament }: { sb: Field; bb: Field; stack: Field; tournament: boolean }) {
-  const sbN = parseChips(sb[0])
-  const bbN = parseChips(bb[0])
-  const blindsOk = sbN !== null && bbN !== null && sbN <= bbN
-  return (
-    <>
-      <div className="draft-grid">
-        <label className="field">
-          {tournament ? 'Малый блайнд, старт' : 'Малый блайнд'}
-          <input inputMode="numeric" pattern="[0-9 ]*" value={sb[0]} onChange={(e) => sb[1](e.target.value)} />
-        </label>
-        <label className="field">
-          {tournament ? 'Большой блайнд, старт' : 'Большой блайнд'}
-          <input inputMode="numeric" pattern="[0-9 ]*" value={bb[0]} onChange={(e) => bb[1](e.target.value)} />
-        </label>
-        <label className="field rebuys">
-          Стартовый стек, фишек
-          <input inputMode="numeric" pattern="[0-9 ]*" value={stack[0]} onChange={(e) => stack[1](e.target.value)} />
-        </label>
-      </div>
-      {!blindsOk && <p className="warn">Блайнды — целые числа больше нуля, малый не больше большого</p>}
-      {parseChips(stack[0]) === null && <p className="warn">Стек — целое число фишек больше нуля</p>}
-    </>
   )
 }
 

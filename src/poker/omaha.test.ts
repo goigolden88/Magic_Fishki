@@ -73,9 +73,11 @@ describe('пот-лимит', () => {
     const s = three()
     const r = actionsView(s, 'p0')?.raise
     expect(r).toMatchObject({ min: 20, max: 35, allIn: false, potLimit: 35 })
+    // До флопа — множители ББ (Р-62): 4 ББ = 40 выше банка — кнопки нет
     expect(r?.quick).toEqual([
       { label: 'Мин', to: 20 },
-      { label: '½ банка', to: 22 },
+      { label: '2,5 ББ', to: 25 },
+      { label: '3 ББ', to: 30 },
       { label: 'Пот', to: 35 },
     ])
     expect(actionsView(s, 'p0')?.allIn).toBeNull()

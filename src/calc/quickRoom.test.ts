@@ -2,8 +2,21 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_SETTINGS } from '../poker/table'
 import { lookOf } from './pokerLook'
 import { turnChoiceOf, turnSecondsOf } from './pokerTimer'
-import { quickRoomHost, quickRoomLine, quickRoomSettings, roomSettings, ROOM_DEFAULTS, gameSettings, DEFAULT_GAME } from './quickRoom'
-import { formSettings, tournamentForm } from './tournamentForm'
+import {
+  DEFAULT_GAME,
+  gameSettings,
+  parseQuickRoom,
+  QUICK_ROOM_DEFAULT,
+  quickRoomChoice,
+  quickRoomError,
+  quickRoomHost,
+  quickRoomLine,
+  quickRoomSettings,
+  ROOM_DEFAULTS,
+  roomSettings,
+  type QuickRoom,
+} from './quickRoom'
+import { formSettings, tournamentForm, tournamentFormOf } from './tournamentForm'
 
 describe('quickRoomSettings', () => {
   it('начальные значения формы и стек — закуп по умолчанию', () => {
@@ -71,6 +84,94 @@ describe('quickRoomLine', () => {
 
   it('стек — из закупа по умолчанию', () => {
     expect(quickRoomLine(quickRoomSettings(12000))).toBe('Холдем · кэш · карты на телефонах · блайнды 5/10 · стек 12 000')
+  })
+})
+
+describe('своя «Быстрая комната» (Р-62)', () => {
+  const ROOM: QuickRoom = {
+    ...QUICK_ROOM_DEFAULT,
+    sb: 25,
+    bb: 50,
+    startingStack: 5000,
+    variant: { game: 'omaha', limit: 'pot' },
+    turnSeconds: 30,
+    autoStart: 'fast',
+    look: { felt: 'blue', cardBack: 'geo' },
+    publicHud: true,
+    mix: 'third',
+    maxRuns: 2,
+  }
+
+  it('создаёт комнату так, как задано; стек null — закуп по умолчанию', () => {
+    expect(quickRoomSettings(1000, ROOM)).toEqual({
+      sb: 25,
+      bb: 50,
+      startingStack: 5000,
+      cards: 'phones',
+      game: 'omaha',
+      limit: 'pot',
+      turnSeconds: 30,
+      autoStart: 'fast',
+      felt: 'blue',
+      cardBack: 'geo',
+      format: 'cash',
+      ante: 0,
+      publicHud: true,
+      mix: true,
+      mixAgainst: 'third',
+      maxRuns: 2,
+    })
+    expect(quickRoomSettings(1500, { ...ROOM, startingStack: null }).startingStack).toBe(1500)
+    expect(quickRoomSettings(1000, null)).toEqual(quickRoomSettings(1000))
+    expect(quickRoomChoice(null, 800)).toEqual({ ...QUICK_ROOM_DEFAULT, startingStack: 800 })
+  })
+
+  it('подпись под кнопкой показывает своё', () => {
+    expect(quickRoomLine(quickRoomSettings(1000, ROOM))).toBe(
+      'Омаха пот-лимит · кэш · карты на телефонах · блайнды 25/50 · стек 5 000 · ход 30 с'.replace(/ 000/, ' 000'),
+    )
+  })
+
+  it('сохранить нельзя: блайнды не годятся, стек меньше большого блайнда', () => {
+    expect(quickRoomError({ sb: 5, bb: 10, startingStack: 1000 })).toBeNull()
+    expect(quickRoomError({ sb: 10, bb: 10, startingStack: 10 })).toBeNull()
+    expect(quickRoomError({ sb: 20, bb: 10, startingStack: 1000 })).toMatch(/Блайнды/)
+    expect(quickRoomError({ sb: 0, bb: 10, startingStack: 1000 })).toMatch(/Блайнды/)
+    expect(quickRoomError({ sb: 5, bb: 10, startingStack: 9 })).toBe('Стек — не меньше большого блайнда')
+  })
+
+  it('из памяти и копии: читается обратно без потерь; негодное — null', () => {
+    expect(parseQuickRoom(JSON.parse(JSON.stringify(ROOM)))).toEqual(ROOM)
+    expect(parseQuickRoom(QUICK_ROOM_DEFAULT)).toEqual(QUICK_ROOM_DEFAULT)
+    const tournament = { ...ROOM, format: formSettings({ ...tournamentForm(4), format: 'tournament' }) }
+    if (!tournament.format.ok) throw new Error('турнир по умолчанию не разбирается')
+    const t = { ...ROOM, format: tournament.format.settings }
+    expect(parseQuickRoom(JSON.parse(JSON.stringify(t)))).toEqual(t)
+    // Без «Микса» и прогона (поля нет) — выкл
+    const { mix: _m, maxRuns: _r, ...old } = ROOM
+    expect(parseQuickRoom(old)).toEqual({ ...ROOM, mix: null, maxRuns: 1 })
+    for (const bad of [
+      { ...ROOM, sb: 60 },
+      { ...ROOM, startingStack: 40 },
+      { ...ROOM, variant: { game: 'stud', limit: 'pot' } },
+      { ...ROOM, turnSeconds: 5 },
+      { ...ROOM, look: { felt: 'pink', cardBack: 'geo' } },
+      { ...ROOM, format: { format: 'cash', ante: -1 } },
+      { ...ROOM, format: { format: 'tournament', tournament: {} } },
+      { ...ROOM, mix: 'all' },
+      null,
+      {},
+    ]) {
+      expect(parseQuickRoom(bad)).toBeNull()
+    }
+  })
+
+  it('форма из разобранного выбора: formSettings возвращает то же', () => {
+    const cash = { format: 'cash' as const, ante: 5 }
+    expect(formSettings(tournamentFormOf(cash, 4))).toEqual({ ok: true, settings: cash })
+    const own = formSettings({ ...tournamentForm(4), format: 'tournament', prizesOwn: true, prizes: ['70', '30'], rebuy: true, rebuyLevels: '3' })
+    if (!own.ok) throw new Error(own.error)
+    expect(formSettings(tournamentFormOf(own.settings, 4))).toEqual(own)
   })
 })
 

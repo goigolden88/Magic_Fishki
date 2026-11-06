@@ -3,11 +3,14 @@ import { parseLocalTable, type LocalTable } from '../calc/localTable'
 import { serverBase, type SavedSeat } from '../calc/pokerLink'
 import { parseLabels, parseNotes, type NoteLabels, type PlayerNotes } from '../calc/playerNotes'
 import { isDefaultLook, MY_LOOK_DEFAULT, parseMyLook, type MyLook } from '../calc/pokerLook'
+import { parseQuickBets, QUICK_BETS_DEFAULT, type QuickBets } from '../calc/quickBets'
+import { parseQuickRoom, type QuickRoom } from '../calc/quickRoom'
 
 // Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги,
 // звук «ваш ход», «карты всегда открыты», «анимация карт», стол на этом телефоне и стол против ботов — данные этого устройства,
 // а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21, Р-38).
-// Заметки об игроках и подписи их цветов (Р-56), личный «Вид стола» (Р-61) — тоже в localStorage, но в копию идут
+// Заметки об игроках и подписи их цветов (Р-56), личный «Вид стола» (Р-61), своя «Быстрая комната», показ в ББ
+// и быстрые ставки (Р-62) — тоже в localStorage, но в копию идут
 const PASSWORD_KEY = 'fishki.poker.password'
 const SERVER_KEY = 'fishki.poker.server'
 const SEATS_KEY = 'fishki.poker.seats'
@@ -22,6 +25,9 @@ const ANIM_KEY = 'fishki.poker.anim'
 const NOTES_KEY = 'fishki.poker.notes'
 const LABELS_KEY = 'fishki.poker.noteLabels'
 const LOOK_KEY = 'fishki.poker.look'
+const QUICK_ROOM_KEY = 'fishki.poker.quickRoom'
+const BB_KEY = 'fishki.poker.bigBlinds'
+const BETS_KEY = 'fishki.poker.quickBets'
 
 function read(key: string): string {
   try {
@@ -226,6 +232,50 @@ export function loadMyLook(): MyLook {
 export function saveMyLook(next: MyLook) {
   myLook = next
   write(LOOK_KEY, isDefaultLook(next) ? '' : JSON.stringify(next))
+}
+
+// Покер-рум на этом телефоне (Р-62): своя «Быстрая комната», суммы за столом в больших блайндах, свои быстрые ставки.
+// В копию идут. null — не задано здесь: начальные значения, а восстановление из копии может их дописать
+export function loadQuickRoom(): QuickRoom | null {
+  return parseStored(QUICK_ROOM_KEY, parseQuickRoom)
+}
+
+export function saveQuickRoom(room: QuickRoom | null) {
+  write(QUICK_ROOM_KEY, room ? JSON.stringify(room) : '')
+}
+
+// «Стеки и ставки в больших блайндах»: только показ за столом. Копия в памяти страницы — спрашивает каждое место
+let bigBlinds: boolean | null | undefined // undefined — ещё не читали
+
+export function loadBigBlindsChoice(): boolean | null {
+  if (bigBlinds === undefined) {
+    const raw = read(BB_KEY)
+    bigBlinds = raw === 'on' ? true : raw === 'off' ? false : null
+  }
+  return bigBlinds
+}
+
+export const loadBigBlinds = () => loadBigBlindsChoice() === true
+
+export function saveBigBlinds(on: boolean) {
+  bigBlinds = on
+  write(BB_KEY, on ? 'on' : 'off')
+}
+
+// Свои быстрые ставки: копия в памяти страницы — стол спрашивает их при каждой перемене
+let quickBets: QuickBets | null | undefined // undefined — ещё не читали
+
+export function loadQuickBetsChoice(): QuickBets | null {
+  if (quickBets === undefined) quickBets = parseStored(BETS_KEY, parseQuickBets)
+  return quickBets
+}
+
+export const loadQuickBets = (): QuickBets => loadQuickBetsChoice() ?? QUICK_BETS_DEFAULT
+
+// null — «Сбросить»: снова начальные
+export function saveQuickBets(bets: QuickBets | null) {
+  quickBets = bets
+  write(BETS_KEY, bets ? JSON.stringify(bets) : '')
 }
 
 // Память браузера работает: записать и прочитать

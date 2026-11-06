@@ -7,10 +7,13 @@ import {
   gamesSinceBackup,
   lastBackupText,
   makeBackup,
+  mergePokerPrefs,
   parseBackup,
   planRestore,
+  POKER_PREFS_NONE,
   type Backup,
 } from './backup'
+import { QUICK_ROOM_DEFAULT } from './quickRoom'
 
 const NOW = '2026-10-14T19:00:00.000Z'
 
@@ -68,7 +71,7 @@ describe('файл-копия: сохранение (Р-11)', () => {
     const real = game('g1')
     const backup = backupOf([real, game('demo1', { demo: true }), game('g2')])
     expect(backup.app).toBe('magic_fishki')
-    expect(backup.format).toBe(5)
+    expect(backup.format).toBe(6)
     expect(backup.savedAt).toBe(NOW)
     expect(backup.hands).toEqual([])
     expect(backup.notes).toEqual({})
@@ -130,7 +133,7 @@ describe('файл-копия: разбор', () => {
   })
 
   it('копия из более новой версии — ошибка', () => {
-    const text = JSON.stringify({ ...backupOf([]), format: 6 })
+    const text = JSON.stringify({ ...backupOf([]), format: 7 })
     expect(parse(text)).toEqual({ ok: false, error: 'Копия из более новой версии «Фишек» — обновите приложение' })
   })
 
@@ -161,7 +164,7 @@ describe('файл-копия: разбор', () => {
     const casinoOnly = game('g1', { entries: [], mode: 'casino' })
     const mixed = game('g2', { mode: 'mixed' })
     const parsed = parse(backupText(backupOf([casinoOnly, mixed, game('g3')])))
-    expect(parsed.ok && parsed.backup.format).toBe(5)
+    expect(parsed.ok && parsed.backup.format).toBe(6)
     expect(parsed.ok && parsed.backup.games.map((g) => g.mode)).toEqual(['casino', 'mixed', undefined])
     const bad = { ...game('g4'), mode: 'bingo' }
     expect(parse(JSON.stringify({ ...backupOf([]), games: [bad] })).ok).toBe(false)
@@ -192,7 +195,7 @@ describe('файл-копия прежней версии (формат 1): иг
     const g = game('g1', { players: [...game('g1').players, { id: 'g1-c', name: 'Ира' }] })
     const parsed = parse(oldText([g], ['Боря', ' Аня ', '', 'Боря']))
     if (!parsed.ok) throw new Error(parsed.error)
-    expect(parsed.backup.format).toBe(5)
+    expect(parsed.backup.format).toBe(6)
     expect(parsed.backup.hands).toEqual([])
     expect(parsed.backup.notes).toEqual({})
     expect(parsed.backup.settings.players).toEqual([
@@ -360,6 +363,38 @@ describe('файл-копия формата 5: вид стола', () => {
     expect(parsed.ok && parsed.backup.look).toEqual({ felt: null, cardBack: null, deck: 'two' })
     const odd = parse(JSON.stringify({ ...backupOf([]), look: { felt: 'pink', cardBack: 'dark', deck: 'six' } }))
     expect(odd.ok && odd.backup.look).toEqual({ felt: null, cardBack: 'dark', deck: 'two' })
+  })
+})
+
+// Покер-рум телефона в копии (Р-62): своя «Быстрая комната», показ в ББ, быстрые ставки
+describe('файл-копия формата 6: покер-рум', () => {
+  const ROOM = { ...QUICK_ROOM_DEFAULT, sb: 25, bb: 50, startingStack: 5000, variant: { game: 'omaha' as const, limit: 'pot' as const } }
+  const POKER = { quickRoom: ROOM, bigBlinds: true, quickBets: { pot: [50, 100], pre: [20, 35] } }
+
+  it('всё — в копии и читается обратно без потерь', () => {
+    const backup = makeBackup([game('g1')], SETTINGS, NOW, [], {}, {}, undefined, POKER)
+    const text = backupText(backup)
+    expect(JSON.parse(text).poker).toEqual(POKER)
+    expect(parse(text)).toEqual({ ok: true, backup })
+  })
+
+  it('копия формата 5 (без покер-рума) читается — ничего не задано', () => {
+    const { poker: _p, ...old } = makeBackup([game('g1')], SETTINGS, NOW, [], {}, {}, undefined, POKER)
+    const parsed = parse(JSON.stringify({ ...old, format: 5 }))
+    expect(parsed).toEqual({ ok: true, backup: backupOf([game('g1')]) })
+    expect(parsed.ok && parsed.backup.poker).toEqual(POKER_PREFS_NONE)
+  })
+
+  it('негодное значение — не задано, копия читается', () => {
+    const odd = { quickRoom: { ...ROOM, startingStack: 10 }, bigBlinds: 'да', quickBets: { pot: [0], pre: [] } }
+    const parsed = parse(JSON.stringify({ ...backupOf([]), poker: odd }))
+    expect(parsed.ok && parsed.backup.poker).toEqual(POKER_PREFS_NONE)
+  })
+
+  it('восстановление: из копии — то, что здесь не задано; своё остаётся', () => {
+    const local = { quickRoom: null, bigBlinds: false, quickBets: null }
+    expect(mergePokerPrefs(local, POKER)).toEqual({ quickRoom: ROOM, bigBlinds: false, quickBets: POKER.quickBets })
+    expect(mergePokerPrefs(POKER_PREFS_NONE, POKER_PREFS_NONE)).toEqual(POKER_PREFS_NONE)
   })
 })
 

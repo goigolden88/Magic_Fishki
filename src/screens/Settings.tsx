@@ -1,5 +1,31 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
-import { backupFileName, backupText, lastBackupText, makeBackup, parseBackup, planRestore } from '../calc/backup'
+import {
+  backupFileName,
+  backupText,
+  lastBackupText,
+  makeBackup,
+  mergePokerPrefs,
+  parseBackup,
+  planRestore,
+  type PokerPrefs,
+} from '../calc/backup'
+import {
+  addBet,
+  isDefaultBets,
+  parsePotPct,
+  parsePreTenths,
+  POT_PCT_MAX,
+  POT_PCT_MIN,
+  potBetLabel,
+  PRE_TENTHS_MAX,
+  PRE_TENTHS_MIN,
+  preBetLabel,
+  QUICK_BETS_DEFAULT,
+  QUICK_BETS_MAX,
+  type QuickBets,
+} from '../calc/quickBets'
+import { QUICK_ROOM_DEFAULT, quickRoomError, quickRoomLine, quickRoomSettings, type QuickRoom } from '../calc/quickRoom'
+import { RoomFields, roomChoiceOf, roomFormOf, type RoomForm } from './RoomFields'
 import { demoGames, hasDemo } from '../calc/demo'
 import { formatNumber, formatRate, parseChips, parseRate } from '../calc/format'
 import { today } from '../dates'
@@ -14,14 +40,22 @@ import { NOTE_COLORS, NOTE_LABEL_MAX, labelOf, mergeNotes, setLabel, type NoteCo
 import { DECK_LABELS, MY_BACK_LABELS, MY_FELT_LABELS, mergeMyLook, type MyLook } from '../calc/pokerLook'
 import { PlayingCard } from './PokerRoom'
 import {
+  loadBigBlinds,
+  loadBigBlindsChoice,
   loadCardAnim,
   loadMyLook,
   loadNotes,
+  loadQuickBets,
+  loadQuickBetsChoice,
+  loadQuickRoom,
   loadServer,
   loadTurnSound,
+  saveBigBlinds,
   saveCardAnim,
   saveMyLook,
   saveNotes,
+  saveQuickBets,
+  saveQuickRoom,
   saveServer,
   saveTurnSound,
 } from './pokerStorage'
@@ -32,6 +66,7 @@ export function SettingsScreen() {
   const [buyinText, setBuyinText] = useState('')
   const [saved, setSaved] = useState(false)
   const [myLook, setMyLook] = useState(loadMyLook) // личный «Вид стола» (Р-61): меняется и восстановлением из копии
+  const [restored, setRestored] = useState(0) // восстановили из копии — карточки покер-рума (Р-62) читаются заново
 
   useEffect(() => {
     void getSettings().then((s) => {
@@ -117,9 +152,15 @@ export function SettingsScreen() {
           <BackupCard
             settings={settings}
             onPlayers={(players) => setSettings((s) => s && { ...s, players })}
-            onLook={() => setMyLook(loadMyLook())}
+            onLook={() => {
+              setMyLook(loadMyLook())
+              setRestored((n) => n + 1)
+            }}
           />
           <PokerServerCard />
+          {/* Р-62: своя «Быстрая комната» и привычки покер-румов; восстановление из копии перечитывает их */}
+          <QuickRoomCard key={`room-${restored}`} defaultBuyin={settings.defaultBuyin} players={settings.players.length} />
+          <PokerRoomCard key={`bets-${restored}`} />
           <MyLookCard look={myLook} onChange={setMyLook} />
           <NoteColorsCard />
           <DemoCard />
@@ -366,7 +407,7 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
   // Заметки об игроках и подписи цветов (Р-56) — из памяти телефона, читаются сразу, без ожидания
   function backupNow(now: string) {
     const { notes, labels } = loadNotes()
-    return makeBackup(games ?? [], settings, now, hands, notes, labels, loadMyLook())
+    return makeBackup(games ?? [], settings, now, hands, notes, labels, loadMyLook(), localPokerPrefs())
   }
 
   // Сохранил ли браузер файл, приложению не узнать (на iPhone — не всегда): обещать нельзя
@@ -438,6 +479,11 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
     saveNotes({ notes: merged.notes, labels: merged.labels })
     // Вид стола (Р-61): из копии — то, что здесь не выбрано; свой выбор не перезаписывается
     saveMyLook(mergeMyLook(loadMyLook(), parsed.backup.look))
+    // Покер-рум (Р-62): так же — из копии то, что здесь не задано
+    const poker = mergePokerPrefs(localPokerPrefs(), parsed.backup.poker)
+    saveQuickRoom(poker.quickRoom)
+    if (poker.bigBlinds !== null) saveBigBlinds(poker.bigBlinds)
+    saveQuickBets(poker.quickBets)
     onLook()
     onPlayers(plan.players)
     setGames(await listGames())
@@ -452,8 +498,8 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
       <h2>Копия игр</h2>
       <p className="muted">
         Игры хранятся только в этом браузере: очистка данных сайта или новый телефон их сотрут. Копия — файл со всеми
-        играми, настройками, раздачами прошлых вечеров покера, заметками об игроках и видом стола; восстановление добавляет
-        недостающее и ничего не перезаписывает.
+        играми, настройками, раздачами прошлых вечеров покера, заметками об игроках, видом стола, быстрой комнатой и
+        быстрыми ставками; восстановление добавляет недостающее и ничего не перезаписывает.
       </p>
       {games !== null && <p>{lastBackupText(last, games, today())}</p>}
       <button type="button" className="big primary wide" disabled={games === null} onClick={save}>
@@ -547,6 +593,205 @@ function PokerServerCard() {
         появляются сразу. Только на этом устройстве.
       </p>
     </form>
+  )
+}
+
+// Покер-рум этого телефона (Р-62) — для копии: что задано здесь; не задано — null
+function localPokerPrefs(): PokerPrefs {
+  return { quickRoom: loadQuickRoom(), bigBlinds: loadBigBlindsChoice(), quickBets: loadQuickBetsChoice() }
+}
+
+// Своя «Быстрая комната» (Р-62): те же поля, что в форме «Новая комната», без игроков и пароля. Сохраняется
+// кнопкой — блайнды и стек проверяются; стек, равный закупу по умолчанию, следует за ним. «Сбросить» — начальные значения
+function QuickRoomCard({ defaultBuyin, players }: { defaultBuyin: number; players: number }) {
+  const [open, setOpen] = useState(false)
+  const [own, setOwn] = useState(loadQuickRoom)
+  const [form, setForm] = useState<RoomForm>(() =>
+    roomFormOf(own ?? QUICK_ROOM_DEFAULT, String(own?.startingStack ?? defaultBuyin), players),
+  )
+  const [saved, setSaved] = useState(false)
+  const choice = roomChoiceOf(form)
+  const error = choice ? quickRoomError(choice) : null
+
+  function change(next: RoomForm) {
+    setForm(next)
+    setSaved(false)
+  }
+
+  function save(e: FormEvent) {
+    e.preventDefault()
+    if (!choice || error) return
+    const room: QuickRoom = { ...choice, startingStack: choice.startingStack === defaultBuyin ? null : choice.startingStack }
+    saveQuickRoom(room)
+    setOwn(room)
+    setSaved(true)
+  }
+
+  function reset() {
+    saveQuickRoom(null)
+    setOwn(null)
+    setForm(roomFormOf(QUICK_ROOM_DEFAULT, String(defaultBuyin), players))
+    setSaved(false)
+  }
+
+  return (
+    <form className="card" onSubmit={save}>
+      <h2>Быстрая комната</h2>
+      <p className="muted">
+        С какой игрой, блайндами, стеком и таймером «Быстрая комната» на «Играть» создаёт стол одним касанием. Только на
+        этом телефоне; есть в копии.
+      </p>
+      <p>{quickRoomLine(quickRoomSettings(defaultBuyin, own))}</p>
+      <button type="button" className="big wide" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? 'Свернуть быструю комнату' : 'Настроить быструю комнату'}
+      </button>
+      {open && (
+        <>
+          <RoomFields form={form} players={players} onChange={change} />
+          {error && <p className="warn">{error}</p>}
+          {saved && <p className="ok">Сохранено</p>}
+          <div className="row">
+            <button className="big primary grow" disabled={!choice || error !== null}>
+              Сохранить
+            </button>
+            <button type="button" className="big" disabled={own === null && !saved} onClick={reset}>
+              Сбросить
+            </button>
+          </div>
+        </>
+      )}
+    </form>
+  )
+}
+
+// Привычки покер-румов (Р-62): суммы за столом в больших блайндах — только показ; свои быстрые ставки панели хода.
+// Только на этом телефоне, сохраняется сразу; есть в копии
+function PokerRoomCard() {
+  const [bb, setBb] = useState(loadBigBlinds)
+  const [bets, setBets] = useState(loadQuickBets)
+  const [open, setOpen] = useState(false)
+
+  function update(next: QuickBets | null) {
+    saveQuickBets(next && !isDefaultBets(next) ? next : null)
+    setBets(next ?? QUICK_BETS_DEFAULT)
+  }
+
+  return (
+    <section className="card">
+      <h2>Покер-рум</h2>
+      <label className="check">
+        <input
+          type="checkbox"
+          checked={bb}
+          onChange={(e) => {
+            setBb(e.target.checked)
+            saveBigBlinds(e.target.checked)
+          }}
+        />
+        Стеки и ставки в больших блайндах
+      </label>
+      <p className="muted">
+        За столом стеки, ставки, банк и суммы на кнопках хода — в больших блайндах раздачи: «42,5 ББ». История раздач и
+        выгрузка — фишками. Только на этом телефоне.
+      </p>
+      <button type="button" className="big wide" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? 'Свернуть быстрые ставки' : 'Быстрые ставки'}
+      </button>
+      {open && (
+        <>
+          <p className="muted">
+            Кнопки над ползунком в свой ход, после «Мин». Сумма вне того, что можно поставить, — кнопки нет; в пот-лимите
+            «Банк» — до предела банка. До {QUICK_BETS_MAX} кнопок каждого вида.
+          </p>
+          <BetsList
+            title="После флопа — доля банка, %"
+            placeholder="Например, 33"
+            list={bets.pot}
+            label={potBetLabel}
+            parse={parsePotPct}
+            hint={`Целое число от ${POT_PCT_MIN} до ${POT_PCT_MAX}; 33 — треть, 100 — банк`}
+            onChange={(pot) => update({ ...bets, pot })}
+          />
+          <BetsList
+            title="До флопа — больших блайндов"
+            placeholder="Например, 2,5"
+            list={bets.pre}
+            label={preBetLabel}
+            parse={parsePreTenths}
+            hint={`От ${PRE_TENTHS_MIN / 10} до ${PRE_TENTHS_MAX / 10}, до десятых: 2,5`}
+            onChange={(pre) => update({ ...bets, pre })}
+          />
+          <button type="button" className="big wide" disabled={isDefaultBets(bets)} onClick={() => update(null)}>
+            Сбросить быстрые ставки
+          </button>
+        </>
+      )}
+    </section>
+  )
+}
+
+// Список своих кнопок одного вида: подписи, «✕», ввод новой
+function BetsList(props: {
+  title: string
+  placeholder: string
+  list: number[]
+  label: (n: number) => string
+  parse: (text: string) => number | null
+  hint: string
+  onChange: (list: number[]) => void
+}) {
+  const { title, placeholder, list, label, parse, hint, onChange } = props
+  const [text, setText] = useState('')
+  const value = parse(text)
+  const duplicate = value !== null && list.includes(value)
+  const full = list.length >= QUICK_BETS_MAX
+
+  function add(e: FormEvent) {
+    e.preventDefault()
+    if (value === null || duplicate || full) return
+    onChange(addBet(list, value))
+    setText('')
+  }
+
+  return (
+    <fieldset className="players-pick">
+      <legend className="muted">{title}</legend>
+      {list.length > 0 ? (
+        <ul className="list items">
+          {list.map((n) => (
+            <li key={n} className="item">
+              <span className="grow">{label(n)}</span>
+              <button
+                type="button"
+                className="icon"
+                aria-label={`Убрать «${label(n)}»`}
+                onClick={() => onChange(list.filter((x) => x !== n))}
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted">Своих кнопок нет — только «Мин» и олл-ин.</p>
+      )}
+      <form className="row" onSubmit={add}>
+        <input
+          className="grow"
+          inputMode="decimal"
+          aria-label={title}
+          placeholder={placeholder}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+        />
+        <button className="big primary" disabled={value === null || duplicate || full}>
+          Добавить
+        </button>
+      </form>
+      {text.trim() !== '' && value === null && <p className="warn">{hint}</p>}
+      {duplicate && <p className="warn">Такая кнопка уже есть</p>}
+      {full && <p className="muted">Кнопок уже {QUICK_BETS_MAX} — уберите одну, чтобы добавить</p>}
+    </fieldset>
   )
 }
 

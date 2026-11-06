@@ -27,7 +27,7 @@ import { lookClass } from '../calc/pokerLook'
 import { handFor } from '../poker/history'
 import { NO_STORAGE } from './PokerLocal'
 import { ActionsCard, blindsLine, HandHistory, HostDock, LastHand, PokerTable, PotList } from './PokerRoom'
-import { clearBotTable, loadBotTable, loadMyLook, saveBotTable, storageWorks } from './pokerStorage'
+import { clearBotTable, loadBotTable, loadMyLook, loadQuickBets, saveBotTable, storageWorks } from './pokerStorage'
 
 // Адрес стола с ботами: под код комнаты (6 знаков) не подходит
 export const BOTS_HASH = '#/poker/bots'
@@ -153,7 +153,7 @@ function BotTableCard(props: {
   const { bots, error, onError, apply, onFinish } = props
   const [showHistory, setShowHistory] = useState(false)
   const table = bots.table
-  const v = botTableView(bots, Date.now())
+  const v = botTableView(bots, Date.now(), loadQuickBets()) // свои быстрые ставки (Р-62)
   // История — в моём виде: карты бота, взявшего банк без вскрытия, не видны. Каждая раздача — в «Прошлые вечера»
   // своим вечером «Против ботов» (Р-54), со своими картами; «Закончить» их не стирает
   const history = useMemo(() => bots.history.map((h) => handFor(h, bots.meId)), [bots.history, bots.meId])
@@ -238,6 +238,7 @@ function BotTableCard(props: {
           key={`${v.handNumber}-${v.stage}-${table.hand?.log.length ?? 0}-${v.actions.raise?.min ?? ''}`}
           actions={v.actions}
           sb={sb}
+          bb={v.bb}
           who={null}
           online
           onAct={(body) => apply((bt, now) => myMove(bt, body.action, now))}

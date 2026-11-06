@@ -1982,10 +1982,10 @@ input.bet-range::-moz-range-thumb {
 }
 
 /* Быстрые суммы — один ряд, подпись над числом */
+/* Свои быстрые ставки (Р-62) — до семи кнопок с «Мин» и олл-ином: не влезают в ряд — переносятся */
 .quick-row {
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(3.6rem, 1fr));
   gap: 0.3rem;
 }
 

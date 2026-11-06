@@ -22,6 +22,7 @@ import {
   type Level,
 } from '../poker/tournament'
 import { formatNumber, formatTenths } from './format'
+import { QUICK_BETS_DEFAULT, quickRaises, type QuickBets } from './quickBets'
 
 const NBSP = ' '
 
@@ -141,6 +142,7 @@ export type TableView = {
   turnLeft: number | null // секунд на ход у того, чей ход; таймера нет — null
   nextHandLeft: number | null // секунд до раздачи «сама»; не начнётся сама — null
   ante: number // анте с каждого: в раздаче — её, между раздачами — следующей; 0 — нет
+  bb: number // большой блайнд: в раздаче — её, между раздачами — следующей; для показа сумм в ББ (Р-62)
   tournament: TournamentView | null // кэш — null
 }
 
@@ -152,8 +154,9 @@ const STAGE_LABELS: Record<Stage, string> = {
   showdown: 'Торги закрыты',
 }
 
-// now — время сервера (телефон поправляет свои часы по присланному с столом, useRoom)
-export function tableView(table: TableState, meId: string, now: number): TableView {
+// now — время сервера (телефон поправляет свои часы по присланному с столом, useRoom);
+// bets — свои быстрые ставки этого телефона (Р-62)
+export function tableView(table: TableState, meId: string, now: number, bets: QuickBets = QUICK_BETS_DEFAULT): TableView {
   const hand = table.hand
   const turn = table.turn
   const turnLeft = hand && turn && hand.toAct !== -1 ? secondsLeft(turn.deadline, now) : null
@@ -225,7 +228,7 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
     pot: hand ? hand.seats.reduce((sum, s) => sum + s.committed, 0) : 0,
     pots: hand ? potsView(table, nameOf) : [],
     toActName: hand && hand.toAct !== -1 ? nameOf(hand.seats[hand.toAct].id) : null,
-    actions: actionsView(table, meId),
+    actions: actionsView(table, meId, bets),
     canStart:
       isHost &&
       !hand &&
@@ -246,6 +249,7 @@ export function tableView(table: TableState, meId: string, now: number): TableVi
     turnLeft,
     nextHandLeft: !hand && typeof table.nextHandAt === 'number' ? secondsLeft(table.nextHandAt, now) : null,
     ante: hand ? (hand.ante ?? 0) : (tournament?.blinds.ante ?? table.settings.ante ?? 0),
+    bb: hand ? hand.bb : (tournament?.blinds.bb ?? table.settings.bb),
     tournament,
   }
 }
@@ -377,8 +381,9 @@ function potLabels(count: number): string[] {
   return Array.from({ length: count }, (_, k) => potLabel(k, count))
 }
 
-// Кнопки хода игрока meId; стол на одном телефоне берёт их за того, чей ход (localTable.ts)
-export function actionsView(table: TableState, meId: string): ActionsView | null {
+// Кнопки хода игрока meId; стол на одном телефоне берёт их за того, чей ход (localTable.ts).
+// bets — свои быстрые ставки этого телефона (Р-62); нет — начальные
+export function actionsView(table: TableState, meId: string, bets: QuickBets = QUICK_BETS_DEFAULT): ActionsView | null {
   const hand = table.hand
   if (!hand || hand.stage === 'showdown') return null
   const index = hand.seats.findIndex((s) => s.id === meId)
@@ -406,29 +411,24 @@ export function actionsView(table: TableState, meId: string): ActionsView | null
           max,
           allIn: max === stack,
           potLimit: cap,
-          quick: quickRaises(hand.currentBet, toCall, pot, min, max, cap !== null && cap < stack),
+          // Быстрые суммы (Р-62): «Мин» и свои кнопки; олл-ин на экране — своей кнопкой
+          quick: quickRaises(
+            {
+              preflop: hand.stage === 'preflop',
+              currentBet: hand.currentBet,
+              toCall,
+              pot,
+              min,
+              max,
+              potTop: cap !== null && cap < stack,
+              bb: hand.bb,
+            },
+            bets,
+          ),
         }
       : null,
     allIn: stack <= hand.currentBet || (reopened && (cap === null || stack <= cap)) ? stack : null,
   }
-}
-
-// Быстрые суммы: минимум, полбанка и банк (банк — после уравнивания), в пределах min…max; олл-ин на
-// экране — своей кнопкой. Пот-лимит, а «пот» меньше стека (potTop) — вместо «Банк» кнопка «Пот» до max
-function quickRaises(currentBet: number, toCall: number, pot: number, min: number, max: number, potTop: boolean) {
-  const afterCall = pot + toCall
-  const options = [
-    { label: 'Мин', to: min },
-    { label: '½ банка', to: currentBet + Math.floor(afterCall / 2) },
-    ...(potTop ? [] : [{ label: 'Банк', to: currentBet + afterCall }]),
-  ]
-  const out: { label: string; to: number }[] = []
-  for (const o of options) {
-    const to = Math.min(max, Math.max(min, o.to))
-    if (to < max && !out.some((x) => x.to === to)) out.push({ label: o.label, to })
-  }
-  if (potTop) out.push({ label: 'Пот', to: max })
-  return out
 }
 
 // Победители по умолчанию: у банка один претендент — он и отмечен
