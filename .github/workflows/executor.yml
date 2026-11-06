@@ -33,7 +33,7 @@ jobs:
     uses: goigolden88/Skills_Claude/.github/workflows/executor.yml@main
     with:
       node-version: "24"
-      chrome: false
+      chrome: true
       project-tools: "Bash(npm ci),Bash(npm test:*),Bash(npm run:*),Bash(npm install:*)"
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
@@ -68,7 +68,7 @@ jobs:
     uses: goigolden88/Skills_Claude/.github/workflows/resolver.yml@main
     with:
       node-version: "24"
-      chrome: false
+      chrome: true
       project-tools: "Bash(npm ci),Bash(npm test:*),Bash(npm run:*),Bash(npm install:*)"
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
