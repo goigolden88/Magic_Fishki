@@ -68,9 +68,11 @@ describe('файл-копия: сохранение (Р-11)', () => {
     const real = game('g1')
     const backup = backupOf([real, game('demo1', { demo: true }), game('g2')])
     expect(backup.app).toBe('magic_fishki')
-    expect(backup.format).toBe(3)
+    expect(backup.format).toBe(4)
     expect(backup.savedAt).toBe(NOW)
     expect(backup.hands).toEqual([])
+    expect(backup.notes).toEqual({})
+    expect(backup.noteLabels).toEqual({})
     expect(backup.games.map((g) => g.id)).toEqual(['g1', 'g2'])
     expect(backup.games[0]).toEqual(real)
     expect(backup.settings).toEqual(SETTINGS)
@@ -127,7 +129,7 @@ describe('файл-копия: разбор', () => {
   })
 
   it('копия из более новой версии — ошибка', () => {
-    const text = JSON.stringify({ ...backupOf([]), format: 4 })
+    const text = JSON.stringify({ ...backupOf([]), format: 5 })
     expect(parse(text)).toEqual({ ok: false, error: 'Копия из более новой версии «Фишек» — обновите приложение' })
   })
 
@@ -158,7 +160,7 @@ describe('файл-копия: разбор', () => {
     const casinoOnly = game('g1', { entries: [], mode: 'casino' })
     const mixed = game('g2', { mode: 'mixed' })
     const parsed = parse(backupText(backupOf([casinoOnly, mixed, game('g3')])))
-    expect(parsed.ok && parsed.backup.format).toBe(3)
+    expect(parsed.ok && parsed.backup.format).toBe(4)
     expect(parsed.ok && parsed.backup.games.map((g) => g.mode)).toEqual(['casino', 'mixed', undefined])
     const bad = { ...game('g4'), mode: 'bingo' }
     expect(parse(JSON.stringify({ ...backupOf([]), games: [bad] })).ok).toBe(false)
@@ -189,8 +191,9 @@ describe('файл-копия прежней версии (формат 1): иг
     const g = game('g1', { players: [...game('g1').players, { id: 'g1-c', name: 'Ира' }] })
     const parsed = parse(oldText([g], ['Боря', ' Аня ', '', 'Боря']))
     if (!parsed.ok) throw new Error(parsed.error)
-    expect(parsed.backup.format).toBe(3)
+    expect(parsed.backup.format).toBe(4)
     expect(parsed.backup.hands).toEqual([])
+    expect(parsed.backup.notes).toEqual({})
     expect(parsed.backup.settings.players).toEqual([
       { id: 'new1', name: 'Боря' },
       { id: 'new2', name: 'Аня' },
@@ -298,6 +301,38 @@ describe('файл-копия формата 3: раздачи', () => {
     const backup = makeBackup([], SETTINGS, NOW, [record('E1', 1), record('E1', 2), record('E2', 1)])
     const plan = planRestore([], [], backup, [['E1', 1]])
     expect(plan.hands).toEqual([record('E1', 2), record('E2', 1)])
+  })
+})
+
+// Заметки об игроках и подписи цветов в копии (Р-56)
+describe('файл-копия формата 4: заметки', () => {
+  const NOTES = { Аня: { color: 'green' as const, text: 'зовёт всё' }, Боря: { color: null, text: 'блефует на ривере' } }
+  const LABELS = { red: 'агро' }
+
+  it('заметки и подписи — в копии и читаются обратно без потерь', () => {
+    const backup = makeBackup([game('g1')], SETTINGS, NOW, [], NOTES, LABELS)
+    const text = backupText(backup)
+    expect(JSON.parse(text).notes).toEqual(NOTES)
+    expect(JSON.parse(text).noteLabels).toEqual(LABELS)
+    expect(parse(text)).toEqual({ ok: true, backup })
+  })
+
+  it('копия формата 3 (без заметок) читается как раньше — заметок нет, без ошибки', () => {
+    const { notes: _n, noteLabels: _l, ...old } = backupOf([game('g1')])
+    const parsed = parse(JSON.stringify({ ...old, format: 3 }))
+    expect(parsed).toEqual({ ok: true, backup: backupOf([game('g1')]) })
+  })
+
+  it('формат 4 без заметок или с битой заметкой — ошибка; данные не меняются', () => {
+    const { notes: _n, ...noNotes } = backupOf([])
+    expect(parse(JSON.stringify(noNotes))).toEqual({ ok: false, error: 'Копия повреждена: заметки об игроках не читаются' })
+    const badColor = { ...backupOf([]), notes: { Аня: { color: 'pink', text: '' } } }
+    expect(parse(JSON.stringify(badColor)).ok).toBe(false)
+    const { noteLabels: _l, ...noLabels } = backupOf([])
+    expect(parse(JSON.stringify(noLabels))).toEqual({
+      ok: false,
+      error: 'Копия повреждена: подписи цветов заметок не читаются',
+    })
   })
 })
 
