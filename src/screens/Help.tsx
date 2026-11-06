@@ -11,14 +11,17 @@ export function HelpScreen() {
       </header>
       <h1>Справка</h1>
 
-      {helpSections(HELP_VALUES).map((s) => (
-        <details key={s.title} className="card help">
-          <summary>{s.title}</summary>
-          {s.text.map((p, i) => (
-            <p key={i}>{p}</p>
-          ))}
-        </details>
-      ))}
+      {/* Р-53: на широком окне разделы — в две колонки */}
+      <div className="cards">
+        {helpSections(HELP_VALUES).map((s) => (
+          <details key={s.title} className="card help">
+            <summary>{s.title}</summary>
+            {s.text.map((p, i) => (
+              <p key={i}>{p}</p>
+            ))}
+          </details>
+        ))}
+      </div>
     </main>
   )
 }

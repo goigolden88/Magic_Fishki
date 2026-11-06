@@ -161,11 +161,14 @@ export function PlayerScreen({ id }: { id: string }) {
         <>
           <h1>{data.stat.name}</h1>
           <h2>За всё время</h2>
-          <section className="card player">
-            <StatBody stat={data.stat} />
-          </section>
-          {data.stat.games > 0 && <TrendCard trend={data.trend} size={data.size} />}
-          {data.trend.recent !== null && <SpansCard spans={data.spans} size={data.size} />}
+          {/* Р-53: на широком окне карточки — в две колонки */}
+          <div className="cards">
+            <section className="card player">
+              <StatBody stat={data.stat} />
+            </section>
+            {data.stat.games > 0 && <TrendCard trend={data.trend} size={data.size} />}
+            {data.trend.recent !== null && <SpansCard spans={data.spans} size={data.size} />}
+          </div>
         </>
       )}
     </main>

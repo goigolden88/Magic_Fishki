@@ -51,8 +51,9 @@ export function SettingsScreen() {
       </header>
       <h1>Настройки</h1>
 
+      {/* Р-53: на широком окне карточки — в две колонки, каждая не шире ≈ 640 px */}
       {settings !== null && rateText !== null && (
-        <>
+        <div className="cards">
           <form className="card" onSubmit={(e) => void save(e)}>
             <label className="field">
               Курс новой игры, ₽ за фишку
@@ -99,7 +100,7 @@ export function SettingsScreen() {
           <BackupCard settings={settings} onPlayers={(players) => setSettings((s) => s && { ...s, players })} />
           <PokerServerCard />
           <DemoCard />
-        </>
+        </div>
       )}
     </main>
   )

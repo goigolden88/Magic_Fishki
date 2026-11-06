@@ -1,5 +1,5 @@
 // Казино-стол (#129): участники сидят рядами над и под колонкой столов, столы — друг под другом
-// в центре сукна. Только размеры и порядок мест — правил раунда не держит (они в casinoDeal.ts).
+// в центре сукна; на широком окне (Р-53) — рядами по 2–3. Только размеры и порядок мест — правил раунда не держит (они в casinoDeal.ts).
 // Размеры — в rem: экран красит места и карты ими же (CSS-переменные), так что тест о том же, что на экране
 import { BOARD_CARDS, DEAL_KINDS, type DealKind } from './casinoDeal'
 
@@ -34,6 +34,12 @@ const WIN_CARD = { w: 0.95, h: 1.4 }
 const WIN_GAP = 0.06
 const WIN_ROW_PAD = 0.2 // поля ряда сверху и снизу
 
+// Широкое окно (Р-53): колонка экрана от 1024 px — 66rem без полей по 2rem, ≈ 1116 px при rem = 18 px.
+// Столы — рядами по 2–3, строка победителя — сбоку от карт своего стола, места — в ряд на всю ширину
+export const WIDE_WIDTH = 62
+const SIDE_W = 7.4 // «Имя · рука» и пять мелких карт победителя справа от карт стола
+const SIDE_GAP = 0.4 // от карт стола до строки победителя
+
 export type Size = { w: number; h: number }
 export type Box = { x: number; y: number; w: number; h: number } // rem: x — слева, y — сверху
 
@@ -44,7 +50,10 @@ export type CasinoLayout = {
   board: Size // стол: подпись, пять карт и строка победителя
   winCard: Size // мелкая карта в строке победителя (Р-50)
   winRow: Size // ряд пяти мелких карт победителя
-  center: Size // колонка столов
+  boardCards: number // ширина пяти карт стола, rem
+  wide: boolean // раскладка широкого окна (Р-53): столы рядами, победитель сбоку
+  cols: number // столов в ряду: на телефоне — один (колонка), на широком окне — 2–3
+  center: Size // столы: колонка или ряды
   perRow: number // мест в ряду, не больше
   top: number[][] // номера участников над столами: ряды сверху вниз, в ряду — слева направо
   bottom: number[][] // под столами: так же
@@ -53,8 +62,9 @@ export type CasinoLayout = {
 }
 
 // Раскладка на n участников и m столов. Порядок — по часовой: первая половина — над столами слева
-// направо, вторая — под столами справа налево. Мест больше MAX_CASINO_SEATS или меньше одного — ошибка
-export function casinoLayout(kind: DealKind, players: number, tables: number): CasinoLayout {
+// направо, вторая — под столами справа налево. Мест больше MAX_CASINO_SEATS или меньше одного — ошибка.
+// wide — широкое окно (Р-53): ширина до WIDE_WIDTH, столы рядами, строка победителя — сбоку от карт стола
+export function casinoLayout(kind: DealKind, players: number, tables: number, wide = false): CasinoLayout {
   if (!Number.isInteger(players) || players < 1 || players > MAX_CASINO_SEATS) {
     throw new Error(`За столом казино от 1 до ${MAX_CASINO_SEATS} участников`)
   }
@@ -69,19 +79,47 @@ export function casinoLayout(kind: DealKind, players: number, tables: number): C
     w: round(BOARD_CARDS * WIN_CARD.w + (BOARD_CARDS - 1) * WIN_GAP),
     h: round(WIN_CARD.h + WIN_ROW_PAD),
   }
-  const board = {
-    w: round(BOARD_CARDS * BOARD_CARD.w + (BOARD_CARDS - 1) * BOARD_GAP + BOARD_PAD),
-    h: round(BOARD_CARD.h + BOARD_TEXT_H + winRow.h + BOARD_PAD),
-  }
-  const perRow = Math.max(1, Math.floor((MIN_WIDTH + GAP) / (seat.w + GAP)))
+  const boardCards = round(BOARD_CARDS * BOARD_CARD.w + (BOARD_CARDS - 1) * BOARD_GAP)
+  // Телефон: строка победителя — под картами; широкое окно: сбоку, стол ниже на её ряд
+  const board = wide
+    ? { w: round(boardCards + SIDE_GAP + SIDE_W + BOARD_PAD), h: round(BOARD_CARD.h + BOARD_TEXT_H + BOARD_PAD) }
+    : { w: round(boardCards + BOARD_PAD), h: round(BOARD_CARD.h + BOARD_TEXT_H + winRow.h + BOARD_PAD) }
+  const limit = wide ? WIDE_WIDTH : MIN_WIDTH
+  const perRow = Math.max(1, Math.floor((limit + GAP) / (seat.w + GAP)))
   const upper = Math.ceil(players / 2)
   const ids = Array.from({ length: players }, (_, i) => i)
   const top = rows(ids.slice(0, upper), perRow)
   const bottom = rows(ids.slice(upper).reverse(), perRow)
-  const center = { w: board.w, h: round(tables * board.h + (tables - 1) * GAP) }
-  const width = round(Math.max(perRow * seat.w + (perRow - 1) * GAP, board.w))
+  const cols = wide ? boardCols(tables) : 1
+  const boardRows = Math.ceil(tables / cols)
+  const center = {
+    w: round(cols * board.w + (cols - 1) * GAP),
+    h: round(boardRows * board.h + (boardRows - 1) * GAP),
+  }
+  const width = round(Math.max(perRow * seat.w + (perRow - 1) * GAP, center.w))
   const height = round(blockHeight(top.length, seat.h) + center.h + blockHeight(bottom.length, seat.h) + 2 * CENTER_PAD)
-  return { hand, seat, boardCard: BOARD_CARD, board, winCard: WIN_CARD, winRow, center, perRow, top, bottom, width, height }
+  return {
+    hand,
+    seat,
+    boardCard: BOARD_CARD,
+    board,
+    winCard: WIN_CARD,
+    winRow,
+    boardCards,
+    wide,
+    cols,
+    center,
+    perRow,
+    top,
+    bottom,
+    width,
+    height,
+  }
+}
+
+// Столов в ряду на широком окне (Р-53): до трёх в ряд; четыре — квадратом 2 × 2, а не 3 + 1
+export function boardCols(tables: number): number {
+  return tables === 4 ? 2 : Math.min(tables, 3)
 }
 
 // Где что лежит: места по номеру участника и колонка столов — прямоугольниками в rem
