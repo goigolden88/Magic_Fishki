@@ -38,9 +38,8 @@ import { loadLastBackup, saveLastBackup } from './lastBackup'
 import { DEFAULT_SERVER, serverBase } from '../calc/pokerLink'
 import { NOTE_COLORS, NOTE_LABEL_MAX, labelOf, mergeNotes, setLabel, type NoteColor } from '../calc/playerNotes'
 import { DECK_LABELS, MY_BACK_LABELS, MY_FELT_LABELS, mergeMyLook, type MyLook } from '../calc/pokerLook'
-import { PlayingCard } from './PokerRoom'
+import { PlayingCard, useBigBlinds } from './PokerRoom'
 import {
-  loadBigBlinds,
   loadBigBlindsChoice,
   loadCardAnim,
   loadDockSizeChoice,
@@ -617,7 +616,7 @@ function localPokerPrefs(): PokerPrefs {
 function AtTableCard() {
   const [sound, setSound] = useState(loadTurnSound)
   const [anim, setAnim] = useState(loadCardAnim)
-  const [bb, setBb] = useState(loadBigBlinds)
+  const bb = useBigBlinds() // та же настройка, что касание своего места за столом (Р-64)
   const [bets, setBets] = useState(loadQuickBets)
   const [open, setOpen] = useState(false)
 
@@ -660,16 +659,14 @@ function AtTableCard() {
         <input
           type="checkbox"
           checked={bb}
-          onChange={(e) => {
-            setBb(e.target.checked)
-            saveBigBlinds(e.target.checked)
-          }}
+          onChange={(e) => saveBigBlinds(e.target.checked)}
         />
         Стеки и ставки в больших блайндах
       </label>
       <p className="muted">
         За столом стеки, ставки, банк и суммы на кнопках хода — в больших блайндах раздачи: «42,5 ББ». История раздач и
-        выгрузка — фишками. Только на этом телефоне; есть в копии.
+        выгрузка — фишками. Переключить можно и за столом: касание своего имени или стека, а на столе одного телефона —
+        касание банка. Только на этом телефоне; есть в копии.
       </p>
       <p className="muted">Свои кнопки сумм над ползунком в свой ход. Только на этом телефоне; есть в копии.</p>
       <button type="button" className="big wide" aria-expanded={open} onClick={() => setOpen(!open)}>

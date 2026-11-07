@@ -276,6 +276,13 @@ async function scenario(cdp: Cdp, size: Size): Promise<void> {
     await d.waitText('Стол с ботами')
     await myTurn(d)
     await d.shot('03-protiv-botov', false)
+    // Касание своего имени (Р-64) — суммы в ББ, с подсказкой; снова — обратно в фишки
+    await tapMyName(d)
+    await d.waitText('Суммы в ББ')
+    await d.waitText(' ББ')
+    await d.shot('03b-protiv-botov-bb', false)
+    await tapMyName(d)
+    await d.waitText('Суммы в фишках')
   })
 
   // Стол на одном телефоне на 10 мест — самый тесный стол: места не наезжают на панель хода
@@ -339,6 +346,17 @@ async function myTurn(d: Device): Promise<void> {
     await sleep(200)
   }
   throw new Error(`за ${BOTS_TIMEOUT / 1000} с не дошла очередь хода — панели хода нет`)
+}
+
+// Коснуться своего имени у места за столом (Р-64): суммы ББ ↔ фишки
+async function tapMyName(d: Device): Promise<void> {
+  const done = await d.eval<boolean>(`(() => {
+    const el = document.querySelector('.seat.me button.seat-name')
+    if (!el) return false
+    el.click()
+    return true
+  })()`)
+  if (!done) throw new Error('нет своего места за столом')
 }
 
 // Казино: после раздачи — открыть первый стол (кнопкой или «Открыть сейчас», если столы открываются сами)

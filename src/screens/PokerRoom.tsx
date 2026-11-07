@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent, type RefObject } from 'react'
 import {
   BOARD_GROUP,
   boardGroup,
@@ -81,8 +81,10 @@ import {
   loadQuickBets,
   loadRecordedGame,
   loadTurnSound,
+  saveBigBlinds,
   saveOpenCards,
   saveRecordedGame,
+  subscribeBigBlinds,
   tableFitStyle,
 } from './pokerStorage'
 import { TimerFields, timerForm, type TimerForm } from './TimerFields'
@@ -674,15 +676,20 @@ export function blindsLine(table: TableState, v: TableView): string {
 }
 
 // Суммы за столом (Р-62): «Стеки и ставки в больших блайндах» на этом телефоне — в ББ раздачи, иначе фишками.
-// Только показ: ввод суммы, история раздач и выгрузка — фишками
-export function bbUnit(bb: number): number | null {
-  return loadBigBlinds() ? bb : null
+// Только показ: ввод суммы, история раздач и выгрузка — фишками.
+// Переключить можно и за столом касанием своего места (Р-64): стол, банки и панель хода перерисовываются сразу
+export function useBigBlinds(): boolean {
+  return useSyncExternalStore(subscribeBigBlinds, loadBigBlinds)
+}
+
+function useBbUnit(bb: number): number | null {
+  return useBigBlinds() ? bb : null
 }
 
 // Под столом — банки с претендентами
 export function PotList({ view: v }: { view: TableView }) {
+  const unit = useBbUnit(v.bb)
   if (v.pots.length === 0) return null
-  const unit = bbUnit(v.bb)
   return (
     <ul className="list pots muted">
       {v.pots.map((p) => (
@@ -979,7 +986,8 @@ function ShowCard(props: {
 // onSeat — касание свободного места пересаживает меня туда; нет — свободные места только видны.
 // HUD вечера (#79) — строкой у места, касание строки — подробно поверх стола
 // live — стол меняется на глазах: раздачу и улицы можно проигрывать (#133); первый стол после (пере)подключения — нет.
-// Заметки (Р-56, #165) — только этого телефона: точка у места, касание точки — заметка, касание имени — правка
+// Заметки (Р-56, #165) — только этого телефона: точка у места, касание точки — заметка, касание имени — правка.
+// Касание своего места — имени или стека — суммы ББ ↔ фишки (Р-64); моего места нет (стол на одном телефоне) — касание банка
 export function PokerTable(props: { view: TableView; open?: boolean; live?: boolean; onSeat?: (seat: number) => void }) {
   const { view: v, open = false, live = true, onSeat } = props
   const [hudOf, setHudOf] = useState<string | null>(null)
@@ -987,7 +995,10 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
   const { notes, labels } = useNotes()
   const wrap = useRef<HTMLDivElement>(null)
   const dealing = useTableDeal(wrap, v, live)
-  const unit = bbUnit(v.bb)
+  const inBB = useBigBlinds()
+  const unit = inBB ? v.bb : null
+  const toggleUnit = useUnitToggle(inBB)
+  const mine = v.seats.some((s) => s.isMe)
   const bottom = v.me?.seat ?? 0
   const spots = spotsBySeat(v.maxSeats, v.me?.seat ?? null)
   const hudSeat = v.seats.find((s) => s.id === hudOf && s.hud !== null)
@@ -995,6 +1006,11 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
     setHudOf(null)
     setNoteFor({ name, edit })
   }
+  const pot = (
+    <>
+      Банк <strong>{stackText(v.pot, unit)}</strong>
+    </>
+  )
   // Рамка стола (Р-63): на широком окне стол — по центру неё, своего размера из «Настроек»; на телефоне — во всю рамку
   return (
     <div className="felt-box">
@@ -1002,11 +1018,19 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
         <div className="felt" />
         <div className="felt-center" data-fly-origin>
           <div className="muted">{v.stageLabel}</div>
-          {v.stage !== null && (
-            <div className="pot-total">
-              Банк <strong>{stackText(v.pot, unit)}</strong>
-            </div>
-          )}
+          {v.stage !== null &&
+            (mine ? (
+              <div className="pot-total">{pot}</div>
+            ) : (
+              <button
+                type="button"
+                className="pot-total"
+                aria-label={inBB ? 'Банк — показать суммы в фишках' : 'Банк — показать суммы в ББ'}
+                onClick={toggleUnit.toggle}
+              >
+                {pot}
+              </button>
+            ))}
           {v.pots.length > 1 &&
             v.pots.map((p) => (
               <div key={p.label}>
@@ -1051,10 +1075,11 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
                 setNoteFor(null)
                 setHudOf(s.id)
               }}
-              note={noteOf(notes, s.name)}
+              note={s.isMe ? null : noteOf(notes, s.name)}
               labels={labels}
               onNote={(edit) => showNote(s.name, edit)}
               unit={unit}
+              onUnit={toggleUnit.toggle}
             />
           ))}
           {v.freeSeats.map((k) => (
@@ -1070,9 +1095,31 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
             onClose={() => setNoteFor(null)}
           />
         )}
+        {toggleUnit.hint && (
+          <div key={toggleUnit.hint.at} className="unit-hint" role="status">
+            {toggleUnit.hint.text}
+          </div>
+        )}
       </div>
     </div>
   )
+}
+
+// Переключить суммы ББ ↔ фишки за столом (Р-64): та же настройка, что галочка в «Настройках»;
+// подсказка «Суммы в ББ» / «Суммы в фишках» — на полторы секунды, новое касание показывает её заново
+const UNIT_HINT_MS = 1500
+
+function useUnitToggle(inBB: boolean): { hint: { text: string; at: number } | null; toggle: () => void } {
+  const [hint, setHint] = useState<{ text: string; at: number } | null>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(timer.current), [])
+  const toggle = () => {
+    saveBigBlinds(!inBB)
+    setHint({ text: inBB ? 'Суммы в фишках' : 'Суммы в ББ', at: Date.now() })
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => setHint(null), UNIT_HINT_MS)
+  }
+  return { hint, toggle }
 }
 
 // Анимация раздачи (#133): стол сменился на глазах — новая раздача летит к местам, новые общие карты — на стол.
@@ -1149,7 +1196,8 @@ function FreeSeat(props: { seat: number; at: Spot; bottom: boolean; onSeat?: (se
 // в обе стороны. myCards — мои карты в раздаче: крупнее чужих, лицом — пока держишь палец или «всегда открыты»;
 // myHand — подпись моей комбинации сейчас, у открытых карт.
 // onHud — касание строки HUD (#79): подробно.
-// note — заметка этого телефона об игроке с этим именем (Р-56): точка у имени; onNote(false) — касание точки, onNote(true) — имени
+// note — заметка этого телефона об игроке с этим именем (Р-56): точка у имени; onNote(false) — касание точки, onNote(true) — имени.
+// Моё место (Р-64): касание имени или стека — onUnit, суммы ББ ↔ фишки; заметки о себе нет
 function SeatSpot(props: {
   seat: SeatView
   at: Spot
@@ -1162,8 +1210,10 @@ function SeatSpot(props: {
   labels: NoteLabels
   onNote: (edit: boolean) => void
   unit: number | null // стек и ставка — в ББ (Р-62); null — фишками
+  onUnit: () => void
 }) {
-  const { seat: s, at, bottom, myCards, myHand, open, onHud, note, labels, onNote, unit } = props
+  const { seat: s, at, bottom, myCards, myHand, open, onHud, note, labels, onNote, unit, onUnit } = props
+  const unitLabel = unit === null ? 'показать суммы в ББ' : 'показать суммы в фишках'
   const marks = [
     s.place !== null && `${s.place} место`,
     s.allIn && 'олл-ин',
@@ -1196,12 +1246,24 @@ function SeatSpot(props: {
       {s.turnLeft !== null && <span className="seat-timer">{s.turnLeft} с</span>}
       <span className="seat-head">
         {note && <NoteDot note={note} labels={labels} onOpen={() => onNote(false)} />}
-        <button type="button" className="seat-name" aria-label={`${s.name}${s.isMe ? ' (вы)' : ''} — заметка`} onClick={() => onNote(true)}>
-          {s.name}
-        </button>
+        {s.isMe ? (
+          <button type="button" className="seat-name" aria-label={`${s.name} (вы) — ${unitLabel}`} onClick={onUnit}>
+            {s.name}
+          </button>
+        ) : (
+          <button type="button" className="seat-name" aria-label={`${s.name} — заметка`} onClick={() => onNote(true)}>
+            {s.name}
+          </button>
+        )}
       </span>
       {s.tag && <span className="seat-tag">{s.tag}</span>}
-      <span className="seat-chips">{stackText(s.chips, unit)}</span>
+      {s.isMe ? (
+        <button type="button" className="seat-chips" aria-label={`Стек ${stackText(s.chips, unit)} — ${unitLabel}`} onClick={onUnit}>
+          {stackText(s.chips, unit)}
+        </button>
+      ) : (
+        <span className="seat-chips">{stackText(s.chips, unit)}</span>
+      )}
       {s.hud && <HudLine hud={s.hud} onOpen={onHud} />}
       {myCards ? (
         <PeekCards cards={myCards} open={open} size="mid" label={myHand} className="seat-cards" fly={seatGroup(s.seat)} />
@@ -1234,7 +1296,7 @@ export function ActionsCard(props: {
   onAct: (body: Extract<ClientBody, { type: 'act' }>) => void
 }) {
   const { actions: a, sb, bb, who, left = null, online, onAct: act } = props
-  const unit = bbUnit(bb)
+  const unit = useBbUnit(bb)
   const money = (n: number) => stackText(n, unit)
   const r = a.raise
   const slider = a.myTurn ? betSlider(r, sb) : null

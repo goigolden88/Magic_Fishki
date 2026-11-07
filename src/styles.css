@@ -890,6 +890,48 @@ button.seat-name {
   line-height: inherit;
 }
 
+/* Стек своего места и банк на столе без моего места — кнопкой: касание — суммы ББ ↔ фишки (Р-64); вид — как был */
+button.seat-chips,
+button.pot-total {
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border-radius: 0.3rem;
+  background: none;
+  color: inherit;
+  line-height: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Подсказка после переключения — посреди стола на полторы секунды */
+.unit-hint {
+  position: absolute;
+  left: 50%;
+  top: 30%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.78);
+  color: #fff;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: unit-hint 1.5s ease forwards;
+}
+
+@keyframes unit-hint {
+  0%,
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
 button.note-dot {
   flex: none;
   display: grid;
