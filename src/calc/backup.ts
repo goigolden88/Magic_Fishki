@@ -16,13 +16,15 @@ import { parseLabels, parseNotes, type NoteLabels, type PlayerNotes } from './pl
 import { MY_LOOK_DEFAULT, parseMyLook, type MyLook } from './pokerLook'
 import { parseQuickBets, type QuickBets } from './quickBets'
 import { parseQuickRoom, type QuickRoom } from './quickRoom'
+import { parseDockSize, parseTableSize, type DockSize } from './tableFit'
 
 // Файл-копия (Р-11): все игры без демо и настройки, с пометкой приложения и версии формата.
 // Формат 2 (Р-12): постоянные игроки — { id, name }, у участников — regularId; формат 1 — игроки строками.
 // Формат 3 (Р-54): ещё раздачи прошлых вечеров покера — записи хранилища hands как есть; у 1 и 2 раздач нет.
 // Формат 4 (Р-56): ещё заметки об игроках и переименованные подписи цветов; у 1–3 их нет.
 // Формат 5 (Р-61): ещё личный «Вид стола» — сукно, рубашка, колода; у 1–4 его нет — «Как у стола».
-// Формат 6 (Р-62): ещё покер-рум телефона — своя «Быстрая комната», показ в ББ, быстрые ставки; у 1–5 их нет — не заданы
+// Формат 6 (Р-62): ещё покер-рум телефона — своя «Быстрая комната», показ в ББ, быстрые ставки; у 1–5 их нет — не заданы.
+// С Р-63 в нём же — размер стола и панели ставок на широком окне; формат прежний: поля необязательные
 export const BACKUP_APP = 'magic_fishki'
 export const BACKUP_FORMAT = 6
 
@@ -39,10 +41,18 @@ export type Backup = {
   poker: PokerPrefs
 }
 
-// Покер-рум телефона (Р-62): null — не задано, начальные значения
-export type PokerPrefs = { quickRoom: QuickRoom | null; bigBlinds: boolean | null; quickBets: QuickBets | null }
+// Покер-рум телефона (Р-62): null — не задано, начальные значения.
+// Размер стола и панели ставок на широком окне (Р-63) — tableSize и dockSize, в том же формате 6:
+// у копий без них — не заданы, а старое приложение их просто не читает
+export type PokerPrefs = {
+  quickRoom: QuickRoom | null
+  bigBlinds: boolean | null
+  quickBets: QuickBets | null
+  tableSize: number | null
+  dockSize: DockSize | null
+}
 
-export const POKER_PREFS_NONE: PokerPrefs = { quickRoom: null, bigBlinds: null, quickBets: null }
+export const POKER_PREFS_NONE: PokerPrefs = { quickRoom: null, bigBlinds: null, quickBets: null, tableSize: null, dockSize: null }
 
 // Значение не читается — не задано: копия из-за него не отвергается (как вид стола)
 export function parsePokerPrefs(raw: unknown): PokerPrefs {
@@ -51,6 +61,8 @@ export function parsePokerPrefs(raw: unknown): PokerPrefs {
     quickRoom: parseQuickRoom(raw.quickRoom),
     bigBlinds: typeof raw.bigBlinds === 'boolean' ? raw.bigBlinds : null,
     quickBets: parseQuickBets(raw.quickBets),
+    tableSize: parseTableSize(raw.tableSize),
+    dockSize: parseDockSize(raw.dockSize),
   }
 }
 
@@ -60,6 +72,8 @@ export function mergePokerPrefs(local: PokerPrefs, backup: PokerPrefs): PokerPre
     quickRoom: local.quickRoom ?? backup.quickRoom,
     bigBlinds: local.bigBlinds ?? backup.bigBlinds,
     quickBets: local.quickBets ?? backup.quickBets,
+    tableSize: local.tableSize ?? backup.tableSize,
+    dockSize: local.dockSize ?? backup.dockSize,
   }
 }
 

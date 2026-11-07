@@ -83,6 +83,7 @@ import {
   loadTurnSound,
   saveOpenCards,
   saveRecordedGame,
+  tableFitStyle,
 } from './pokerStorage'
 import { TimerFields, timerForm, type TimerForm } from './TimerFields'
 import { PrizeFields, TournamentPanel, TournamentResults } from './Tournament'
@@ -368,9 +369,10 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   }, [mark, autoMove?.type])
 
   // Вид стола (#77) — классом на обёртке: сукно и рубашки своих и чужих карт; свой выбор телефона — поверх (Р-61).
-  // Колонка (#97): стол — на весь первый экран, под ним листается остальное, панель хода — внизу
+  // Колонка (#97): стол — на весь первый экран, под ним листается остальное, панель хода — внизу.
+  // Широкое окно (Р-63): стол и панель — целиком в окне, панель — справа внизу; под ними листается страница
   return (
-    <div className={`table-layout ${lookClass(table.settings, loadMyLook())}`}>
+    <div className={`table-layout ${lookClass(table.settings, loadMyLook())}`} style={tableFitStyle()}>
       <div className="table-scroll">
         <div className="table-stage">
           <p className="muted table-info">
@@ -386,97 +388,101 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
           />
         </div>
 
-        {v.myCards && <OpenCards open={open} onOpen={onOpen} />}
-        {v.tournament && <TournamentPanel view={v.tournament} onEnd={() => room.send({ type: 'endTournament' })} />}
+        <div className="table-below">
+          {v.myCards && <OpenCards open={open} onOpen={onOpen} />}
+          {v.tournament && <TournamentPanel view={v.tournament} onEnd={() => room.send({ type: 'endTournament' })} />}
 
-        {v.paused && (
-          <p className="card warn">
-            Перерыв: {v.stage !== null ? 'раздача доигрывается без таймера, ' : ''}новая не начнётся, пока ведущий не нажмёт
-            «Продолжить»
+          {v.paused && (
+            <p className="card warn">
+              Перерыв: {v.stage !== null ? 'раздача доигрывается без таймера, ' : ''}новая не начнётся, пока ведущий не
+              нажмёт «Продолжить»
+            </p>
+          )}
+
+          <PotList view={v} />
+          <LastHand table={table} view={v} />
+
+          {history ? (
+            <HandHistory
+              hands={room.history}
+              note={room.online ? null : `${NO_CONNECTION} — история придёт, когда связь вернётся`}
+              onClose={() => setHistory(false)}
+            />
+          ) : (
+            <button type="button" className="big wide" onClick={() => setHistory(true)}>
+              История раздач
+            </button>
+          )}
+          {!copyWorks && <p className="warn">{NO_COPY}</p>}
+
+          {v.canShow && (
+            <ShowCard
+              show={v.canShow}
+              online={room.online}
+              open={open}
+              onOpen={onOpen}
+              onShow={(cards) => room.send({ type: 'show', cards })}
+            />
+          )}
+
+          {v.canTakeHost && (
+            <button type="button" className="big primary wide" onClick={() => room.send({ type: 'takeHost' })}>
+              Взять ведение
+            </button>
+          )}
+
+          {v.isHost && <HostCard room={room} table={table} view={v} code={code} gameId={gameId} onFinish={onFinish} />}
+
+          <MyCard room={room} table={table} view={v} amounts={amounts} />
+        </div>
+      </div>
+
+      <div className="table-dock">
+        {room.error && (
+          <p className="warn table-error" onClick={room.clearError}>
+            {room.error}
           </p>
         )}
 
-        <PotList view={v} />
-        <LastHand table={table} view={v} />
-
-        {history ? (
-          <HandHistory
-            hands={room.history}
-            note={room.online ? null : `${NO_CONNECTION} — история придёт, когда связь вернётся`}
-            onClose={() => setHistory(false)}
-          />
-        ) : (
-          <button type="button" className="big wide" onClick={() => setHistory(true)}>
-            История раздач
-          </button>
-        )}
-        {!copyWorks && <p className="warn">{NO_COPY}</p>}
-
-        {v.canShow && (
-          <ShowCard
-            show={v.canShow}
+        {dock === 'turn' && v.actions && autoMove === null && (
+          // Свой ход и новый минимум — сумма снова с минимума
+          <ActionsCard
+            key={`${v.handNumber}-${v.stage}-${v.actions.raise?.min ?? ''}`}
+            actions={v.actions}
+            sb={sb}
+            bb={v.bb}
+            who={null}
+            left={v.turnLeft}
             online={room.online}
-            open={open}
-            onOpen={onOpen}
-            onShow={(cards) => room.send({ type: 'show', cards })}
+            onAct={(body) => room.send(body)}
           />
         )}
-
-        {v.canTakeHost && (
-          <button type="button" className="big primary wide" onClick={() => room.send({ type: 'takeHost' })}>
-            Взять ведение
-          </button>
+        {runs && <RunDock run={runs} online={room.online} onChoose={(times) => room.send({ type: 'runChoice', times })} />}
+        {!runs &&
+          (dock === 'wait' || autoMove !== null) &&
+          (showPreActions(v.actions) || autoMove !== null ? (
+            <PreActionsDock
+              line={waitLine(v)}
+              pre={pre}
+              onToggle={(kind) => {
+                const next = togglePreAction(pre, kind)
+                setPreMark(next !== null && street !== null ? { kind: next, street } : null)
+              }}
+            />
+          ) : (
+            <p className="dock wait-strip">{waitLine(v)}</p>
+          ))}
+        {mix && <MixDock mix={mix} online={room.online} onSend={(body) => room.send(body)} />}
+        {dock === 'host' && (
+          <HostDock
+            view={v}
+            pause
+            voting={mix?.kind === 'vote'}
+            onStart={() => room.send({ type: 'start' })}
+            onPause={() => room.send({ type: 'pause', paused: !v.paused })}
+          />
         )}
-
-        {v.isHost && <HostCard room={room} table={table} view={v} code={code} gameId={gameId} onFinish={onFinish} />}
-
-        <MyCard room={room} table={table} view={v} amounts={amounts} />
       </div>
-
-      {room.error && (
-        <p className="warn table-error" onClick={room.clearError}>
-          {room.error}
-        </p>
-      )}
-
-      {dock === 'turn' && v.actions && autoMove === null && (
-        // Свой ход и новый минимум — сумма снова с минимума
-        <ActionsCard
-          key={`${v.handNumber}-${v.stage}-${v.actions.raise?.min ?? ''}`}
-          actions={v.actions}
-          sb={sb}
-          bb={v.bb}
-          who={null}
-          left={v.turnLeft}
-          online={room.online}
-          onAct={(body) => room.send(body)}
-        />
-      )}
-      {runs && <RunDock run={runs} online={room.online} onChoose={(times) => room.send({ type: 'runChoice', times })} />}
-      {!runs &&
-        (dock === 'wait' || autoMove !== null) &&
-        (showPreActions(v.actions) || autoMove !== null ? (
-          <PreActionsDock
-            line={waitLine(v)}
-            pre={pre}
-            onToggle={(kind) => {
-              const next = togglePreAction(pre, kind)
-              setPreMark(next !== null && street !== null ? { kind: next, street } : null)
-            }}
-          />
-        ) : (
-          <p className="dock wait-strip">{waitLine(v)}</p>
-        ))}
-      {mix && <MixDock mix={mix} online={room.online} onSend={(body) => room.send(body)} />}
-      {dock === 'host' && (
-        <HostDock
-          view={v}
-          pause
-          voting={mix?.kind === 'vote'}
-          onStart={() => room.send({ type: 'start' })}
-          onPause={() => room.send({ type: 'pause', paused: !v.paused })}
-        />
-      )}
     </div>
   )
 }
@@ -989,74 +995,82 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
     setHudOf(null)
     setNoteFor({ name, edit })
   }
+  // Рамка стола (Р-63): на широком окне стол — по центру неё, своего размера из «Настроек»; на телефоне — во всю рамку
   return (
-    <div className="felt-wrap" ref={wrap}>
-      <div className="felt" />
-      <div className="felt-center" data-fly-origin>
-        <div className="muted">{v.stageLabel}</div>
-        {v.stage !== null && (
-          <div className="pot-total">
-            Банк <strong>{stackText(v.pot, unit)}</strong>
-          </div>
-        )}
-        {v.pots.length > 1 &&
-          v.pots.map((p) => (
-            <div key={p.label}>
-              {p.label} {stackText(p.amount, unit)}
+    <div className="felt-box">
+      <div className="felt-wrap" ref={wrap}>
+        <div className="felt" />
+        <div className="felt-center" data-fly-origin>
+          <div className="muted">{v.stageLabel}</div>
+          {v.stage !== null && (
+            <div className="pot-total">
+              Банк <strong>{stackText(v.pot, unit)}</strong>
             </div>
+          )}
+          {v.pots.length > 1 &&
+            v.pots.map((p) => (
+              <div key={p.label}>
+                {p.label} {stackText(p.amount, unit)}
+              </div>
+            ))}
+          {v.runs ? (
+            // Прогнали несколько раз (#167) — борды друг под другом, у каждого свой победитель
+            v.runs.map((run, k) => (
+              <div key={run.label} className="board run-board">
+                <CardRow cards={run.cards} win={run.win} fly={boardGroup(k)} />
+                <span className="run-winner">
+                  {run.label}: {run.winners}
+                </span>
+              </div>
+            ))
+          ) : (
+            v.board.length > 0 && (
+              <div className="board">
+                <CardRow cards={v.board} win={v.boardWin} fly={BOARD_GROUP} />
+              </div>
+            )
+          )}
+          {v.paused && v.stage !== null && (
+            <div>
+              <strong>Перерыв</strong>
+            </div>
+          )}
+          {v.nextHandLeft !== null && <div>Новая раздача через {v.nextHandLeft} с</div>}
+        </div>
+        <div className="spots">
+          {v.seats.map((s) => (
+            <SeatSpot
+              key={s.id}
+              seat={s}
+              at={spots[s.seat]}
+              bottom={s.seat === bottom}
+              myCards={s.isMe ? v.myCards : null}
+              myHand={s.isMe ? v.myHand : null}
+              open={open && !dealing}
+              onHud={() => {
+                setNoteFor(null)
+                setHudOf(s.id)
+              }}
+              note={noteOf(notes, s.name)}
+              labels={labels}
+              onNote={(edit) => showNote(s.name, edit)}
+              unit={unit}
+            />
           ))}
-        {v.runs ? (
-          // Прогнали несколько раз (#167) — борды друг под другом, у каждого свой победитель
-          v.runs.map((run, k) => (
-            <div key={run.label} className="board run-board">
-              <CardRow cards={run.cards} win={run.win} fly={boardGroup(k)} />
-              <span className="run-winner">
-                {run.label}: {run.winners}
-              </span>
-            </div>
-          ))
-        ) : (
-          v.board.length > 0 && (
-            <div className="board">
-              <CardRow cards={v.board} win={v.boardWin} fly={BOARD_GROUP} />
-            </div>
-          )
-        )}
-        {v.paused && v.stage !== null && (
-          <div>
-            <strong>Перерыв</strong>
-          </div>
-        )}
-        {v.nextHandLeft !== null && <div>Новая раздача через {v.nextHandLeft} с</div>}
-      </div>
-      <div className="spots">
-        {v.seats.map((s) => (
-          <SeatSpot
-            key={s.id}
-            seat={s}
-            at={spots[s.seat]}
-            bottom={s.seat === bottom}
-            myCards={s.isMe ? v.myCards : null}
-            myHand={s.isMe ? v.myHand : null}
-            open={open && !dealing}
-            onHud={() => {
-              setNoteFor(null)
-              setHudOf(s.id)
-            }}
-            note={noteOf(notes, s.name)}
-            labels={labels}
-            onNote={(edit) => showNote(s.name, edit)}
-            unit={unit}
+          {v.freeSeats.map((k) => (
+            <FreeSeat key={`free-${k}`} seat={k} at={spots[k]} bottom={k === bottom} onSeat={onSeat} />
+          ))}
+        </div>
+        {hudSeat?.hud && <HudCard name={hudSeat.name} hud={hudSeat.hud} onClose={() => setHudOf(null)} />}
+        {noteFor && (
+          <NotePop
+            key={`${noteFor.name}/${noteFor.edit}`}
+            name={noteFor.name}
+            edit={noteFor.edit}
+            onClose={() => setNoteFor(null)}
           />
-        ))}
-        {v.freeSeats.map((k) => (
-          <FreeSeat key={`free-${k}`} seat={k} at={spots[k]} bottom={k === bottom} onSeat={onSeat} />
-        ))}
+        )}
       </div>
-      {hudSeat?.hud && <HudCard name={hudSeat.name} hud={hudSeat.hud} onClose={() => setHudOf(null)} />}
-      {noteFor && (
-        <NotePop key={`${noteFor.name}/${noteFor.edit}`} name={noteFor.name} edit={noteFor.edit} onClose={() => setNoteFor(null)} />
-      )}
     </div>
   )
 }
@@ -1104,10 +1118,15 @@ function edgeOf(at: Spot): string | null {
   return at.x <= 10 ? 'edge-l' : at.x >= 90 ? 'edge-r' : null
 }
 
+// Не моё место у самого низа (9–10 мест): на широком окне растёт вверх от точки, как моё, — не уходит под край окна (Р-63)
+function lowOf(at: Spot, bottom: boolean): string | null {
+  return !bottom && at.y >= 90 ? 'low' : null
+}
+
 // Свободное место между раздачами (#98): «Место N»; с onSeat — кнопка «пересесть», без — только видно
 function FreeSeat(props: { seat: number; at: Spot; bottom: boolean; onSeat?: (seat: number) => void }) {
   const { seat, at, bottom, onSeat } = props
-  const cls = ['seat', 'free', bottom ? 'bottom' : edgeOf(at)].filter(Boolean).join(' ')
+  const cls = ['seat', 'free', bottom ? 'bottom' : edgeOf(at), lowOf(at, bottom)].filter(Boolean).join(' ')
   const style = { left: `${at.x}%`, top: `${at.y}%` }
   const name = <span className="seat-name">Место {seat + 1}</span>
   if (!onSeat) {
@@ -1157,6 +1176,7 @@ function SeatSpot(props: {
   const cls = [
     'seat',
     bottom ? 'bottom' : edgeOf(at),
+    lowOf(at, bottom),
     s.toAct && 'to-act',
     s.folded && 'folded',
     s.isMe && 'me',

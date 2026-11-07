@@ -1,7 +1,8 @@
 // Снимки экранов для отчёта PR (Ш-202 Штаба, #182): npm run shots.
 // Собирает сайт (vite build), поднимает vite preview (порт 4173) и ведёт Chrome без окна по экранам:
-// «Настройки» → демо-игры, «Игры», «Играть», «Против ботов» (мой ход, панель хода), «Казино» (столы идут),
-// «Справка». Сервер комнат не нужен — всё без сети. Демо-игры — выдуманные (src/calc/demo.ts).
+// «Настройки» → демо-игры, «Игры», «Игроки», «Вид стола» в «Настройках», «Играть», «Стол на этом телефоне»
+// (10 гостей, панель хода), «Против ботов» (мой ход, панель хода), «Казино» (столы идут), «Справка».
+// Сервер комнат не нужен — всё без сети; комнаты на снимках нет. Демо-игры и гости — выдуманные (src/calc/demo.ts).
 // Chrome — по DevTools-протоколу (обычный --screenshot не умеет нажимать кнопки), без сторонних библиотек.
 // Размеры: 390 × 844 (телефон), 1366 × 768 (ноутбук), 1920 × 1080 (монитор); у каждого — своё хранилище.
 // PNG — в shots/ (не в репо), имя — «ширина-номер-экран.png». Сбой — код выхода 1 и строка, какой экран.
@@ -22,6 +23,7 @@ const SIZES: Size[] = [
   { name: '1920', width: 1920, height: 1080 },
 ]
 const TIMEOUT = 20_000
+const GUESTS = ['Аня', 'Боря', 'Вика', 'Гоша', 'Даша', 'Егор', 'Женя', 'Зоя', 'Илья', 'Катя'] // выдуманные гости стола
 const BOTS_TIMEOUT = 60_000 // боты ходят через секунду; моя очередь может прийти не в первой раздаче
 
 // ─── DevTools-протокол ───────────────────────────────────────────────────────
@@ -174,6 +176,18 @@ class Device {
     if (!done) throw new Error(`нет кнопки «${text}»`)
   }
 
+  // Вписать текст в поле: значение — через свойство поля и событие input, иначе React его не заметит
+  async type(selector: string, text: string): Promise<void> {
+    const done = await this.eval<boolean>(`(() => {
+      const el = document.querySelector(${JSON.stringify(selector)})
+      if (!el) return false
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, ${JSON.stringify(text)})
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+      return true
+    })()`)
+    if (!done) throw new Error(`нет поля ${selector}`)
+  }
+
   private metrics(height: number): Promise<unknown> {
     const { width } = this.size
     return this.cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 600 }, this.session)
@@ -232,6 +246,22 @@ async function scenario(cdp: Cdp, size: Size): Promise<void> {
     await d.shot('01-igry')
   })
 
+  await screen('Игроки', size, async () => {
+    await d.goto('#/players')
+    await d.waitFor('main h1')
+    await d.shot('07-igroki')
+  })
+
+  // «Вид стола» в «Настройках»: на широком окне — ещё размер стола и панели ставок (Р-63)
+  await screen('Вид стола', size, async () => {
+    await d.goto('#/settings')
+    await d.waitText('Выбрать вид стола')
+    await d.click('Выбрать вид стола')
+    await d.waitText('Колода')
+    if (size.width >= 1024) await d.waitText('Размер стола')
+    await d.shot('08-vid-stola')
+  })
+
   await screen('Играть', size, async () => {
     await d.goto('#/poker')
     await d.waitText('Войти по ссылке')
@@ -246,6 +276,27 @@ async function scenario(cdp: Cdp, size: Size): Promise<void> {
     await d.waitText('Стол с ботами')
     await myTurn(d)
     await d.shot('03-protiv-botov', false)
+  })
+
+  // Стол на одном телефоне на 10 мест — самый тесный стол: места не наезжают на панель хода
+  await screen('Стол на этом телефоне', size, async () => {
+    await d.goto('#/poker')
+    await d.waitText('Войти по ссылке')
+    await d.click('Стол на этом телефоне')
+    await d.waitText('Ведущий ходит за каждого')
+    for (const name of GUESTS) {
+      await d.type('input[aria-label="Имя гостя"]', name)
+      await sleep(100)
+      await d.click('Добавить')
+      await sleep(100)
+    }
+    await d.waitText(`За столом: ${GUESTS.length}`)
+    await d.click('Начать')
+    await d.waitText('Удалить стол')
+    await d.click('Начать раздачу')
+    await d.waitFor('.dock.actions')
+    await sleep(1500) // раздача долетела
+    await d.shot('09-stol-na-telefone', false)
   })
 
   await screen('Казино', size, async () => {

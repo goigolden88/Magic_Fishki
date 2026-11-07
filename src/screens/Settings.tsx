@@ -43,22 +43,35 @@ import {
   loadBigBlinds,
   loadBigBlindsChoice,
   loadCardAnim,
+  loadDockSizeChoice,
   loadMyLook,
   loadNotes,
   loadQuickBets,
   loadQuickBetsChoice,
   loadQuickRoom,
   loadServer,
+  loadTableSizeChoice,
   loadTurnSound,
   saveBigBlinds,
   saveCardAnim,
+  saveDockSize,
   saveMyLook,
   saveNotes,
   saveQuickBets,
   saveQuickRoom,
   saveServer,
+  saveTableSize,
   saveTurnSound,
 } from './pokerStorage'
+import {
+  DOCK_SIZE_DEFAULT,
+  DOCK_SIZE_LABELS,
+  TABLE_SIZE_DEFAULT,
+  TABLE_SIZE_MAX,
+  TABLE_SIZE_MIN,
+  TABLE_SIZE_STEP,
+} from '../calc/tableFit'
+import { useWide } from './useWide'
 
 export function SettingsScreen() {
   const [settings, setSettings] = useState<Settings | null>(null)
@@ -162,7 +175,7 @@ export function SettingsScreen() {
           {/* Р-62: своя «Быстрая комната» и привычки покер-румов; восстановление из копии перечитывает их */}
           <QuickRoomCard key={`room-${restored}`} defaultBuyin={settings.defaultBuyin} players={settings.players.length} />
           <AtTableCard key={`bets-${restored}`} />
-          <MyLookCard look={myLook} onChange={setMyLook} />
+          <MyLookCard key={`look-${restored}`} look={myLook} onChange={setMyLook} />
 
           <h2 className="group-title">Заметки об игроках</h2>
           <NoteColorsCard />
@@ -499,6 +512,9 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
     saveQuickRoom(poker.quickRoom)
     if (poker.bigBlinds !== null) saveBigBlinds(poker.bigBlinds)
     saveQuickBets(poker.quickBets)
+    // Размер стола и панели (Р-63): так же
+    saveTableSize(poker.tableSize)
+    saveDockSize(poker.dockSize)
     onLook()
     onPlayers(plan.players)
     setGames(await listGames())
@@ -512,8 +528,8 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
     <section className="card">
       <p className="muted">
         Игры хранятся только в этом браузере: очистка данных сайта или новый телефон их сотрут. Копия — файл со всеми
-        играми, настройками, раздачами прошлых вечеров покера, заметками об игроках, видом стола, быстрой комнатой и
-        быстрыми ставками; восстановление добавляет недостающее и ничего не перезаписывает.
+        играми, настройками, раздачами прошлых вечеров покера, заметками об игроках, видом и размером стола, быстрой
+        комнатой и быстрыми ставками; восстановление добавляет недостающее и ничего не перезаписывает.
       </p>
       {games !== null && <p>{lastBackupText(last, games, today())}</p>}
       <button type="button" className="big primary wide" disabled={games === null} onClick={save}>
@@ -586,7 +602,13 @@ function PokerServerCard() {
 
 // Покер-рум этого телефона (Р-62) — для копии: что задано здесь; не задано — null
 function localPokerPrefs(): PokerPrefs {
-  return { quickRoom: loadQuickRoom(), bigBlinds: loadBigBlindsChoice(), quickBets: loadQuickBetsChoice() }
+  return {
+    quickRoom: loadQuickRoom(),
+    bigBlinds: loadBigBlindsChoice(),
+    quickBets: loadQuickBetsChoice(),
+    tableSize: loadTableSizeChoice(),
+    dockSize: loadDockSizeChoice(),
+  }
 }
 
 // «За столом» (Р-59): всё, что меняет стол на этом телефоне, — сохраняется сразу.
@@ -815,9 +837,10 @@ function BetsList(props: {
 }
 
 // Личный «Вид стола» (Р-61): сукно и рубашка поверх выбора ведущего («Как у стола» — его выбор) и колода.
-// Только на этом телефоне, сохраняется сразу; есть в копии
+// На широком окне (Р-63) — ещё размер стола покера и панели ставок. Только на этом телефоне, сохраняется сразу; есть в копии
 function MyLookCard({ look, onChange }: { look: MyLook; onChange: (look: MyLook) => void }) {
   const [open, setOpen] = useState(false)
+  const wide = useWide()
 
   function update(change: Partial<MyLook>) {
     const next = { ...look, ...change }
@@ -832,6 +855,7 @@ function MyLookCard({ look, onChange }: { look: MyLook; onChange: (look: MyLook)
         Сукно, рубашка карт и колода — как столы выглядят на этом телефоне: в комнате, на одном телефоне, против ботов и в
         казино. У других игроков — их выбор. «Как у стола» — то, что выбрано для стола: ведущим комнаты или при начале
         стола на этом телефоне.
+        {wide && ' На широком окне здесь же — размер стола покера и панели ставок.'}
       </p>
       <button type="button" className="big wide" aria-expanded={open} onClick={() => setOpen(!open)}>
         {open ? 'Свернуть вид стола' : 'Выбрать вид стола'}
@@ -883,9 +907,77 @@ function MyLookCard({ look, onChange }: { look: MyLook; onChange: (look: MyLook)
               ))}
             </div>
           </fieldset>
+          {wide && <TableFitFields />}
         </>
       )}
     </section>
+  )
+}
+
+// Размер стола покера и панели ставок (Р-63) — только на широком окне: на телефоне и планшете маленький стол
+// с девятью–десятью местами наезжал бы местами, а маленькая панель — кнопками меньше пальца.
+// Сохраняется сразу и действует на всех столах этого устройства; «Сбросить» — во всё место и «Средняя»
+function TableFitFields() {
+  const [size, setSize] = useState(loadTableSizeChoice)
+  const [dock, setDock] = useState(loadDockSizeChoice)
+  const shown = size ?? TABLE_SIZE_DEFAULT
+
+  return (
+    <>
+      <fieldset className="players-pick">
+        <legend className="muted">Размер стола</legend>
+        <label className="field">
+          {shown} %{shown === TABLE_SIZE_MAX ? ' — во всё место' : ''}
+          <input
+            type="range"
+            className="bet-range"
+            min={TABLE_SIZE_MIN}
+            max={TABLE_SIZE_MAX}
+            step={TABLE_SIZE_STEP}
+            value={shown}
+            onChange={(e) => {
+              const next = Number(e.target.value)
+              setSize(next)
+              saveTableSize(next)
+            }}
+          />
+        </label>
+        <p className="muted">
+          Доля места, которое стол занимает на экране: 100 % — всё, что есть, меньше — стол по центру. Больше 100 % нельзя —
+          стол перестал бы помещаться в окно.
+        </p>
+      </fieldset>
+      <fieldset className="players-pick">
+        <legend className="muted">Панель ставок</legend>
+        <div className="amounts">
+          {DOCK_SIZE_LABELS.map(([id, label]) => (
+            <LookChoice
+              key={id}
+              on={(dock ?? DOCK_SIZE_DEFAULT) === id}
+              onPick={() => {
+                setDock(id)
+                saveDockSize(id)
+              }}
+            >
+              {label}
+            </LookChoice>
+          ))}
+        </div>
+      </fieldset>
+      <button
+        type="button"
+        className="big wide"
+        disabled={size === null && dock === null}
+        onClick={() => {
+          setSize(null)
+          setDock(null)
+          saveTableSize(null)
+          saveDockSize(null)
+        }}
+      >
+        Сбросить размер стола и панели
+      </button>
+    </>
   )
 }
 
