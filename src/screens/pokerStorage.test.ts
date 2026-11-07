@@ -175,6 +175,28 @@ describe('стол на этом телефоне в памяти устройс
     expect(s.loadNotes()).toEqual({ notes: {}, labels: {} })
   })
 
+  it('суммы в ББ (Р-64): переключение за столом и галочка — одна настройка, подписчик узнаёт о смене', async () => {
+    const storage = fakeStorage()
+    vi.stubGlobal('localStorage', storage)
+    let s = await reload()
+    expect(s.loadBigBlindsChoice()).toBe(null)
+    let calls = 0
+    const stop = s.subscribeBigBlinds(() => calls++)
+    s.saveBigBlinds(!s.loadBigBlinds())
+    expect(calls).toBe(1)
+    expect(s.loadBigBlinds()).toBe(true)
+    s.saveBigBlinds(!s.loadBigBlinds())
+    expect(calls).toBe(2)
+    expect(s.loadBigBlindsChoice()).toBe(false)
+    stop()
+    s.saveBigBlinds(true)
+    expect(calls).toBe(2)
+
+    s = await reload()
+    expect(s.loadBigBlinds()).toBe(true)
+    expect(storage.data.get('fishki.poker.bigBlinds')).toBe('on')
+  })
+
   it('память работает — проверка говорит «да» и следов не оставляет', async () => {
     const storage = fakeStorage()
     vi.stubGlobal('localStorage', storage)

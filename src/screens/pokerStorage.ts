@@ -248,8 +248,10 @@ export function saveQuickRoom(room: QuickRoom | null) {
   write(QUICK_ROOM_KEY, room ? JSON.stringify(room) : '')
 }
 
-// «Стеки и ставки в больших блайндах»: только показ за столом. Копия в памяти страницы — спрашивает каждое место
+// «Стеки и ставки в больших блайндах»: только показ за столом. Копия в памяти страницы — спрашивает каждое место.
+// Одна настройка на галочку в «Настройках» и касание своего места за столом (Р-64): подписчики узнают о смене
 let bigBlinds: boolean | null | undefined // undefined — ещё не читали
+const bigBlindsListeners = new Set<() => void>()
 
 export function loadBigBlindsChoice(): boolean | null {
   if (bigBlinds === undefined) {
@@ -264,6 +266,12 @@ export const loadBigBlinds = () => loadBigBlindsChoice() === true
 export function saveBigBlinds(on: boolean) {
   bigBlinds = on
   write(BB_KEY, on ? 'on' : 'off')
+  for (const listener of bigBlindsListeners) listener()
+}
+
+export function subscribeBigBlinds(listener: () => void): () => void {
+  bigBlindsListeners.add(listener)
+  return () => bigBlindsListeners.delete(listener)
 }
 
 // Свои быстрые ставки: копия в памяти страницы — стол спрашивает их при каждой перемене
