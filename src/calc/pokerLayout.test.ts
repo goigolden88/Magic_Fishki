@@ -272,7 +272,7 @@ describe('ползунок ставки', () => {
   })
 
   it('подпись под суммой: доля банка и сумма — в ББ или фишках', () => {
-    const plain = (t: string) => t.replace(/ /g, ' ')
+    const plain = (t: string) => t.replace(/\u00a0/g, ' ')
     const spot: BetSpot = { preflop: false, currentBet: 0, pot: 1818, bb: 100, pre: [] }
     expect(plain(betShareText(spot, 1200, 100))).toBe('66 % банка · 12 ББ')
     expect(plain(betShareText(spot, 1200, null))).toBe('66 % банка · 1 200')
