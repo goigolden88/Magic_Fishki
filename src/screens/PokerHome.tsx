@@ -535,6 +535,7 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
   const [open, setOpen] = useState(false)
   const [showStyles, setShowStyles] = useState(true)
   const [autoFinish, setAutoFinish] = useState(false)
+  const [hudAll, setHudAll] = useState(true)
   const [autoStart, setAutoStart] = useState<AutoStart>(BOT_AUTO_START_DEFAULT)
   const [error, setError] = useState<string | null>(null)
 
@@ -553,7 +554,7 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
       setError('Игра против ботов уже идёт — продолжите или закончите её')
       return
     }
-    const form = { bots: count, level, open, showStyles, autoFinish, sb, bb, startingStack: stack, game, autoStart }
+    const form = { bots: count, level, open, showStyles, autoFinish, hudAll, sb, bb, startingStack: stack, game, autoStart }
     const r = startBotTable(form, Date.now(), () => ulid())
     if (!r.ok) {
       setError(r.error)
@@ -643,6 +644,13 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
         Стиль ботов виден
       </label>
       <p className="muted">Выключите — стиль придётся угадывать по игре.</p>
+
+      {/* #196: HUD у мест ботов — учиться читать соперника; выключено — только у своего места */}
+      <label className="check">
+        <input type="checkbox" checked={hudAll} onChange={(e) => setHudAll(e.target.checked)} />
+        HUD у всех мест
+      </label>
+      <p className="muted">Строка HUD у каждого бота, касание — подробно. Выключено — HUD только у вашего места.</p>
 
       {/* #194: сбросили — раздача между ботами доигрывается мгновенно; выключено — кнопкой «Доиграть сразу» */}
       <label className="check">
