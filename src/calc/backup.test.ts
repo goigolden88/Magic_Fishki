@@ -386,6 +386,7 @@ describe('файл-копия формата 6: покер-рум', () => {
     quickBets: { pot: [50, 100], pre: [20, 35] },
     tableSize: 85,
     dockSize: 'large' as const,
+    betStep: 'half' as const,
   }
 
   it('всё — в копии и читается обратно без потерь', () => {
@@ -409,6 +410,7 @@ describe('файл-копия формата 6: покер-рум', () => {
       quickBets: { pot: [0], pre: [] },
       tableSize: 120,
       dockSize: 'huge',
+      betStep: 3,
     }
     const parsed = parse(JSON.stringify({ ...backupOf([]), poker: odd }))
     expect(parsed.ok && parsed.backup.poker).toEqual(POKER_PREFS_NONE)
@@ -422,15 +424,25 @@ describe('файл-копия формата 6: покер-рум', () => {
       quickBets: POKER.quickBets,
       tableSize: 85,
       dockSize: 'small',
+      betStep: 'half',
     })
+    // Шаг колеса (Р-69): выбранный здесь «1 ББ» копия не перезаписывает
+    expect(mergePokerPrefs({ ...POKER_PREFS_NONE, betStep: 'bb' }, POKER).betStep).toBe('bb')
     expect(mergePokerPrefs(POKER_PREFS_NONE, POKER_PREFS_NONE)).toEqual(POKER_PREFS_NONE)
   })
 
   // Р-63: размер стола и панели — в том же формате 6; копия 6 без них (до Р-63) читается — не заданы
   it('копия формата 6 без размера стола и панели — они не заданы, остальное на месте', () => {
-    const { tableSize: _t, dockSize: _d, ...before } = POKER
+    const { tableSize: _t, dockSize: _d, betStep: _s, ...before } = POKER
     const parsed = parse(JSON.stringify({ ...backupOf([]), poker: before }))
-    expect(parsed.ok && parsed.backup.poker).toEqual({ ...before, tableSize: null, dockSize: null })
+    expect(parsed.ok && parsed.backup.poker).toEqual({ ...before, tableSize: null, dockSize: null, betStep: null })
+  })
+
+  // Р-69: шаг колеса и «−»/«+» — в том же формате 6; копия без него читается — не задан (1 ББ)
+  it('копия формата 6 без шага колеса — он не задан, остальное на месте', () => {
+    const { betStep: _s, ...before } = POKER
+    const parsed = parse(JSON.stringify({ ...backupOf([]), poker: before }))
+    expect(parsed.ok && parsed.backup.poker).toEqual({ ...before, betStep: null })
   })
 })
 

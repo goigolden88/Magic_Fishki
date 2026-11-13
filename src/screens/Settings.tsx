@@ -38,8 +38,10 @@ import { loadLastBackup, saveLastBackup } from './lastBackup'
 import { DEFAULT_SERVER, serverBase } from '../calc/pokerLink'
 import { NOTE_COLORS, NOTE_LABEL_MAX, labelOf, mergeNotes, setLabel, type NoteColor } from '../calc/playerNotes'
 import { DECK_LABELS, deckOf, MY_BACK_LABELS, MY_FELT_LABELS, mergeMyLook, type MyLook } from '../calc/pokerLook'
-import { PlayingCard, useBigBlinds } from './PokerRoom'
+import { PlayingCard, useBetStep, useBigBlinds } from './PokerRoom'
+import { BET_STEP_DEFAULT, BET_STEP_LABELS } from '../calc/pokerLayout'
 import {
+  loadBetStepChoice,
   loadBigBlindsChoice,
   loadCardAnim,
   loadDockSizeChoice,
@@ -51,6 +53,7 @@ import {
   loadServer,
   loadTableSizeChoice,
   loadTurnSound,
+  saveBetStep,
   saveBigBlinds,
   saveCardAnim,
   saveDockSize,
@@ -514,6 +517,8 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
     // Размер стола и панели (Р-63): так же
     saveTableSize(poker.tableSize)
     saveDockSize(poker.dockSize)
+    // Шаг колеса и «−»/«+» (Р-69): так же
+    saveBetStep(poker.betStep)
     onLook()
     onPlayers(plan.players)
     setGames(await listGames())
@@ -528,7 +533,7 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
       <p className="muted">
         Игры хранятся только в этом браузере: очистка данных сайта или новый телефон их сотрут. Копия — файл со всеми
         играми, настройками, раздачами прошлых вечеров покера, заметками об игроках, видом и размером стола, быстрой
-        комнатой и быстрыми ставками; восстановление добавляет недостающее и ничего не перезаписывает.
+        комнатой, быстрыми ставками и шагом колеса ставки; восстановление добавляет недостающее и ничего не перезаписывает.
       </p>
       {games !== null && <p>{lastBackupText(last, games, today())}</p>}
       <button type="button" className="big primary wide" disabled={games === null} onClick={save}>
@@ -607,16 +612,18 @@ function localPokerPrefs(): PokerPrefs {
     quickBets: loadQuickBetsChoice(),
     tableSize: loadTableSizeChoice(),
     dockSize: loadDockSizeChoice(),
+    betStep: loadBetStepChoice(),
   }
 }
 
 // «За столом» (Р-59): всё, что меняет стол на этом телефоне, — сохраняется сразу.
 // Звук «ваш ход» (#75) и «Анимация карт» (#133) — только на устройстве, не в копии (до Р-59 — в «Покер онлайн»);
-// суммы в больших блайндах и свои быстрые ставки (Р-62) — есть в копии (до Р-59 — карточка «Покер-рум»)
+// суммы в больших блайндах и свои быстрые ставки (Р-62), шаг колеса и «−»/«+» (Р-69) — есть в копии (до Р-59 — карточка «Покер-рум»)
 function AtTableCard() {
   const [sound, setSound] = useState(loadTurnSound)
   const [anim, setAnim] = useState(loadCardAnim)
   const bb = useBigBlinds() // та же настройка, что касание своего места за столом (Р-64)
+  const step = useBetStep() // шаг колеса и «−»/«+» (Р-69): восстановление из копии видно сразу
   const [bets, setBets] = useState(loadQuickBets)
   const [open, setOpen] = useState(false)
 
@@ -667,6 +674,21 @@ function AtTableCard() {
         За столом стеки, ставки, банк и суммы на кнопках хода — в больших блайндах раздачи: «42,5 ББ». История раздач и
         выгрузка — фишками. Переключить можно и за столом: касание своего имени или стека, а на столе одного телефона —
         касание банка. Только на этом телефоне; есть в копии.
+      </p>
+      <fieldset className="players-pick">
+        <legend className="muted">Шаг колеса и «−»/«+»</legend>
+        <div className="amounts">
+          {BET_STEP_LABELS.map(([id, label]) => (
+            <LookChoice key={id} on={step === id} onPick={() => saveBetStep(id)}>
+              {label}
+              {id === BET_STEP_DEFAULT ? ' (по умолчанию)' : ''}
+            </LookChoice>
+          ))}
+        </div>
+      </fieldset>
+      <p className="muted">
+        На сколько меняют ставку колесо мыши над ползунком и кнопки «−» и «+» рядом с ним — в больших блайндах раздачи.
+        Действует на столе сразу. Только на этом телефоне; есть в копии.
       </p>
       <p className="muted">Свои кнопки сумм над ползунком в свой ход. Только на этом телефоне; есть в копии.</p>
       <button type="button" className="big wide" aria-expanded={open} onClick={() => setOpen(!open)}>

@@ -226,7 +226,6 @@ function LocalTableCard(props: {
   const [, setTick] = useState(0)
   const [showHistory, setShowHistory] = useState(false)
   const v = localTableView(table, Date.now(), loadQuickBets()) // свои быстрые ставки (Р-62)
-  const sb = table.hand?.sb ?? table.settings.sb
   const actId = toActId(table)
   const hand = table.hand
   const t = v.tournament
@@ -346,7 +345,6 @@ function LocalTableCard(props: {
           <ActionsCard
             key={`${v.handNumber}-${v.stage}-${actId}-${v.actions.raise?.min ?? ''}`}
             actions={v.actions}
-            sb={sb}
             bb={v.bb}
             who={v.toActName}
             online

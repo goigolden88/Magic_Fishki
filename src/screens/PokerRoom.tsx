@@ -11,15 +11,19 @@ import {
 } from '../calc/dealAnimation'
 import { formatChips, formatNumber, formatRub, parseChips, stackText } from '../calc/format'
 import {
+  betShareText,
   betSide,
   betSlider,
+  betStepChips,
   dockOf,
+  SLIDER_TRACK,
   sliderAmount,
   sliderIndex,
   spotsBySeat,
   stepAmount,
   waitLine,
   type BetSlider,
+  type BetStep,
   type Spot,
 } from '../calc/pokerLayout'
 import { NO_CONNECTION, roomLink, ROOM_CLOSED, serverHost, UPDATE_APP, versionText, type Seat } from '../calc/pokerLink'
@@ -84,6 +88,8 @@ import {
   saveBigBlinds,
   saveOpenCards,
   saveRecordedGame,
+  loadBetStep,
+  subscribeBetStep,
   subscribeBigBlinds,
   tableFitStyle,
 } from './pokerStorage'
@@ -352,7 +358,6 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   // Копия раздач (#114) — со своими картами каждой раздачи (Р-54): к ответу истории они уже запомнены
   const mine = useMyCards(table, v.myCards)
   const copyWorks = useHandCopy(roomEvening(code, table, me), room.history, mine)
-  const sb = table.hand?.sb ?? table.settings.sb
   const dock = dockOf(v)
   const host = serverHost(room.server) // не постоянный сервер (#83) — мелкой строкой под строкой стола
 
@@ -451,7 +456,6 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
           <ActionsCard
             key={`${v.handNumber}-${v.stage}-${v.actions.raise?.min ?? ''}`}
             actions={v.actions}
-            sb={sb}
             bb={v.bb}
             who={null}
             left={v.turnLeft}
@@ -684,6 +688,11 @@ export function useBigBlinds(): boolean {
 
 function useBbUnit(bb: number): number | null {
   return useBigBlinds() ? bb : null
+}
+
+// Шаг колеса и «−»/«+» у ползунка (Р-69): выбор в «Настройках» действует на столе сразу
+export function useBetStep(): BetStep {
+  return useSyncExternalStore(subscribeBetStep, loadBetStep)
 }
 
 // Под столом — банки с претендентами
@@ -1287,21 +1296,23 @@ function SeatSpot(props: {
 // who — за кого ход на одном телефоне («Ход: имя»); null — свои: «Ваш ход».
 // left — секунд на мой ход (таймер стола); online — есть связь: без неё кнопки неактивны.
 // Быстрые суммы — свои кнопки этого телефона (Р-62); bb — большой блайнд раздачи: суммы на кнопках — в ББ,
-// если так выбрано в «Настройках»; число в поле — всегда фишками
+// если так выбрано в «Настройках»; число в поле — всегда фишками.
+// Ползунок (Р-69): по бокам «−» и «+» на шаг из «Настроек» (1 ББ или 0,5 ББ), под суммой — «N % банка · сумма»
 export function ActionsCard(props: {
   actions: ActionsView
-  sb: number
   bb: number
   who: string | null
   left?: number | null
   online: boolean
   onAct: (body: Extract<ClientBody, { type: 'act' }>) => void
 }) {
-  const { actions: a, sb, bb, who, left = null, online, onAct: act } = props
+  const { actions: a, bb, who, left = null, online, onAct: act } = props
   const unit = useBbUnit(bb)
   const money = (n: number) => stackText(n, unit)
   const r = a.raise
-  const slider = a.myTurn ? betSlider(r, sb) : null
+  const slider = a.myTurn ? betSlider(r) : null
+  const handBb = r?.spot.bb ?? bb
+  const step = betStepChips(useBetStep(), handBb)
   const [text, setText] = useState(r ? String(r.min) : '')
   const to = parseChips(text)
   const okTo = r !== null && to !== null && to >= r.min && to <= r.max
@@ -1332,7 +1343,7 @@ export function ActionsCard(props: {
               </button>
             )}
           </div>
-          <BetRange slider={slider} amount={to ?? r.min} onChange={setAmount} />
+          <BetRange slider={slider} amount={to ?? r.min} step={step} stepText={stackText(step, handBb)} onChange={setAmount} />
           {r.potLimit !== null && <p className="muted dock-note">Не больше банка: {money(r.potLimit)}</p>}
           <div className="dock-row">
             <input
@@ -1347,6 +1358,7 @@ export function ActionsCard(props: {
               {raiseLabel} {to !== null ? money(to) : '…'}
             </button>
           </div>
+          {to !== null && <p className="muted dock-note bet-share">{betShareText(r.spot, to, unit)}</p>}
         </form>
       )}
       <div className="action-grid">
@@ -1372,12 +1384,14 @@ export function ActionsCard(props: {
   )
 }
 
-// Ползунок суммы: палец — шагом малого блайнда; колесо мыши над ним — на шаг, страница не крутится.
+// Ползунок суммы (Р-69): палец — по шкале (после флопа — доли банка, до флопа — ББ) с прилипанием к круглым
+// суммам; колесо мыши над ним и «−»/«+» по бокам — на шаг (1 ББ или 0,5 ББ), страница не крутится.
 // Колесо — своим слушателем: у React он пассивный и не может отменить прокрутку
-function BetRange({ slider, amount, onChange }: { slider: BetSlider; amount: number; onChange: (n: number) => void }) {
+function BetRange(props: { slider: BetSlider; amount: number; step: number; stepText: string; onChange: (n: number) => void }) {
+  const { slider, amount, step, stepText, onChange } = props
   const ref = useRef<HTMLInputElement>(null)
-  const latest = useRef({ slider, amount, onChange })
-  latest.current = { slider, amount, onChange }
+  const latest = useRef({ slider, amount, step, onChange })
+  latest.current = { slider, amount, step, onChange }
 
   useEffect(() => {
     const el = ref.current
@@ -1385,25 +1399,45 @@ function BetRange({ slider, amount, onChange }: { slider: BetSlider; amount: num
     const wheel = (e: WheelEvent) => {
       if (e.deltaY === 0) return
       e.preventDefault()
-      const { slider, amount, onChange } = latest.current
-      onChange(stepAmount(slider, amount, e.deltaY < 0 ? 1 : -1))
+      const { slider, amount, step, onChange } = latest.current
+      onChange(stepAmount(slider, amount, e.deltaY < 0 ? 1 : -1, step))
     }
     el.addEventListener('wheel', wheel, { passive: false })
     return () => el.removeEventListener('wheel', wheel)
   }, [])
 
   return (
-    <input
-      ref={ref}
-      type="range"
-      className="bet-range"
-      aria-label="Сумма ставки"
-      min={0}
-      max={slider.steps}
-      step={1}
-      value={sliderIndex(slider, amount)}
-      onChange={(e) => onChange(sliderAmount(slider, Number(e.target.value)))}
-    />
+    <div className="bet-range-row">
+      <button
+        type="button"
+        className="bet-step"
+        aria-label={`Меньше на ${stepText}`}
+        disabled={amount <= slider.min}
+        onClick={() => onChange(stepAmount(slider, amount, -1, step))}
+      >
+        −
+      </button>
+      <input
+        ref={ref}
+        type="range"
+        className="bet-range"
+        aria-label="Сумма ставки"
+        min={0}
+        max={SLIDER_TRACK}
+        step={1}
+        value={sliderIndex(slider, amount)}
+        onChange={(e) => onChange(sliderAmount(slider, Number(e.target.value)))}
+      />
+      <button
+        type="button"
+        className="bet-step"
+        aria-label={`Больше на ${stepText}`}
+        disabled={amount >= slider.max}
+        onClick={() => onChange(stepAmount(slider, amount, 1, step))}
+      >
+        +
+      </button>
+    </div>
   )
 }
 

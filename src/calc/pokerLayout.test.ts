@@ -1,16 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import {
+  BET_STEP_DEFAULT,
+  betShareText,
   betSide,
   betSlider,
+  betStepChips,
   dockOf,
+  parseBetStep,
+  potShareAmount,
   SEAT_H,
   SEAT_W,
   seatSpots,
+  SLIDER_TRACK,
   sliderAmount,
   sliderIndex,
+  SNAP_WIDTH,
   spotsBySeat,
   stepAmount,
   waitLine,
+  type BetSlider,
+  type BetSpot,
 } from './pokerLayout'
 
 describe('рассадка вокруг стола', () => {
@@ -147,47 +156,128 @@ describe('панель внизу экрана стола', () => {
   })
 })
 
+// Ползунок ставки (Р-69): после флопа — доли банка после колла, до флопа — ББ; прилипание; колесо и «−»/«+»
 describe('ползунок ставки', () => {
-  it('от минимума до олл-ина шагом малого блайнда; последний шаг — до олл-ина', () => {
-    const s = betSlider({ min: 20, max: 1003 }, 5)
-    expect(s).toEqual({ min: 20, max: 1003, step: 5, steps: 197 })
-    if (!s) return
-    expect(sliderAmount(s, 0)).toBe(20)
-    expect(sliderAmount(s, 1)).toBe(25)
-    expect(sliderAmount(s, 196)).toBe(1000)
-    expect(sliderAmount(s, 197)).toBe(1003)
-    expect(sliderAmount(s, -3)).toBe(20)
-    expect(sliderAmount(s, 500)).toBe(1003)
+  // После флопа: ставки круга нет, банк 1 000 (10 ББ), стек 100 ББ
+  const FLOP: BetSpot = { preflop: false, currentBet: 0, pot: 1000, bb: 100, pre: [] }
+  // До флопа: ББ 10, банк после колла 25, быстрые 2,5, 3, 4 ББ
+  const PRE: BetSpot = { preflop: true, currentBet: 10, pot: 25, bb: 10, pre: [25, 30, 40] }
+
+  // Сумма на каждом положении дорожки
+  const walk = (s: BetSlider) => Array.from({ length: SLIDER_TRACK + 1 }, (_, p) => sliderAmount(s, p))
+  const count = (list: number[], f: (a: number) => boolean) => list.filter(f).length
+
+  it('края — ровно минимум и олл-ин; суммы целые, по порядку, не за границы', () => {
+    for (const [spot, min, max] of [
+      [FLOP, 100, 10000],
+      [PRE, 20, 1000],
+    ] as const) {
+      const s = betSlider({ min, max, spot })!
+      const all = walk(s)
+      expect(all[0]).toBe(min)
+      expect(all[SLIDER_TRACK]).toBe(max)
+      expect(sliderAmount(s, -5)).toBe(min)
+      expect(sliderAmount(s, SLIDER_TRACK + 50)).toBe(max)
+      expect(all.every((a) => Number.isInteger(a) && a >= min && a <= max)).toBe(true)
+      expect(all.every((a, i) => i === 0 || a >= all[i - 1])).toBe(true)
+    }
+  })
+
+  it('после флопа: до банка — каждый целый процент; дальше — целыми ББ, к олл-ину крупнее', () => {
+    const s = betSlider({ min: 100, max: 10000, spot: FLOP })!
+    const all = walk(s)
+    const seen = new Set(all)
+    for (let pct = 10; pct <= 100; pct++) expect(seen.has(potShareAmount(FLOP, pct))).toBe(true)
+    // До банка — больше половины дорожки
+    expect(sliderIndex(s, 1000)).toBeGreaterThan(SLIDER_TRACK / 2)
+    // Выше банка — только целые ББ и олл-ин
+    expect(all.filter((a) => a > 1000).every((a) => a % 100 === 0 || a === 10000)).toBe(true)
+    // Первые 10 ББ над банком занимают дорожки больше, чем последние 10 ББ до олл-ина
+    expect(count(all, (a) => a > 1000 && a <= 2000)).toBeGreaterThan(count(all, (a) => a > 9000 && a < 10000) * 3)
+  })
+
+  it('после флопа: прилипает к 33, 50, 66, 75 и 100 % банка; между ними — любое значение', () => {
+    const s = betSlider({ min: 100, max: 10000, spot: FLOP })!
+    expect(s.snaps).toEqual([330, 500, 660, 750, 1000])
+    const all = walk(s)
+    for (const a of s.snaps) {
+      expect(count(all, (x) => x === a)).toBeGreaterThanOrEqual(SNAP_WIDTH)
+      // Сумма точки — середина её полоски
+      expect(sliderAmount(s, sliderIndex(s, a))).toBe(a)
+    }
+    // Соседние проценты — не полоска: несколько положений
+    for (const a of [650, 670, 740, 760]) expect(count(all, (x) => x === a)).toBeLessThan(SNAP_WIDTH / 2)
+    // 68…74 % — все ставятся
+    for (let pct = 67; pct <= 74; pct++) expect(all).toContain(potShareAmount(FLOP, pct))
+  })
+
+  it('своя сумма и быстрые кнопки ставят ползунок туда, где эта сумма', () => {
+    const s = betSlider({ min: 100, max: 10000, spot: FLOP })!
+    for (const a of [100, 200, 420, 900, 10000]) expect(sliderAmount(s, sliderIndex(s, a))).toBe(a)
+    expect(sliderIndex(s, 50)).toBe(0)
+    expect(sliderIndex(s, 20000)).toBe(SLIDER_TRACK)
+    // Сумма не на шкале — ближайшее положение, сумма рядом
+    expect(Math.abs(sliderAmount(s, sliderIndex(s, 3333)) - 3333)).toBeLessThanOrEqual(100)
+  })
+
+  it('до флопа: шкала в ББ по 0,1, прилипает к быстрым суммам; выше — целыми ББ', () => {
+    const s = betSlider({ min: 20, max: 1000, spot: PRE })!
+    expect(s.snaps).toEqual([25, 30, 40])
+    const all = walk(s)
+    for (const a of [25, 30, 40]) expect(count(all, (x) => x === a)).toBeGreaterThanOrEqual(SNAP_WIDTH)
+    for (let a = 20; a <= 40; a++) expect(all).toContain(a)
+    expect(all.filter((a) => a > 40).every((a) => a % 10 === 0 || a === 1000)).toBe(true)
+    // После чужого рейза до 30 — к «×2,5» и «×3»
+    const raised = betSlider({ min: 50, max: 990, spot: { ...PRE, currentBet: 30, pot: 70, pre: [75, 90] } })!
+    expect(raised.snaps).toEqual([75, 90])
+  })
+
+  it('олл-ин меньше банка — вся дорожка мелко; пот-лимит — правый край «Пот», без лишней точки', () => {
+    const short = betSlider({ min: 100, max: 600, spot: FLOP })!
+    expect(short.fine).toBe(1)
+    expect(short.snaps).toEqual([330, 500])
+    expect(walk(short).filter((a) => a !== 600).every((a) => a % 10 === 0)).toBe(true)
+    const pot = betSlider({ min: 100, max: 1000, spot: FLOP })!
+    expect(pot.snaps).toEqual([330, 500, 660, 750])
+    expect(sliderAmount(pot, SLIDER_TRACK)).toBe(1000)
+    // Минимум выше банка — вся дорожка крупно, точек ниже минимума нет
+    const big = betSlider({ min: 2000, max: 10000, spot: FLOP })!
+    expect([big.fine, big.snaps.length]).toEqual([0, 0])
+    expect(walk(big)[1]).toBeGreaterThanOrEqual(2000)
   })
 
   it('повысить нельзя или можно только олл-ин — ползунка нет', () => {
-    expect(betSlider(null, 5)).toBeNull()
-    expect(betSlider({ min: 15, max: 15 }, 5)).toBeNull()
-    expect(betSlider({ min: 20, max: 15 }, 5)).toBeNull()
-    // Шаг не меньше фишки
-    expect(betSlider({ min: 2, max: 10 }, 0)).toEqual({ min: 2, max: 10, step: 1, steps: 8 })
+    expect(betSlider(null)).toBeNull()
+    expect(betSlider({ min: 15, max: 15, spot: PRE })).toBeNull()
+    expect(betSlider({ min: 20, max: 15, spot: PRE })).toBeNull()
   })
 
-  it('своя сумма и быстрые кнопки двигают ползунок к ближайшему шагу', () => {
-    const s = betSlider({ min: 20, max: 1000 }, 5)!
-    expect(sliderIndex(s, 20)).toBe(0)
-    expect(sliderIndex(s, 22)).toBe(0)
-    expect(sliderIndex(s, 23)).toBe(1)
-    expect(sliderIndex(s, 35)).toBe(3)
-    expect(sliderIndex(s, 1000)).toBe(s.steps)
-    expect(sliderIndex(s, 5000)).toBe(s.steps)
-    expect(sliderIndex(s, 3)).toBe(0)
+  it('колесо и «−»/«+» — на шаг от суммы; у минимума и олл-ина упирается', () => {
+    const s = { min: 20, max: 1003 }
+    expect(stepAmount(s, 20, 1, 10)).toBe(30)
+    expect(stepAmount(s, 27, 1, 10)).toBe(37)
+    expect(stepAmount(s, 25, -1, 10)).toBe(20)
+    expect(stepAmount(s, 20, -1, 10)).toBe(20)
+    expect(stepAmount(s, 1000, 1, 10)).toBe(1003)
+    expect(stepAmount(s, 1003, 1, 10)).toBe(1003)
+    expect(stepAmount(s, 1003, -1, 10)).toBe(993)
+    expect(stepAmount(s, 5000, -1, 10)).toBe(1003)
+    // Шаг — 1 ББ (сначала) или 0,5 ББ, целый и не меньше фишки
+    expect(BET_STEP_DEFAULT).toBe('bb')
+    expect([betStepChips('bb', 10), betStepChips('half', 10), betStepChips('half', 5), betStepChips('bb', 0)]).toEqual([10, 5, 3, 1])
   })
 
-  it('колесо мыши — на шаг; сумма между шагами — к соседнему шагу; не за границы', () => {
-    const s = betSlider({ min: 20, max: 1003 }, 5)!
-    expect(stepAmount(s, 20, 1)).toBe(25)
-    expect(stepAmount(s, 25, -1)).toBe(20)
-    expect(stepAmount(s, 20, -1)).toBe(20)
-    expect(stepAmount(s, 22, 1)).toBe(25)
-    expect(stepAmount(s, 22, -1)).toBe(20)
-    expect(stepAmount(s, 1000, 1)).toBe(1003)
-    expect(stepAmount(s, 1003, 1)).toBe(1003)
-    expect(stepAmount(s, 1003, -1)).toBe(1000)
+  it('шаг из памяти и копии: годный — как есть, иначе не задан', () => {
+    expect([parseBetStep('bb'), parseBetStep('half'), parseBetStep('quarter'), parseBetStep(null)]).toEqual(['bb', 'half', null, null])
+  })
+
+  it('подпись под суммой: доля банка и сумма — в ББ или фишках', () => {
+    const plain = (t: string) => t.replace(/ /g, ' ')
+    const spot: BetSpot = { preflop: false, currentBet: 0, pot: 1818, bb: 100, pre: [] }
+    expect(plain(betShareText(spot, 1200, 100))).toBe('66 % банка · 12 ББ')
+    expect(plain(betShareText(spot, 1200, null))).toBe('66 % банка · 1 200')
+    // Рейз до 300 при ставке 100 и банке после колла 400 — половина банка
+    expect(plain(betShareText({ ...spot, currentBet: 100, pot: 400 }, 300, null))).toBe('50 % банка · 300')
+    expect(plain(betShareText({ ...spot, currentBet: 100 }, 100, null))).toBe('100')
   })
 })

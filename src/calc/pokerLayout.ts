@@ -1,5 +1,6 @@
 // Вид стола покера: кто где сидит вокруг овала, ползунок ставки и что лежит в панели внизу экрана.
 // Только числа и подписи для экрана — правил не держит: границы ставки берёт из RaiseView (pokerView.ts)
+import { formatBB, formatNumber, stackText } from './format'
 
 export type Spot = { x: number; y: number } // проценты слоя мест: x — слева, y — сверху
 
@@ -98,32 +99,157 @@ export function waitLine(v: {
   return v.stageLabel
 }
 
-// Ползунок: позиция 0 — минимальная ставка, steps — олл-ин; шаг — малый блайнд,
-// последний шаг может быть короче (до олл-ина)
-export type BetSlider = { min: number; max: number; step: number; steps: number }
+// Ползунок ставки (Р-69). Где стоит игрок — из RaiseView (pokerView.ts): ставка круга, банк после моего колла
+// (как у быстрых кнопок), большой блайнд раздачи; до флопа — суммы быстрых кнопок (2,5, 3, 4 ББ или «×2,5», «×3»)
+export type BetSpot = {
+  preflop: boolean
+  currentBet: number
+  pot: number // банк после моего колла: 100 % — ставка круга и столько сверху
+  bb: number
+  pre: number[] // до флопа — суммы быстрых кнопок «N ББ» или «×N»; после флопа — пусто
+}
+
+// Дорожка ползунка — SLIDER_TRACK положений; сумма по положению — по шкале:
+// от минимума до «опоры» мелко (после флопа — по 1 % банка, до флопа — по 0,1 ББ), от опоры до олл-ина — крупнее
+// (целыми ББ, шаг растёт к олл-ину: шкала по степени). Опора — банк (100 %), до флопа — не ниже самой крупной
+// быстрой суммы. У каждой точки прилипания — своя полоска SNAP_WIDTH положений, на ней сумма ровно точка;
+// между полосками ставится любая сумма шкалы. Крайние положения — ровно минимум и олл-ин (в пот-лимите — «Пот»)
+export type BetSlider = {
+  min: number
+  max: number
+  spot: BetSpot
+  pivot: number // конец мелкой части; равна max — крупной части нет
+  fine: number // доля дорожки под мелкую часть, 0…1
+  snaps: number[] // суммы прилипания по возрастанию, строго между min и max
+}
+
+export const SLIDER_TRACK = 1000
+export const SNAP_WIDTH = 24 // ≈ 2,4 % дорожки — несколько пикселей под пальцем
+const COARSE_WEIGHT = 40 // крупная часть занимает на дорожке столько же, сколько 40 мелких шагов
+export const POT_SNAPS = [33, 50, 66, 75, 100] // после флопа — проценты банка после колла
+
+// Сумма «N % банка»: ставка круга и N % банка после колла сверху, целая
+export function potShareAmount(spot: BetSpot, pct: number): number {
+  return spot.currentBet + Math.round((spot.pot * pct) / 100)
+}
 
 // Повысить нельзя или можно только олл-ин — ползунка нет
-export function betSlider(raise: { min: number; max: number } | null, sb: number): BetSlider | null {
+export function betSlider(raise: { min: number; max: number; spot: BetSpot } | null): BetSlider | null {
   if (!raise || raise.max <= raise.min) return null
-  const step = Math.max(1, sb)
-  return { min: raise.min, max: raise.max, step, steps: Math.ceil((raise.max - raise.min) / step) }
+  const { min, max, spot } = raise
+  const top = potShareAmount(spot, 100)
+  const pivot = clamp(spot.preflop ? Math.max(top, ...spot.pre) : top, min, max)
+  const units = (pivot - min) / fineUnit(spot)
+  const fine = pivot >= max ? 1 : units / (units + COARSE_WEIGHT)
+  const marks = spot.preflop ? spot.pre : POT_SNAPS.map((p) => potShareAmount(spot, p))
+  const snaps = [...new Set(marks)].filter((a) => a > min && a < max).sort((a, b) => a - b)
+  return { min, max, spot, pivot, fine, snaps }
 }
 
-// Сумма на позиции ползунка
+// Мелкий шаг в фишках: после флопа — 1 % банка, до флопа — 0,1 ББ
+function fineUnit(spot: BetSpot): number {
+  return Math.max(0.01, spot.preflop ? Math.max(1, spot.bb) / 10 : spot.pot / 100)
+}
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, n))
+}
+
+// Шкала без полосок прилипания: доля u дорожки 0…1 → сумма
+function baseAmount(s: BetSlider, u: number): number {
+  if (u <= 0) return s.min
+  if (u >= 1) return s.max
+  const { spot } = s
+  if (u <= s.fine) {
+    const raw = s.min + ((s.pivot - s.min) * u) / s.fine
+    const amount = spot.preflop
+      ? Math.round((Math.round((raw * 10) / Math.max(1, spot.bb)) * Math.max(1, spot.bb)) / 10)
+      : potShareAmount(spot, Math.round(((raw - spot.currentBet) * 100) / Math.max(1, spot.pot)))
+    return clamp(amount, s.min, s.max)
+  }
+  const bb = Math.max(1, spot.bb)
+  const x0 = s.pivot - spot.currentBet
+  const x1 = s.max - spot.currentBet
+  const w = (u - s.fine) / (1 - s.fine)
+  const raw = spot.currentBet + x0 * Math.pow(x1 / x0, w)
+  return clamp(Math.round(raw / bb) * bb, s.pivot, s.max)
+}
+
+// Обратно: сумма → доля дорожки без полосок прилипания
+function baseShare(s: BetSlider, amount: number): number {
+  if (amount <= s.min) return 0
+  if (amount >= s.max) return 1
+  if (amount <= s.pivot) return s.pivot > s.min ? (s.fine * (amount - s.min)) / (s.pivot - s.min) : 0
+  const x0 = s.pivot - s.spot.currentBet
+  const x1 = s.max - s.spot.currentBet
+  const w = Math.log((amount - s.spot.currentBet) / x0) / Math.log(x1 / x0)
+  return s.fine + (1 - s.fine) * w
+}
+
+// Начала полосок прилипания на дорожке
+function snapStarts(s: BetSlider): number[] {
+  const free = SLIDER_TRACK - s.snaps.length * SNAP_WIDTH
+  return s.snaps.map((a, j) => Math.round(baseShare(s, a) * free) + j * SNAP_WIDTH)
+}
+
+// Сумма на положении ползунка: целая, от минимума до max
 export function sliderAmount(s: BetSlider, index: number): number {
-  const i = Math.min(s.steps, Math.max(0, Math.round(index)))
-  return Math.min(s.max, s.min + i * s.step)
+  const p = clamp(Math.round(index), 0, SLIDER_TRACK)
+  if (p === 0) return s.min
+  if (p === SLIDER_TRACK) return s.max
+  const free = SLIDER_TRACK - s.snaps.length * SNAP_WIDTH
+  let before = 0
+  for (const [j, start] of snapStarts(s).entries()) {
+    if (p < start) break
+    if (p < start + SNAP_WIDTH) return s.snaps[j]
+    before = j + 1
+  }
+  // Между полосками — между их точками: округление не перескочит соседнюю точку
+  const lo = before > 0 ? s.snaps[before - 1] : s.min
+  const hi = before < s.snaps.length ? s.snaps[before] : s.max
+  return clamp(baseAmount(s, (p - before * SNAP_WIDTH) / free), lo, hi)
 }
 
-// Позиция ползунка для суммы (своё число или быстрая кнопка) — ближайший шаг
+// Положение ползунка для суммы (своё число, быстрая кнопка, колесо): точка прилипания — середина её полоски
 export function sliderIndex(s: BetSlider, amount: number): number {
-  if (amount >= s.max) return s.steps
-  return Math.min(s.steps, Math.max(0, Math.round((amount - s.min) / s.step)))
+  if (amount <= s.min) return 0
+  if (amount >= s.max) return SLIDER_TRACK
+  const free = SLIDER_TRACK - s.snaps.length * SNAP_WIDTH
+  const starts = snapStarts(s)
+  const at = s.snaps.indexOf(amount)
+  if (at !== -1) return starts[at] + Math.floor(SNAP_WIDTH / 2)
+  const before = s.snaps.filter((a) => a < amount).length
+  return clamp(Math.round(baseShare(s, amount) * free) + before * SNAP_WIDTH, 1, SLIDER_TRACK - 1)
 }
 
-// Колесо мыши: на шаг вверх (+1) или вниз (−1) от суммы; сумма между шагами — к соседнему шагу
-export function stepAmount(s: BetSlider, amount: number, delta: 1 | -1): number {
-  const at = (amount - s.min) / s.step
-  const index = delta > 0 ? Math.floor(at) + 1 : Math.ceil(at) - 1
-  return amount >= s.max && delta > 0 ? s.max : sliderAmount(s, index)
+// Шаг колеса мыши и кнопок «−»/«+» (Р-69): 1 ББ (сначала) или 0,5 ББ — на этом телефоне, есть в копии
+export type BetStep = 'bb' | 'half'
+
+export const BET_STEP_DEFAULT: BetStep = 'bb'
+
+export const BET_STEP_LABELS: [BetStep, string][] = [
+  ['bb', formatBB(1, 1)], // «1 ББ»
+  ['half', formatBB(1, 2)], // «0,5 ББ»
+]
+
+export function parseBetStep(raw: unknown): BetStep | null {
+  return raw === 'bb' || raw === 'half' ? raw : null
+}
+
+// Шаг в фишках: целый, не меньше фишки; половина нечётного ББ — округлением
+export function betStepChips(step: BetStep, bb: number): number {
+  return Math.max(1, step === 'half' ? Math.round(bb / 2) : Math.round(bb))
+}
+
+// Колесо мыши и «−»/«+»: на шаг вверх (+1) или вниз (−1) от суммы; у минимума и max — упирается
+export function stepAmount(s: { min: number; max: number }, amount: number, delta: 1 | -1, step: number): number {
+  return clamp(Math.round(amount) + delta * Math.max(1, Math.round(step)), s.min, s.max)
+}
+
+// Подпись под суммой: «66 % банка · 12 ББ» (в фишках — «66 % банка · 1 200»); проценты — от банка после колла
+// поверх ставки круга, как у быстрых кнопок. Сумма не выше ставки круга — без процентов
+export function betShareText(spot: BetSpot, amount: number, unit: number | null): string {
+  const sum = stackText(amount, unit)
+  if (spot.pot <= 0 || amount <= spot.currentBet) return sum
+  return `${formatNumber(Math.round(((amount - spot.currentBet) * 100) / spot.pot))} % банка · ${sum}`
 }

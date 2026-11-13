@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatNumber, formatRub } from '../calc/format'
+import { formatBB, formatNumber, formatRub } from '../calc/format'
 import { HELP_VALUES, helpSections, type HelpValues } from './helpText'
 
 // Вместо чисел — метка: цифра в выводе значит, что число вписано в текст руками
@@ -49,6 +49,11 @@ const PLACEHOLDERS: HelpValues = {
   bbExample: '‹в ББ›',
   tableSizeMin: '‹размер стола от›',
   tableSizeMax: '‹размер стола до›',
+  potSnaps: '‹прилипает после флопа›',
+  reraiseSnaps: '‹прилипает после рейза›',
+  betSteps: '‹шаг колеса›',
+  betShareBB: '‹доля банка в ББ›',
+  betShareChips: '‹доля банка в фишках›',
 }
 
 // Код приложения и сервера комнат текстом — без тестов и без самой справки
@@ -216,6 +221,11 @@ describe('справка', () => {
       preMax: '20',
       tableSizeMin: '70',
       tableSizeMax: '100',
+      potSnaps: '33, 50, 66, 75 и 100',
+      reraiseSnaps: '«×2,5» и «×3»',
+      betSteps: `«${formatBB(10, 10)}» (сначала) или «${formatBB(5, 10)}»`,
+      betShareBB: `«66 % банка · ${formatBB(1200, 100)}»`,
+      betShareChips: `«66 % банка · ${formatNumber(1200)}»`,
       bbExample: '42,5 ББ',
     })
   })
