@@ -48,7 +48,7 @@ import {
   type Deal,
   type DealKind,
 } from '../calc/casinoDeal'
-import { casinoLayout, MAX_CASINO_SEATS, type CasinoLayout } from '../calc/casinoLayout'
+import { casinoLayout, MAX_CASINO_SEATS, MIN_WIDTH, phoneSpace, type CasinoLayout } from '../calc/casinoLayout'
 import { topOdds, type CasinoOdds } from '../calc/casinoOdds'
 import { formatNumber, formatRub, parseChips, pluralForm } from '../calc/format'
 import { addCasino } from '../calc/gameMode'
@@ -665,6 +665,10 @@ function layoutStyle(l: CasinoLayout): CSSProperties {
     '--hand-h': rem(l.hand.h),
     '--board-w': rem(l.board.w),
     '--board-cols': String(l.cols),
+    '--gap': rem(l.gap),
+    '--center-pad': rem(l.centerPad),
+    // Сукно — от середины верхних мест до середины нижних; нижних нет (телефон, Р-67) — до низа столов
+    '--felt-bottom': rem(l.bottom.length > 0 ? l.seat.h / 2 : 0),
     '--center-w': rem(l.center.w),
     '--layout-w': rem(l.width),
     '--board-card-w': rem(l.boardCard.w),
@@ -696,10 +700,33 @@ type BoardData = {
   chances?: Chances
 }
 
-// Сукно с рядами мест над и под колонкой столов (casinoLayout): места по часовой от верхнего левого.
-// fly — анимация раздачи (#133): новый план — карты мест летят к ним из колонки столов; нет — карты сразу на местах
-function Felt(props: { layout: CasinoLayout; seats: SeatData[]; boards: BoardData[]; look: Look; fly?: Flight[] | null }) {
-  const { layout: l, seats, boards, look, fly = null } = props
+// Ширина сукна на телефоне, rem (Р-67): от ширины окна и размера rem; повернули телефон — раскладка заново
+function measureSpace(): number {
+  if (typeof document === 'undefined') return MIN_WIDTH
+  const root = document.documentElement
+  return phoneSpace(root.clientWidth, parseFloat(getComputedStyle(root).fontSize) || 18)
+}
+
+function usePhoneSpace(): number {
+  const [space, setSpace] = useState(measureSpace)
+  useEffect(() => {
+    const update = () => setSpace(measureSpace())
+    update()
+    addEventListener('resize', update)
+    return () => removeEventListener('resize', update)
+  }, [])
+  return space
+}
+
+// Сукно с рядами мест над и под столами (casinoLayout): места по часовой от верхнего левого; на телефоне
+// (Р-67) все входят в ряд — одним рядом сверху. Раскладка — по числу мест и столов, ширине окна (useWide) и
+// ширине сукна на телефоне. fly — анимация раздачи (#133): новый план — карты мест летят к ним из столов;
+// нет — карты сразу на местах
+function Felt(props: { kind: DealKind; seats: SeatData[]; boards: BoardData[]; look: Look; fly?: Flight[] | null }) {
+  const { kind, seats, boards, look, fly = null } = props
+  const wide = useWide()
+  const space = usePhoneSpace()
+  const l = casinoLayout(kind, seats.length, boards.length, wide, space)
   const ref = useRef<HTMLDivElement>(null)
   // До отрисовки: карты не мелькают на местах перед полётом
   useLayoutEffect(() => {
@@ -715,7 +742,7 @@ function Felt(props: { layout: CasinoLayout; seats: SeatData[]; boards: BoardDat
       </div>
     ))
   return (
-    <div ref={ref} className={`casino-table${l.wide ? ' wide' : ''} ${lookClass(look, loadMyLook())}`} style={layoutStyle(l)}>
+    <div ref={ref} className={`casino-table ${l.wide ? 'wide' : 'phone'} ${lookClass(look, loadMyLook())}`} style={layoutStyle(l)}>
       <div className="felt casino-felt" />
       <div className="casino-seats">{block(l.top)}</div>
       <div className="casino-boards" data-fly-origin>
@@ -861,12 +888,11 @@ function EmptyTable(props: {
   look: Look
 }) {
   const { kind, ids, tables, stake, nameById, look } = props
-  const wide = useWide()
   const back = Array.from({ length: DEAL_KINDS[kind].hand }, () => null)
   const parts = tableParts(stake * ids.length, tables)
   return (
     <Felt
-      layout={casinoLayout(kind, ids.length, tables, wide)}
+      kind={kind}
       look={look}
       seats={ids.map((pid) => ({ id: pid, name: nameById.get(pid) ?? '?', cards: back, win: null }))}
       boards={parts.map((part) => ({
@@ -894,7 +920,6 @@ function CasinoTable(props: {
 }) {
   const { dealt, opened, shown, flipping, odds, nameById, look } = props
   const { deal, results, stake, fly } = dealt
-  const wide = useWide()
   const name = (pid: string) => nameById.get(pid) ?? '?'
   const parts = tableParts(stake * deal.ids.length, deal.boards.length)
   const current = opened > 0 && !flipping ? results[opened - 1] : null
@@ -918,7 +943,7 @@ function CasinoTable(props: {
   }
   return (
     <Felt
-      layout={casinoLayout(deal.kind, deal.ids.length, deal.boards.length, wide)}
+      kind={deal.kind}
       look={look}
       fly={fly}
       seats={deal.ids.map((pid, p) => ({
