@@ -7,10 +7,15 @@ import {
   MAX_CASINO_SEATS,
   MIN_WIDTH,
   overlaps,
+  PHONE_COLS,
+  PHONE_FIT,
+  PHONE_MAX_WIDTH,
+  phoneSpace,
   WIDE_WIDTH,
 } from './casinoLayout'
 
 const KINDS: DealKind[] = ['holdem', 'omaha']
+const PHONE_390 = 19.88 // 390 px без полей по 16 px при rem = 18 px
 
 // Все раскладки, что может раздать экран: 2–10 участников и столов — сколько хватит колоды
 function every(): { kind: DealKind; n: number; m: number }[] {
@@ -65,10 +70,12 @@ describe('раскладка казино-стола', () => {
     }
   })
 
-  it('столы — колонкой: высота центра растёт со столами, карты не сжимаются', () => {
+  it('телефон: столы по два в ряду, высота растёт рядами столов, карты не сжимаются', () => {
     const one = casinoLayout('holdem', 10, 1)
     const five = casinoLayout('holdem', 10, 5)
-    expect(five.center.h).toBeGreaterThan(4 * one.center.h)
+    expect(one.cols).toBe(1)
+    expect(five.cols).toBe(PHONE_COLS)
+    expect(five.center.h).toBeCloseTo(3 * five.board.h + 2 * five.gap) // 2 + 2 + 1
     expect(five.height - one.height).toBeCloseTo(five.center.h - one.center.h)
     expect(five.boardCard).toEqual(one.boardCard)
     expect(five.hand).toEqual(one.hand)
@@ -77,24 +84,98 @@ describe('раскладка казино-стола', () => {
   it('строка победителя (Р-50): пять мелких карт — внутри стола, высота стола — с их рядом', () => {
     for (const { kind, n, m } of every()) {
       const l = casinoLayout(kind, n, m)
-      expect(l.winRow.w).toBeLessThanOrEqual(l.board.w - 0.6) // без полей стола
+      expect(l.winRow.w).toBeLessThanOrEqual(l.board.w - 0.52) // без полей стола
       expect(l.winRow.w).toBeGreaterThanOrEqual(5 * l.winCard.w)
       expect(l.winRow.h).toBeGreaterThanOrEqual(l.winCard.h)
       expect(l.winCard.w).toBeLessThan(l.boardCard.w)
       // стол: подпись, пять карт, строка победителя с её рядом и поля — ряд учтён в высоте
-      expect(l.board.h).toBeGreaterThanOrEqual(l.boardCard.h + l.winRow.h + 1.4)
-      expect(l.center.h).toBeCloseTo(m * l.board.h + (m - 1) * 0.3)
+      expect(l.board.h).toBeGreaterThanOrEqual(l.boardCard.h + l.winRow.h + 1.92)
+      const boardRows = Math.ceil(m / l.cols)
+      expect(l.center.h).toBeCloseTo(boardRows * l.board.h + (boardRows - 1) * l.gap)
     }
   })
 
-  it('по три места в ряду; у омахи четыре карты руки мельче', () => {
-    expect(casinoLayout('holdem', 10, 5).perRow).toBe(3)
+  it('на 320 px: до пяти мест холдема в ряду, омаха — по три; у омахи четыре карты руки мельче', () => {
+    expect(casinoLayout('holdem', 10, 5).perRow).toBe(5)
     expect(casinoLayout('omaha', 10, 1).perRow).toBe(3)
-    expect(casinoLayout('holdem', 10, 5).top).toEqual([[0, 1, 2], [3, 4]])
+    // 10 холдемом не входят в ряд — пополам: по пять сверху и снизу
+    expect(casinoLayout('holdem', 10, 5).top).toEqual([[0, 1, 2, 3, 4]])
+    expect(casinoLayout('holdem', 10, 5).bottom).toEqual([[9, 8, 7, 6, 5]])
     expect(casinoLayout('omaha', 10, 1).hand.w).toBeLessThan(casinoLayout('holdem', 10, 1).hand.w)
     // 10 омахой: по пять сверху и снизу — в два ряда, длинный первым
     expect(casinoLayout('omaha', 10, 1).top).toEqual([[0, 1, 2], [3, 4]])
     expect(casinoLayout('omaha', 10, 1).bottom).toEqual([[9, 8, 7], [6, 5]])
+  })
+
+  it('ширина сукна на телефоне — колонка экрана в rem: от 16 до 40rem', () => {
+    expect(phoneSpace(390, 18)).toBe(PHONE_390)
+    expect(phoneSpace(375, 18)).toBe(19.05)
+    expect(phoneSpace(320, 18)).toBe(MIN_WIDTH)
+    expect(phoneSpace(280, 18)).toBe(MIN_WIDTH) // уже 320 px — не сжимается
+    expect(phoneSpace(800, 18)).toBeCloseTo(33.77) // планшет: колонка экрана не шире 640 px
+    expect(phoneSpace(800, 12)).toBe(PHONE_MAX_WIDTH)
+  })
+
+  it('телефон 390 × 844 (Р-67): 3–6 участников и 5 столов холдема — места одним рядом сверху, сукно не выше 22,5rem', () => {
+    for (const space of [PHONE_390, phoneSpace(375, 18)]) {
+      for (let n = 3; n <= 6; n++) {
+        const l = casinoLayout('holdem', n, 5, false, space)
+        expect(l.top, `${n} на ${space}rem`).toEqual([Array.from({ length: n }, (_, i) => i)])
+        expect(l.bottom).toEqual([])
+        expect(l.cols).toBe(2)
+        expect(l.height, `${n} на ${space}rem`).toBeLessThanOrEqual(PHONE_FIT)
+      }
+    }
+    // Число в описании (02-Экраны-учёта): 22,5rem = 405 px при rem = 18 px
+    expect(PHONE_FIT * 18).toBe(405)
+    // 2 участника — тоже одним рядом; 6 столов — те же три ряда столов
+    expect(casinoLayout('holdem', 2, 5, false, PHONE_390).top).toEqual([[0, 1]])
+    expect(casinoLayout('holdem', 6, 6, false, PHONE_390).height).toBeLessThanOrEqual(PHONE_FIT)
+  })
+
+  it('телефон 390: 7–10 участников не входят в ряд — пополам, сверху и снизу; экран листается', () => {
+    for (let n = 7; n <= 10; n++) {
+      const l = casinoLayout('holdem', n, 5, false, PHONE_390)
+      expect(l.top.flat()).toHaveLength(Math.ceil(n / 2))
+      expect(l.bottom.flat()).toHaveLength(Math.floor(n / 2))
+      expect(l.height).toBeGreaterThan(PHONE_FIT)
+    }
+    expect(casinoLayout('holdem', 7, 5, false, PHONE_390).top).toEqual([[0, 1, 2, 3]])
+    expect(casinoLayout('holdem', 7, 5, false, PHONE_390).bottom).toEqual([[6, 5, 4]])
+    expect(casinoLayout('holdem', 3, 7, false, PHONE_390).height).toBeGreaterThan(PHONE_FIT) // 7 столов — четыре ряда
+  })
+
+  it('телефон: ранг и масть читаются — шрифт карты (0,6 её ширины) не мельче 0,5rem, у мест и стола — 0,6rem', () => {
+    for (const kind of KINDS) {
+      const l = casinoLayout(kind, 6, 1, false, PHONE_390)
+      expect(l.hand.w * 0.6).toBeGreaterThanOrEqual(0.6)
+      expect(l.boardCard.w * 0.6).toBeGreaterThanOrEqual(0.6)
+      expect(l.winCard.w * 0.6).toBeGreaterThanOrEqual(0.5)
+    }
+  })
+
+  it('телефон на любой ширине от 320 px до планшета: не шире сукна, места не наезжают ни на столы, ни друг на друга', () => {
+    for (const space of [MIN_WIDTH, phoneSpace(375, 18), PHONE_390, phoneSpace(430, 18), phoneSpace(800, 18)]) {
+      for (const { kind, n, m } of every()) {
+        const l = casinoLayout(kind, n, m, false, space)
+        const label = `${kind} ${n}×${m} на ${space}rem`
+        expect(l.width, label).toBeLessThanOrEqual(space + 1e-6)
+        expect(l.center.w + 1, `${label}: столы внутри бортика`).toBeLessThanOrEqual(space + 1e-6)
+        const seated = [...l.top.flat(), ...l.bottom.flat()]
+        expect([...seated].sort((a, b) => a - b), label).toEqual(Array.from({ length: n }, (_, i) => i))
+        for (const row of [...l.top, ...l.bottom]) expect(row.length).toBeLessThanOrEqual(l.perRow)
+        const { seats, center } = layoutBoxes(l)
+        for (const b of [...seats, center]) {
+          expect(b.x, label).toBeGreaterThanOrEqual(0)
+          expect(b.x + b.w, label).toBeLessThanOrEqual(l.width + 1e-6)
+          expect(b.y + b.h, label).toBeLessThanOrEqual(l.height + 1e-6)
+        }
+        seats.forEach((a, i) => {
+          expect(overlaps(a, center), `${label}: место ${i} на столах`).toBe(false)
+          seats.forEach((b, k) => k > i && expect(overlaps(a, b), `${label}: места ${i} и ${k}`).toBe(false))
+        })
+      }
+    }
   })
 
   it('широкое окно (Р-53): не шире колонки экрана, места не наезжают ни на столы, ни друг на друга', () => {
@@ -139,19 +220,40 @@ describe('раскладка казино-стола', () => {
     for (const { kind, n, m } of every()) {
       const phone = casinoLayout(kind, n, m)
       const wide = casinoLayout(kind, n, m, true)
-      // стол той же ширины, что на телефоне: пять карт стола и поля; ряд карт победителя — внутри
-      expect(wide.board.w).toBe(phone.board.w)
+      // ряд карт победителя — внутри стола
       expect(wide.winRow.w).toBeLessThanOrEqual(wide.board.w - 0.6)
       // карты руки читаемые: не меньше половины карты стола, крупнее, чем на телефоне
       expect(wide.winCard.w).toBeGreaterThanOrEqual(wide.boardCard.w / 2)
       expect(wide.winCard.h).toBeGreaterThanOrEqual(wide.boardCard.h / 2)
       expect(wide.winCard.w).toBeGreaterThan(phone.winCard.w)
       expect(wide.winRow.h).toBeGreaterThanOrEqual(wide.winCard.h)
-      // стол выше телефонного на вторую строку «Имя · рука» и на разницу рядов карт победителя
-      expect(wide.board.h).toBeCloseTo(phone.board.h + 0.96 + wide.winRow.h - phone.winRow.h)
-      expect(wide.boardCard).toEqual(phone.boardCard)
-      expect(wide.hand).toEqual(phone.hand)
-      expect(wide.seat).toEqual(phone.seat)
+      // стол: подпись и строка победителя (1,4), вторая строка «Имя · рука» (0,96), ряд карт победителя и поля
+      expect(wide.board.h).toBeCloseTo(wide.boardCard.h + 1.4 + 0.96 + wide.winRow.h + 0.6)
+      // карты на широком окне крупнее телефонных (Р-67)
+      expect(wide.boardCard.w).toBeGreaterThan(phone.boardCard.w)
+      expect(wide.hand.w).toBeGreaterThan(phone.hand.w)
+    }
+  })
+
+  it('широкое окно — как до Р-67: те же размеры, места пополам, ширина сукна на телефоне не влияет', () => {
+    const five = casinoLayout('holdem', 10, 5, true)
+    expect(five).toMatchObject({
+      hand: { w: 1.7, h: 2.35 },
+      seat: { w: 4.8, h: 4.75 },
+      boardCard: { w: 2.2, h: 3.05 },
+      board: { w: 12.4, h: 8.16 },
+      winCard: { w: 1.4, h: 1.95 },
+      winRow: { w: 7.24, h: 2.15 },
+      gap: 0.3,
+      centerPad: 0.6,
+      perRow: 12,
+    })
+    expect(casinoLayout('omaha', 3, 2, true)).toMatchObject({ hand: { w: 1.1, h: 1.55 }, seat: { w: 4.98, h: 3.95 } })
+    // 3 участника — по-прежнему 2 сверху и 1 снизу
+    expect(casinoLayout('holdem', 3, 5, true).top).toEqual([[0, 1]])
+    expect(casinoLayout('holdem', 3, 5, true).bottom).toEqual([[2]])
+    for (const { kind, n, m } of every()) {
+      expect(casinoLayout(kind, n, m, true, PHONE_390)).toEqual(casinoLayout(kind, n, m, true))
     }
   })
 
@@ -171,13 +273,13 @@ describe('раскладка казино-стола', () => {
     }
   })
 
-  it('телефон — как прежде: столы колонкой, по столу в ряду', () => {
+  it('телефон (Р-67): столы по два в ряд, один стол — один; по умолчанию — ширина 320 px', () => {
     for (const { kind, n, m } of every()) {
       const l = casinoLayout(kind, n, m)
       expect(l.wide).toBe(false)
-      expect(l.cols).toBe(1)
-      expect(l.center.w).toBe(l.board.w)
-      expect(casinoLayout(kind, n, m, false)).toEqual(l)
+      expect(l.cols).toBe(Math.min(2, m))
+      expect(l.center.w).toBeCloseTo(l.cols * l.board.w + (l.cols - 1) * l.gap)
+      expect(casinoLayout(kind, n, m, false, MIN_WIDTH)).toEqual(l)
     }
   })
 
