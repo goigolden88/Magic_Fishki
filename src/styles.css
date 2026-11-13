@@ -1587,8 +1587,9 @@ textarea.note-input {
   overflow-wrap: anywhere;
 }
 
-/* Казино-стол (#76, #129): ряды мест над и под колонкой столов — в потоке, без наезда; размеры мест
-   и карт — CSS-переменные из casinoLayout (rem). Не хватает высоты — стол выше, экран листается */
+/* Казино-стол (#76, #129): ряды мест над и под столами — в потоке, без наезда; размеры мест, карт и
+   отступов — CSS-переменные из casinoLayout (rem). На телефоне (Р-66, .phone) все места в ряд — одним
+   рядом сверху, столы по два в ряд, карты мельче; 7–10 участников или 6+ столов — экран листается */
 .casino-fold {
   display: flex;
   align-items: center;
@@ -1617,15 +1618,16 @@ textarea.note-input {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.6rem;
+  gap: var(--center-pad, 0.6rem);
   width: 100%;
   max-width: 40rem;
   margin: 0.4rem auto;
 }
 
-/* Сукно — под рядами: края проходят по серединам верхних и нижних мест, как места вокруг стола */
+/* Сукно — под рядами: края проходят по серединам верхних и нижних мест, как места вокруг стола;
+   нижних мест нет (телефон, Р-66) — низ сукна у низа столов */
 .felt.casino-felt {
-  inset: calc(var(--seat-h) / 2) 0;
+  inset: calc(var(--seat-h) / 2) 0 var(--felt-bottom, calc(var(--seat-h) / 2));
   border-radius: 50% / 12%;
 }
 
@@ -1633,14 +1635,14 @@ textarea.note-input {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: var(--gap, 0.3rem);
   width: 100%;
 }
 
 .casino-row {
   display: flex;
   justify-content: center;
-  gap: 0.3rem;
+  gap: var(--gap, 0.3rem);
 }
 
 .casino-seat {
@@ -1703,7 +1705,7 @@ textarea.note-input {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.3rem;
+  gap: var(--gap, 0.3rem);
   width: min(100%, var(--board-w));
 }
 
@@ -1862,6 +1864,48 @@ textarea.note-input {
   border-radius: 0.17rem;
   font-size: 0.55rem;
   letter-spacing: -0.04em;
+}
+
+/* Телефон (Р-66): столы по два в ряд — каждый на половину сукна, неполный последний ряд по центру;
+   ничья у одного — ряд выше целиком. Карты стола, у мест и победителя мельче (размеры — из casinoLayout),
+   ранг и масть — в долю ширины карты; поля мест и столов уже — высоты те же, что считает casinoLayout */
+/* Столы — внутри бортика сукна (8 px): по 0,5rem с боков */
+.casino-table.phone .casino-boards {
+  flex-direction: row;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: stretch;
+  width: calc(100% - 1rem);
+}
+
+.casino-table.phone .casino-board {
+  flex: 0 0 calc((100% - (var(--board-cols) - 1) * var(--gap)) / var(--board-cols));
+  min-width: 0;
+  max-width: calc(var(--board-w) + 4rem);
+  padding: 0.15rem;
+}
+
+.casino-table.phone .casino-board > .card-row {
+  gap: 0.12rem;
+  margin: 0.05rem 0;
+}
+
+.casino-table.phone .casino-board > .card-row .playing-card {
+  border-radius: 0.25rem;
+  font-size: calc(var(--board-card-w) * 0.6);
+  letter-spacing: -0.05em;
+}
+
+.casino-table.phone .casino-board .casino-win-row .playing-card {
+  font-size: calc(var(--win-card-w) * 0.6);
+}
+
+.casino-table.phone .casino-seat {
+  padding: 0.15rem;
+}
+
+.casino-table.phone .casino-hand {
+  margin: 0.1rem 0;
 }
 
 /* Стол открывается (#134): карта, ставшая лицом, доворачивается из ребра — только transform,
