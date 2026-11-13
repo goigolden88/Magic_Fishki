@@ -292,6 +292,15 @@ async function scenario(cdp: Cdp, size: Size): Promise<void> {
     await d.click('Доиграть сразу')
     await d.waitText('Новая раздача через') // раздача кончилась — отсчёт до следующей («Быстро» в форме сначала)
     await d.shot('03d-protiv-botov-itog', false)
+    // «Докупить всех до N» (#195): после раздачи у кого-то меньше стартового стека; «Перерыв» — чтобы отсчёт
+    // не начал следующую раздачу до снимка. Нажал — у всех не меньше стартового, кнопки нет
+    await d.waitText('Докупить всех до')
+    await d.click('Перерыв')
+    await d.waitText('Продолжить')
+    await d.shot('03e-protiv-botov-dokupit-vseh', false)
+    await d.click('Докупить всех до')
+    await waitGone(d, 'Докупить всех до')
+    await d.shot('03f-protiv-botov-dokupleny', false)
   })
 
   // Стол на одном телефоне на 10 мест — самый тесный стол: места не наезжают на панель хода
@@ -399,6 +408,16 @@ async function foldUntilPlayOn(d: Device): Promise<void> {
     if (await d.eval<boolean>(`[...document.querySelectorAll('button')].some((b) => b.innerText.trim() === 'Доиграть сразу')`)) return
   }
   throw new Error(`за ${BOTS_TIMEOUT / 1000} с после паса раздача ни разу не пошла дальше — нет «Доиграть сразу»`)
+}
+
+// Ждать, пока текст пропадёт с экрана
+async function waitGone(d: Device, text: string): Promise<void> {
+  const started = Date.now()
+  while (Date.now() - started < TIMEOUT) {
+    if (!(await d.eval<boolean>(`document.body.innerText.includes(${JSON.stringify(text)})`))) return
+    await sleep(200)
+  }
+  throw new Error(`«${text}» не пропало с экрана`)
 }
 
 // Коснуться своего имени у места за столом (Р-64): суммы ББ ↔ фишки
