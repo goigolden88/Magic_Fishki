@@ -534,6 +534,7 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
   const [stackText, setStackText] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [showStyles, setShowStyles] = useState(true)
+  const [autoFinish, setAutoFinish] = useState(false)
   const [autoStart, setAutoStart] = useState<AutoStart>(BOT_AUTO_START_DEFAULT)
   const [error, setError] = useState<string | null>(null)
 
@@ -552,7 +553,7 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
       setError('Игра против ботов уже идёт — продолжите или закончите её')
       return
     }
-    const form = { bots: count, level, open, showStyles, sb, bb, startingStack: stack, game, autoStart }
+    const form = { bots: count, level, open, showStyles, autoFinish, sb, bb, startingStack: stack, game, autoStart }
     const r = startBotTable(form, Date.now(), () => ulid())
     if (!r.ok) {
       setError(r.error)
@@ -642,6 +643,13 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
         Стиль ботов виден
       </label>
       <p className="muted">Выключите — стиль придётся угадывать по игре.</p>
+
+      {/* #194: сбросили — раздача между ботами доигрывается мгновенно; выключено — кнопкой «Доиграть сразу» */}
+      <label className="check">
+        <input type="checkbox" checked={autoFinish} onChange={(e) => setAutoFinish(e.target.checked)} />
+        После паса — сразу доигрывать
+      </label>
+      <p className="muted">Сбросили — боты доигрывают раздачу без пауз. Выключено — внизу кнопка «Доиграть сразу».</p>
 
       {error && <p className="warn">{error}</p>}
       <div className="row">

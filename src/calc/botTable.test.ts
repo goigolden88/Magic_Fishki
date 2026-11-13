@@ -4,6 +4,7 @@ import type { RandomBytes } from '../poker/tokens'
 import { botMove, seededRandom, type Random } from './bot'
 import {
   autoDealBotHand,
+  autoFinishNow,
   BOT_AUTO_START_DEFAULT,
   BOTS_DEFAULT,
   BOTS_MAX,
@@ -12,6 +13,8 @@ import {
   botGameLine,
   botNextHandAt,
   botPause,
+  botsPlayOn,
+  finishBotHand,
   resumeBotTable,
   botGameOf,
   botStep,
@@ -416,5 +419,109 @@ describe('стол против ботов: раздача сама', () => {
     const played = finish(ok(dealBotHand(old, 0, bytesOf(random))), 0, random)
     expect(botNextHandAt(played)).toBeNull()
     expect(autoDealBotHand(played, 60_000).ok).toBe(false)
+  })
+})
+
+// «Доиграть сразу» и «После паса — сразу доигрывать» (#194)
+describe('стол против ботов: доиграть сразу', () => {
+  // До моего хода — боты по очереди; мой ход — пас
+  function foldMe(bt: BotTable, random: Random): BotTable {
+    let t = bt
+    while (t.table.hand && botToAct(t)) t = ok(botStep(t, 0, random))
+    return t.table.hand ? ok(myMove(t, { type: 'fold' }, 0)) : t
+  }
+  // Раздача после моего паса — по одному ходу бота, как по таймеру
+  function stepByStep(bt: BotTable, random: Random): BotTable {
+    let t = bt
+    while (t.table.hand) t = ok(botStep(t, 0, random))
+    return t
+  }
+
+  it('сбросил — боты доигрывают сразу теми же ходами, что по секунде: стол, история и HUD те же', () => {
+    let showdowns = 0
+    let allIns = 0
+    for (const level of ['novice', 'amateur', 'strong', 'mixed'] as const) {
+      let a = start({ level, bots: BOTS_MAX, autoStart: 'fast' })
+      let b = a
+      for (let k = 0; k < 25; k++) {
+        if (iAmBroke(a)) [a, b] = [ok(myRebuy(a, 0)), ok(myRebuy(b, 0))]
+        const deck = bytesOf(seededRandom(1000 + k))
+        a = foldMe(ok(dealBotHand(a, 0, deck)), seededRandom(k))
+        b = foldMe(ok(dealBotHand(b, 0, bytesOf(seededRandom(1000 + k)))), seededRandom(k))
+        expect(b).toEqual(a)
+        if (!a.table.hand) continue // все сбросили до меня или ко мне — доигрывать нечего
+        expect(botsPlayOn(a)).toBe(true)
+        a = ok(finishBotHand(a, 0, seededRandom(500 + k)))
+        b = stepByStep(b, seededRandom(500 + k))
+        expect(a).toEqual(b)
+        expect(a.table.hand).toBeNull()
+        expect(botsPlayOn(a)).toBe(false)
+        // Конец — как у обычной раздачи: следующая сама взведена, фишки сходятся, раздача — в истории
+        expect(botNextHandAt(a)).toBe(iAmBroke(a) ? null : AUTO_START_MS.fast)
+        expect(chipsInPlay(a)).toBe(boughtIn(a))
+        const last = a.history[a.history.length - 1]
+        expect(last.number).toBe(k + 1)
+        if (Object.keys(last.record?.hands ?? {}).length > 1) showdowns++
+        if (last.record?.log.some((e) => e.allIn && e.playerId !== a.meId)) allIns++
+      }
+      expect(a.history.map((h) => h.number)).toEqual(Array.from({ length: 25 }, (_, i) => i + 1))
+      expect(a.table.hud).toEqual(b.table.hud)
+    }
+    // Среди доигранных сразу — и вскрытия, и олл-ины без меня
+    expect(showdowns).toBeGreaterThan(0)
+    expect(allIns).toBeGreaterThan(0)
+  }, 60_000)
+
+  it('я в раздаче, мой ход или раздачи нет — доигрывать нечего, стол как был', () => {
+    const bt = ok(dealBotHand(start(), 0, bytesOf(seededRandom(1))))
+    // Ход бота, я не сбросил
+    expect(botToAct(bt)).not.toBeNull()
+    expect(botsPlayOn(bt)).toBe(false)
+    expect(finishBotHand(bt, 0, seededRandom(1))).toEqual({ ok: false, error: 'Вы в раздаче — ходите сами' })
+    // Мой ход
+    const mine = ok(botStep(bt, 0, seededRandom(1)))
+    expect(botToAct(mine)).toBeNull()
+    expect(botsPlayOn(mine)).toBe(false)
+    expect(finishBotHand(mine, 0, seededRandom(1)).ok).toBe(false)
+    // Между раздачами
+    expect(botsPlayOn(start())).toBe(false)
+    expect(finishBotHand(start(), 0, seededRandom(1)).ok).toBe(false)
+  })
+
+  it('«После паса — сразу доигрывать»: по умолчанию выключен; включён — доигрывать без кнопки, только после моего паса', () => {
+    expect(start().autoFinish).toBe(false)
+    const on = start({ autoFinish: true, bots: BOTS_MAX })
+    expect(on.autoFinish).toBe(true)
+    const dealt = ok(dealBotHand(on, 0, bytesOf(seededRandom(3))))
+    expect(autoFinishNow(dealt)).toBe(false)
+    expect(autoFinishNow(start({ autoFinish: true }))).toBe(false)
+    let folded: BotTable | null = null
+    for (let seed = 0; !folded; seed++) {
+      const t = foldMe(ok(dealBotHand(on, 0, bytesOf(seededRandom(seed)))), seededRandom(seed))
+      if (t.table.hand) folded = t
+    }
+    expect(autoFinishNow(folded)).toBe(true)
+    expect(autoFinishNow({ ...folded, autoFinish: false })).toBe(false)
+  })
+
+  it('флажок — в памяти устройства; стол, сохранённый до него, — выключен', () => {
+    const on = start({ autoFinish: true })
+    expect(parseBotTable(JSON.stringify(on))).toEqual(on)
+    const { autoFinish: _, ...old } = on
+    expect(parseBotTable(JSON.stringify(old))!.autoFinish).toBe(false)
+  })
+
+  it('«Перерыв» во время раздачи — доигрывается сразу, новая сама не взводится; «Продолжить» — как раньше', () => {
+    let t: BotTable | null = null
+    for (let seed = 0; !t; seed++) {
+      const x = foldMe(ok(dealBotHand(start({ autoStart: 'fast', bots: BOTS_MAX }), 0, bytesOf(seededRandom(seed)))), seededRandom(seed))
+      if (x.table.hand) t = x
+    }
+    const done = ok(finishBotHand(ok(botPause(t, true, 1000)), 2000, seededRandom(7)))
+    expect(done.table.hand).toBeNull()
+    expect(done.history).toHaveLength(1)
+    expect(botTableView(done, 2000).paused).toBe(true)
+    expect(botNextHandAt(done)).toBeNull()
+    expect(botNextHandAt(ok(botPause(done, false, 5000)))).toBe(5000 + AUTO_START_MS.fast)
   })
 })

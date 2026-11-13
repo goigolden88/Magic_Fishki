@@ -30,6 +30,7 @@ export type BotTable = {
   styles: Record<string, BotStyle> // стиль каждого бота по его id (#139); виден подписью под именем
   open: boolean // «Карты ботов открыты» — только на экране человека; ботам не виднее
   showStyles: boolean // «Стиль ботов виден» (#145, Р-48) — подпись стиля под именем; только для экрана человека
+  autoFinish: boolean // «После паса — сразу доигрывать» (#194): я сбросил — раздача доигрывается сама мгновенно
   history: HistoryHand[] // раздачи по номерам — «История раздач»; стирается со столом
 }
 
@@ -46,12 +47,14 @@ export const BOT_GAME_DEFAULT: BotGame = 'holdem'
 // «Следующая раздача сама» у нового стола ботов (#156, Р-51) — сначала самая короткая пауза
 export const BOT_AUTO_START_DEFAULT: AutoStart = 'fast'
 
-// showStyles — «Стиль ботов виден»; не задано — виден. autoStart — «Следующая раздача сама»; не задано — нет
+// showStyles — «Стиль ботов виден»; не задано — виден. autoStart — «Следующая раздача сама»; не задано — нет.
+// autoFinish — «После паса — сразу доигрывать»; не задано — нет
 export type BotForm = {
   bots: number
   level: BotLevel
   open: boolean
   showStyles?: boolean
+  autoFinish?: boolean
   sb: number
   bb: number
   startingStack: number
@@ -81,7 +84,9 @@ export function startBotTable(form: BotForm, now: number, makeId: () => string, 
   if (!r.ok) return r
   const styles = stylesFor(r.state, meId, form.level, random)
   const showStyles = form.showStyles !== false
-  return { ok: true, bots: { id: makeId(), table: r.state, meId, level: form.level, styles, open: form.open, showStyles, history: [] } }
+  const autoFinish = form.autoFinish === true
+  const bots = { id: makeId(), table: r.state, meId, level: form.level, styles, open: form.open, showStyles, autoFinish, history: [] }
+  return { ok: true, bots }
 }
 
 // Игра стола ботов — по его настройкам; стол до #147 без поля — холдем
@@ -176,6 +181,37 @@ export function botStep(bt: BotTable, now: number, random: Random): BotStep {
   return after(bt, actFor(bt.table, move, now), now)
 }
 
+// Я сбросил (или меня нет в раздаче), а раздача идёт дальше между ботами — «Доиграть сразу» (#194)
+export function botsPlayOn(bt: BotTable): boolean {
+  const hand = bt.table.hand
+  if (!hand || !botToAct(bt)) return false
+  const me = hand.seats.find((s) => s.id === bt.meId)
+  return !me || me.folded
+}
+
+// Предел ходов одной раздачи при доигрывании: столько не бывает, но цикл не повиснет
+const FINISH_MAX_STEPS = 1000
+
+// «Доиграть сразу» (#194): ходы ботов подряд, без пауз — те же botStep, что по таймеру, с той же записью
+// в историю; олл-ин и вскрытие — движком, как после последнего хода. Конец — как у обычной раздачи
+// (докуп ботов, раздача «сама» взводится). Я в раздаче — отказ, стол как был
+export function finishBotHand(bt: BotTable, now: number, random: Random): BotStep {
+  if (!botsPlayOn(bt)) return { ok: false, error: 'Вы в раздаче — ходите сами' }
+  let cur = bt
+  for (let i = 0; cur.table.hand && botToAct(cur); i++) {
+    if (i >= FINISH_MAX_STEPS) return { ok: false, error: 'Раздача не доигрывается' }
+    const r = botStep(cur, now, random)
+    if (!r.ok) return r
+    cur = r.bots
+  }
+  return { ok: true, bots: cur }
+}
+
+// «После паса — сразу доигрывать» включено и я сбросил — доиграть без кнопки
+export function autoFinishNow(bt: BotTable): boolean {
+  return bt.autoFinish && botsPlayOn(bt)
+}
+
 // «Докупиться»: мне — стартовый стек
 export function myRebuy(bt: BotTable, now: number): BotStep {
   return after(bt, rebuyNow(bt.table, bt.meId, bt.table.settings.startingStack, now), now)
@@ -236,7 +272,9 @@ export function parseBotTable(text: string): BotTable | null {
   const styles = bots.every((p) => known.has(saved[p.id]))
     ? Object.fromEntries(bots.map((p) => [p.id, saved[p.id] as BotStyle]))
     : stylesFor(base.table, meId, level, seededRandom(hashOf(base.id)))
-  return { id: base.id, table: base.table, meId, level, styles, open: x.open === true, showStyles: x.showStyles !== false, history: base.history }
+  // Стол до #194 без autoFinish — доигрывание кнопкой
+  const flags = { open: x.open === true, showStyles: x.showStyles !== false, autoFinish: x.autoFinish === true }
+  return { id: base.id, table: base.table, meId, level, styles, ...flags, history: base.history }
 }
 
 function hashOf(text: string): number {
