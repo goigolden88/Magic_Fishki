@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { call, check, newTable, play, start } from '../poker/testing'
+import { call, check, newTable, play, raise, start } from '../poker/testing'
 import { formatBB, stackText } from './format'
 import { actionsView } from './pokerView'
 import {
@@ -10,10 +10,12 @@ import {
   parseQuickBets,
   potBetLabel,
   preBetLabel,
+  PRE_RERAISE,
   QUICK_BETS_DEFAULT,
   QUICK_BETS_MAX,
   quickRaises,
   type RaiseSpot,
+  reraiseLabel,
 } from './quickBets'
 
 const spot = (over: Partial<RaiseSpot> = {}): RaiseSpot => ({
@@ -57,11 +59,52 @@ describe('быстрые ставки (Р-62)', () => {
     ])
   })
 
-  it('сумма вне min…max — кнопки нет; max — у олл-ина; одинаковые суммы — одна кнопка', () => {
-    // После рейза до 30: 2,5 ББ и 3 ББ — ниже минимума
-    expect(quickRaises(spot({ preflop: true, currentBet: 30, toCall: 20, pot: 45, min: 50 })).map((q) => q.label)).toEqual([
-      'Мин',
+  it('до флопа после рейза (Р-66) — «×2,5», «×3» от ставки круга и «Банк» после колла', () => {
+    // Рейз до 30 при ББ 10: банк 45, колл 20 → «Банк» — до 30 + 45 + 20
+    expect(quickRaises(spot({ preflop: true, currentBet: 30, toCall: 20, pot: 45, min: 50 }))).toEqual([
+      { label: 'Мин', to: 50 },
+      { label: '×2,5', to: 75 },
+      { label: '×3', to: 90 },
+      { label: 'Банк', to: 95 },
     ])
+    // Ставка 60 → до 150 и 180; свои кнопки ББ не нужны, «Банк» — и без него в своих
+    expect(quickRaises(spot({ preflop: true, currentBet: 60, toCall: 60, pot: 75, min: 110 }), { pot: [50], pre: [] })).toEqual([
+      { label: 'Мин', to: 110 },
+      { label: '×2,5', to: 150 },
+      { label: '×3', to: 180 },
+      { label: 'Банк', to: 195 },
+    ])
+    // Не меньше олл-ина — кнопки нет; одинаковые суммы — одна
+    expect(quickRaises(spot({ preflop: true, currentBet: 30, toCall: 20, pot: 45, min: 50, max: 90 })).map((q) => q.to)).toEqual([50, 75])
+    expect(quickRaises(spot({ preflop: true, currentBet: 20, toCall: 20, pot: 35, min: 50 })).map((q) => q.label)).toEqual([
+      'Мин',
+      '×3',
+      'Банк',
+    ])
+  })
+
+  it('до флопа без повышения (блайнды и лимпы) — свои «до N ББ», как раньше', () => {
+    // Два лимпа: ставка круга — ББ
+    expect(quickRaises(spot({ preflop: true, currentBet: 10, toCall: 0, pot: 35, min: 20 })).map((q) => q.label)).toEqual([
+      'Мин',
+      '2,5 ББ',
+      '3 ББ',
+      '4 ББ',
+    ])
+  })
+
+  it('пот-лимит до флопа после рейза — без «Банка», «Пот» до предела', () => {
+    expect(
+      quickRaises(spot({ preflop: true, currentBet: 30, toCall: 20, pot: 45, min: 50, max: 95, potTop: true })).map((q) => [q.label, q.to]),
+    ).toEqual([
+      ['Мин', 50],
+      ['×2,5', 75],
+      ['×3', 90],
+      ['Пот', 95],
+    ])
+  })
+
+  it('сумма вне min…max — кнопки нет; max — у олл-ина; одинаковые суммы — одна кнопка', () => {
     // Стек 200: банк 300 — больше стека, его нет
     expect(quickRaises(spot({ max: 200 })).map((q) => q.to)).toEqual([10, 100, 150])
     // Одна сумма у двух кнопок — первая
@@ -96,6 +139,14 @@ describe('быстрые ставки (Р-62)', () => {
       { label: 'Мин', to: 20 },
       { label: '5 ББ', to: 50 },
     ])
+    // Рейз до 30 до флопа: малому блайнду (в банке 5) — от ставки круга, банк 45 + колл 25
+    const raised = play(newTable(['p0', 'p1', 'p2']), [start('p0'), raise('p0', 30)], false)
+    expect(actionsView(raised, 'p1', { pot: [], pre: [50] })?.raise?.quick).toEqual([
+      { label: 'Мин', to: 50 },
+      { label: '×2,5', to: 75 },
+      { label: '×3', to: 90 },
+      { label: 'Банк', to: 100 },
+    ])
   })
 
   it('подписи кнопок', () => {
@@ -109,6 +160,7 @@ describe('быстрые ставки (Р-62)', () => {
       '150 % банка',
     ])
     expect([20, 25, 30, 125].map(preBetLabel)).toEqual(['2 ББ', '2,5 ББ', '3 ББ', '12,5 ББ'])
+    expect(PRE_RERAISE.map(reraiseLabel)).toEqual(['×2,5', '×3'])
   })
 
   it('ввод: доля — целые проценты, множитель — до десятых; вне предела — null', () => {
