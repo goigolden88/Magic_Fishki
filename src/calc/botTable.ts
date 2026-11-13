@@ -217,6 +217,29 @@ export function myRebuy(bt: BotTable, now: number): BotStep {
   return after(bt, rebuyNow(bt.table, bt.meId, bt.table.settings.startingStack, now), now)
 }
 
+// «Докупить всех до N» (#195): раздачи нет, а у кого-то меньше стартового стека. Во время раздачи стек
+// в players — на её начало, живой — в раздаче, поэтому только между ними (на отсчёте и в «Перерыве» тоже)
+export function canTopUpAll(bt: BotTable): boolean {
+  const n = bt.table.settings.startingStack
+  return !bt.table.hand && bt.table.players.some((p) => p.chips < n)
+}
+
+// Каждому, у кого меньше стартового стека, — докуп ровно до него (мне тоже), обычным докупом стола:
+// в стеке и в истории фишек; у кого столько и больше — как был. Нечего докупать или идёт раздача — отказ
+export function topUpAll(bt: BotTable, now: number): BotStep {
+  if (bt.table.hand) return { ok: false, error: 'Докупить всех — между раздачами' }
+  if (!canTopUpAll(bt)) return { ok: false, error: 'У всех уже стартовый стек или больше' }
+  const n = bt.table.settings.startingStack
+  let table = bt.table
+  for (const p of bt.table.players) {
+    if (p.chips >= n) continue
+    const r = rebuyNow(table, p.id, n - p.chips, now)
+    if (!r.ok) return r
+    table = r.state
+  }
+  return after(bt, { ok: true, state: table }, now)
+}
+
 // После хода: между раздачами боты без фишек докупаются сами на стартовый стек; окончилась раздача — она и в историю.
 // Мои фишки кончились — раздача «сама» снята (#156): боты без меня не играют; докуп взводит её заново с полной паузы
 function after(bt: BotTable, r: Result, now: number): BotStep {
