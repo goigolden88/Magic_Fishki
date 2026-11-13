@@ -1,4 +1,5 @@
-// Быстрые ставки панели хода (Р-62): после флопа — доли банка, до флопа — множители большого блайнда.
+// Быстрые ставки панели хода (Р-62): после флопа — доли банка, до флопа — множители большого блайнда,
+// а после чужого рейза до флопа — множители ставки круга и «Банк» (Р-66).
 // Свои кнопки — на этом телефоне и в копии. Правил не меняют: сумма вне min…max — кнопки нет,
 // олл-ин — своей кнопкой; пот-лимит — «Банк» превращается в «Пот» до предела банка
 import { formatNumber } from './format'
@@ -25,6 +26,14 @@ export function potBetLabel(pct: number): string {
 // 25 → «2,5 ББ», 30 → «3 ББ»
 export function preBetLabel(tenths: number): string {
   return `${tenthsText(tenths)} ББ`
+}
+
+// Перерейз до флопа после чужого рейза (Р-66): до 2,5 и 3 ставок круга, десятыми; не настраиваются
+export const PRE_RERAISE = [25, 30]
+
+// 25 → «×2,5», 30 → «×3»
+export function reraiseLabel(tenths: number): string {
+  return `×${tenthsText(tenths)}`
 }
 
 function tenthsText(tenths: number): string {
@@ -97,12 +106,17 @@ export type RaiseSpot = {
 export type QuickRaise = { label: string; to: number }
 
 // Кнопки: «Мин», затем свои — до флопа N ББ, после — доля банка после колла поверх ставки улицы.
+// До флопа после чужого рейза (ставка круга больше ББ, Р-66) — вместо своих «×2,5», «×3» от ставки круга
+// и «Банк» — перерейз в размер банка после колла, как 100 % после флопа.
 // Сумма меньше минимума или не меньше max — кнопки нет (max — олл-ин или «Пот»); одинаковые суммы — одна кнопка.
 // Пот-лимит, предел меньше стека: «Пот» до предела — до флопа всегда, после — когда среди своих есть «Банк»
 export function quickRaises(s: RaiseSpot, bets: QuickBets = QUICK_BETS_DEFAULT): QuickRaise[] {
   const afterCall = s.pot + s.toCall
   const options: QuickRaise[] = [{ label: 'Мин', to: s.min }]
-  if (s.preflop) {
+  if (s.preflop && s.currentBet > s.bb) {
+    for (const m of PRE_RERAISE) options.push({ label: reraiseLabel(m), to: Math.round((s.currentBet * m) / 10) })
+    if (!s.potTop) options.push({ label: potBetLabel(100), to: s.currentBet + afterCall })
+  } else if (s.preflop) {
     for (const m of bets.pre) options.push({ label: preBetLabel(m), to: Math.round((s.bb * m) / 10) })
   } else {
     for (const p of bets.pot) {

@@ -304,6 +304,12 @@ async function scenario(cdp: Cdp, size: Size): Promise<void> {
     await d.waitFor('.dock.actions')
     await sleep(1500) // раздача долетела
     await d.shot('09-stol-na-telefone', false)
+    // Рейз до флопа — у следующего быстрые кнопки перерейза от ставки круга (Р-66)
+    await d.click('3 ББ')
+    await d.click('Рейз до')
+    await d.waitText('×2,5')
+    await sleep(500)
+    await d.shot('09b-stol-na-telefone-pererejz', false)
   })
 
   await screen('Казино', size, async () => {
