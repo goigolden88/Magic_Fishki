@@ -1,4 +1,4 @@
-// Казино-стол (#129): участники сидят рядами над и под столами в центре сукна. На телефоне (Р-66) —
+// Казино-стол (#129): участники сидят рядами над и под столами в центре сукна. На телефоне (Р-67) —
 // места одним рядом сверху, пока входят в ширину экрана, столы — по два в ряд, карты мельче: при 3–6
 // участниках и 5 столах холдема всё видно без прокрутки на 390 × 844. На широком окне (Р-53) — столы
 // рядами по 2–3. Только размеры и порядок мест — правил раунда не держит (они в casinoDeal.ts).
@@ -16,7 +16,7 @@ export const PHONE_MAX_WIDTH = 40
 export const GAP = 0.3 // широкое окно: между местами и между столами
 const CENTER_PAD = 0.6 // широкое окно: от рядов мест до столов
 
-// Телефон (Р-66, #193): размеры подобраны под 390 × 844 — сукно с одним рядом мест и тремя рядами столов
+// Телефон (Р-67, #193): размеры подобраны под 390 × 844 — сукно с одним рядом мест и тремя рядами столов
 // (5 столов по два) не выше PHONE_FIT; шапка экрана, свёрнутые настройки и панель внизу — вне сукна
 export const PHONE_FIT = 22.5
 export const PHONE_COLS = 2 // столов в ряду на телефоне
@@ -38,7 +38,7 @@ const PHONE_BOARD_TEXT_H = 2.02 // «Стол N · часть банка», ст
 const PHONE_WIN_CARD = { w: 0.85, h: 1.2 }
 const PHONE_WIN_ROW_PAD = 0.1
 
-// Широкое окно (до Р-66 — и телефон). Карта у места: холдем — две крупнее, омаха — четыре мельче
+// Широкое окно (до Р-67 — и телефон). Карта у места: холдем — две крупнее, омаха — четыре мельче
 // (как у чужих мест покерного стола)
 const HAND_CARD: Record<DealKind, { w: number; h: number }> = {
   holdem: { w: 1.7, h: 2.35 },
@@ -79,7 +79,7 @@ export type CasinoLayout = {
   winRow: Size // ряд пяти мелких карт победителя
   boardCards: number // ширина пяти карт стола, rem
   wide: boolean // раскладка широкого окна (Р-53, Р-60): столы рядами, победитель под картами, карты руки крупнее
-  cols: number // столов в ряду: на телефоне — до двух (Р-66), на широком окне — 2–3
+  cols: number // столов в ряду: на телефоне — до двух (Р-67), на широком окне — 2–3
   center: Size // столы рядами
   gap: number // между местами и между столами
   centerPad: number // от рядов мест до столов
@@ -94,7 +94,7 @@ export type CasinoLayout = {
 // направо, вторая — под столами справа налево. Мест больше MAX_CASINO_SEATS или меньше одного — ошибка.
 // wide — широкое окно (Р-53, Р-60): ширина до WIDE_WIDTH, столы рядами, строка победителя — под картами стола
 // в две строки, карты руки крупнее.
-// Телефон (Р-66): space — ширина сукна, rem (берётся от MIN_WIDTH до PHONE_MAX_WIDTH); все места входят в один
+// Телефон (Р-67): space — ширина сукна, rem (берётся от MIN_WIDTH до PHONE_MAX_WIDTH); все места входят в один
 // ряд — одним рядом над столами, иначе пополам, как прежде; столы — по два в ряд, карты мельче
 export function casinoLayout(
   kind: DealKind,
@@ -128,7 +128,7 @@ export function casinoLayout(
   const limit = wide ? WIDE_WIDTH : Math.min(PHONE_MAX_WIDTH, Math.max(MIN_WIDTH, space))
   const perRow = Math.max(1, Math.floor((limit + gap) / (seat.w + gap)))
   const ids = Array.from({ length: players }, (_, i) => i)
-  // Телефон: все в один ряд — одним рядом сверху, не пополам (Р-66)
+  // Телефон: все в один ряд — одним рядом сверху, не пополам (Р-67)
   const upper = !wide && players <= perRow ? players : Math.ceil(players / 2)
   const top = rows(ids.slice(0, upper), perRow)
   const bottom = rows(ids.slice(upper).reverse(), perRow)
@@ -211,7 +211,7 @@ function blockHeight(rowCount: number, seatH: number, gap: number): number {
   return rowCount === 0 ? 0 : rowCount * seatH + (rowCount - 1) * gap
 }
 
-// Ширина сукна на телефоне, rem (Р-66): колонка экрана (.screen — не шире 640 px, поля по 16 px) в rem окна;
+// Ширина сукна на телефоне, rem (Р-67): колонка экрана (.screen — не шире 640 px, поля по 16 px) в rem окна;
 // от MIN_WIDTH до PHONE_MAX_WIDTH
 export function phoneSpace(windowPx: number, remPx: number): number {
   const column = Math.min(windowPx, 640) - 2 * 16

@@ -116,7 +116,7 @@ describe('раскладка казино-стола', () => {
     expect(phoneSpace(800, 12)).toBe(PHONE_MAX_WIDTH)
   })
 
-  it('телефон 390 × 844 (Р-66): 3–6 участников и 5 столов холдема — места одним рядом сверху, сукно не выше 22,5rem', () => {
+  it('телефон 390 × 844 (Р-67): 3–6 участников и 5 столов холдема — места одним рядом сверху, сукно не выше 22,5rem', () => {
     for (const space of [PHONE_390, phoneSpace(375, 18)]) {
       for (let n = 3; n <= 6; n++) {
         const l = casinoLayout('holdem', n, 5, false, space)
@@ -229,13 +229,13 @@ describe('раскладка казино-стола', () => {
       expect(wide.winRow.h).toBeGreaterThanOrEqual(wide.winCard.h)
       // стол: подпись и строка победителя (1,4), вторая строка «Имя · рука» (0,96), ряд карт победителя и поля
       expect(wide.board.h).toBeCloseTo(wide.boardCard.h + 1.4 + 0.96 + wide.winRow.h + 0.6)
-      // карты на широком окне крупнее телефонных (Р-66)
+      // карты на широком окне крупнее телефонных (Р-67)
       expect(wide.boardCard.w).toBeGreaterThan(phone.boardCard.w)
       expect(wide.hand.w).toBeGreaterThan(phone.hand.w)
     }
   })
 
-  it('широкое окно — как до Р-66: те же размеры, места пополам, ширина сукна на телефоне не влияет', () => {
+  it('широкое окно — как до Р-67: те же размеры, места пополам, ширина сукна на телефоне не влияет', () => {
     const five = casinoLayout('holdem', 10, 5, true)
     expect(five).toMatchObject({
       hand: { w: 1.7, h: 2.35 },
@@ -273,7 +273,7 @@ describe('раскладка казино-стола', () => {
     }
   })
 
-  it('телефон (Р-66): столы по два в ряд, один стол — один; по умолчанию — ширина 320 px', () => {
+  it('телефон (Р-67): столы по два в ряд, один стол — один; по умолчанию — ширина 320 px', () => {
     for (const { kind, n, m } of every()) {
       const l = casinoLayout(kind, n, m)
       expect(l.wide).toBe(false)

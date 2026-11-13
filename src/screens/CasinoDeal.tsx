@@ -667,7 +667,7 @@ function layoutStyle(l: CasinoLayout): CSSProperties {
     '--board-cols': String(l.cols),
     '--gap': rem(l.gap),
     '--center-pad': rem(l.centerPad),
-    // Сукно — от середины верхних мест до середины нижних; нижних нет (телефон, Р-66) — до низа столов
+    // Сукно — от середины верхних мест до середины нижних; нижних нет (телефон, Р-67) — до низа столов
     '--felt-bottom': rem(l.bottom.length > 0 ? l.seat.h / 2 : 0),
     '--center-w': rem(l.center.w),
     '--layout-w': rem(l.width),
@@ -700,7 +700,7 @@ type BoardData = {
   chances?: Chances
 }
 
-// Ширина сукна на телефоне, rem (Р-66): от ширины окна и размера rem; повернули телефон — раскладка заново
+// Ширина сукна на телефоне, rem (Р-67): от ширины окна и размера rem; повернули телефон — раскладка заново
 function measureSpace(): number {
   if (typeof document === 'undefined') return MIN_WIDTH
   const root = document.documentElement
@@ -719,7 +719,7 @@ function usePhoneSpace(): number {
 }
 
 // Сукно с рядами мест над и под столами (casinoLayout): места по часовой от верхнего левого; на телефоне
-// (Р-66) все входят в ряд — одним рядом сверху. Раскладка — по числу мест и столов, ширине окна (useWide) и
+// (Р-67) все входят в ряд — одним рядом сверху. Раскладка — по числу мест и столов, ширине окна (useWide) и
 // ширине сукна на телефоне. fly — анимация раздачи (#133): новый план — карты мест летят к ним из столов;
 // нет — карты сразу на местах
 function Felt(props: { kind: DealKind; seats: SeatData[]; boards: BoardData[]; look: Look; fly?: Flight[] | null }) {
