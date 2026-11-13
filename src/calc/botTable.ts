@@ -9,7 +9,7 @@ import { AUTO_START_MS, createTable, gameFor, handle, onTime, viewFor, type Auto
 import type { RandomBytes } from '../poker/tokens'
 import { BOT_LEVELS, BOT_STYLES, botMove, pickStyles, seededRandom, styleLabel, type BotLevel, type BotStyle, type Random } from './bot'
 import { actFor, hostDo, parseLocalTable, rebuyNow, seatPlayer, toActId } from './localTable'
-import { tableView, type TableView } from './pokerView'
+import { hudView, tableView, type TableView } from './pokerView'
 import type { QuickBets } from './quickBets'
 
 export const BOTS_MIN = 1
@@ -31,6 +31,7 @@ export type BotTable = {
   open: boolean // «Карты ботов открыты» — только на экране человека; ботам не виднее
   showStyles: boolean // «Стиль ботов виден» (#145, Р-48) — подпись стиля под именем; только для экрана человека
   autoFinish: boolean // «После паса — сразу доигрывать» (#194): я сбросил — раздача доигрывается сама мгновенно
+  hudAll: boolean // «HUD у всех мест» (#196): строка HUD и у ботов; только для экрана человека, ботам — как было
   history: HistoryHand[] // раздачи по номерам — «История раздач»; стирается со столом
 }
 
@@ -48,13 +49,14 @@ export const BOT_GAME_DEFAULT: BotGame = 'holdem'
 export const BOT_AUTO_START_DEFAULT: AutoStart = 'fast'
 
 // showStyles — «Стиль ботов виден»; не задано — виден. autoStart — «Следующая раздача сама»; не задано — нет.
-// autoFinish — «После паса — сразу доигрывать»; не задано — нет
+// autoFinish — «После паса — сразу доигрывать»; не задано — нет. hudAll — «HUD у всех мест»; не задано — у всех
 export type BotForm = {
   bots: number
   level: BotLevel
   open: boolean
   showStyles?: boolean
   autoFinish?: boolean
+  hudAll?: boolean
   sb: number
   bb: number
   startingStack: number
@@ -85,7 +87,9 @@ export function startBotTable(form: BotForm, now: number, makeId: () => string, 
   const styles = stylesFor(r.state, meId, form.level, random)
   const showStyles = form.showStyles !== false
   const autoFinish = form.autoFinish === true
-  const bots = { id: makeId(), table: r.state, meId, level: form.level, styles, open: form.open, showStyles, autoFinish, history: [] }
+  const hudAll = form.hudAll !== false
+  const flags = { open: form.open, showStyles, autoFinish, hudAll }
+  const bots = { id: makeId(), table: r.state, meId, level: form.level, styles, ...flags, history: [] }
   return { ok: true, bots }
 }
 
@@ -266,11 +270,13 @@ function rebuyBots(table: TableState, meId: string, now: number): TableState {
 
 // Вид стола мне: как у игрока комнаты — свои карты, у ботов рубашки. «Карты ботов открыты» — у ботов
 // в раздаче карты лицом; только для глаз, в ход бота это не идёт. Под именем бота — его стиль (tag): «ЛАГ»;
-// «Стиль ботов виден» снят — подписи нет (#145). bets — быстрые ставки этого телефона (Р-62)
+// «Стиль ботов виден» снят — подписи нет (#145). «HUD у всех мест» (#196) — у ботов строка HUD из того же
+// state.hud, что читают боты; снят — HUD только у моего места. bets — быстрые ставки этого телефона (Р-62)
 export function botTableView(bt: BotTable, now: number, bets?: QuickBets): TableView {
   const base = tableView(viewFor(bt.table, bt.meId), bt.meId, now, bets)
+  const withHud = bt.hudAll ? { ...base, seats: base.seats.map((s) => (s.isMe ? s : { ...s, hud: hudView(bt.table, s.id) })) } : base
   const tagged = (s: TableView['seats'][number]) => (s.isMe ? s : { ...s, tag: styleLabel(botStyleOf(bt, s.id)) })
-  const v = bt.showStyles ? { ...base, seats: base.seats.map(tagged) } : base
+  const v = bt.showStyles ? { ...withHud, seats: withHud.seats.map(tagged) } : withHud
   const cards = bt.table.hand?.cards
   if (!bt.open || !cards) return v
   return { ...v, seats: v.seats.map((s) => (s.isMe || s.cards === null ? s : { ...s, cards: cards.hole[s.id] ?? s.cards })) }
@@ -295,8 +301,8 @@ export function parseBotTable(text: string): BotTable | null {
   const styles = bots.every((p) => known.has(saved[p.id]))
     ? Object.fromEntries(bots.map((p) => [p.id, saved[p.id] as BotStyle]))
     : stylesFor(base.table, meId, level, seededRandom(hashOf(base.id)))
-  // Стол до #194 без autoFinish — доигрывание кнопкой
-  const flags = { open: x.open === true, showStyles: x.showStyles !== false, autoFinish: x.autoFinish === true }
+  // Стол до #194 без autoFinish — доигрывание кнопкой; до #196 без hudAll — HUD только у моего места
+  const flags = { open: x.open === true, showStyles: x.showStyles !== false, autoFinish: x.autoFinish === true, hudAll: x.hudAll === true }
   return { id: base.id, table: base.table, meId, level, styles, ...flags, history: base.history }
 }
 

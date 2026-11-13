@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { AUTO_START_MS, viewFor } from '../poker/table'
 import type { RandomBytes } from '../poker/tokens'
 import { botMove, seededRandom, type Random } from './bot'
+import { hudView } from './pokerView'
 import {
   autoDealBotHand,
   autoFinishNow,
@@ -143,6 +144,46 @@ describe('стол против ботов', () => {
     const was = parseBotTable(JSON.stringify(old))!
     expect(was.showStyles).toBe(true)
     expect(botTableView(was, 0).seats.filter((s) => !s.isMe).every((s) => s.tag === 'ABC')).toBe(true)
+  })
+
+  it('«HUD у всех мест» (#196): по умолчанию — HUD у каждого бота из state.hud, «мало раздач» — до 30; снят — только у меня', () => {
+    const counts = (hands: number) => ({ hands, vpip: 10, pfr: 8, stealChances: 12, steals: 4, cbChances: 6, cbs: 4, raises: 20, calls: 10 })
+    const withHud = (form: Partial<BotForm>) => {
+      const bt = start({ bots: 3, ...form })
+      const [me, a, b] = bt.table.players
+      return { ...bt, table: { ...bt.table, hud: { [me.id]: counts(40), [a.id]: counts(40), [b.id]: counts(5) } } }
+    }
+    const all = withHud({})
+    expect(all.hudAll).toBe(true)
+    const [me, a, b, c] = all.table.players
+    const v = botTableView(all, 0)
+    const hudOf = (view: ReturnType<typeof botTableView>, id: string) => view.seats.find((s) => s.id === id)!.hud
+    expect(hudOf(v, me.id)).toEqual(hudView(all.table, me.id))
+    expect(hudOf(v, a.id)).toEqual(hudView(all.table, a.id))
+    expect(hudOf(v, a.id)!.few).toBe(false)
+    expect(hudOf(v, b.id)!.few).toBe(true)
+    // У бота раздач ещё не было — строки нет
+    expect(hudOf(v, c.id)).toBeNull()
+    const mine = withHud({ hudAll: false })
+    const w = botTableView(mine, 0)
+    expect(hudOf(w, me.id)).toEqual(hudView(mine.table, me.id))
+    expect([a, b, c].map((p) => hudOf(w, p.id))).toEqual([null, null, null])
+    // Остальное у мест — как было
+    const strip = (view: ReturnType<typeof botTableView>) => view.seats.map(({ hud: _, ...s }) => s)
+    expect(strip(w)).toEqual(strip(v))
+    // Ход бота тот же: боты читают HUD отдельно
+    const dealtAll = ok(dealBotHand(all, 0, bytesOf(seededRandom(3))))
+    const dealtMine = ok(dealBotHand(mine, 0, bytesOf(seededRandom(3))))
+    expect(botToAct(dealtAll)).not.toBeNull()
+    expect(ok(botStep(dealtMine, 0, seededRandom(9))).table).toEqual(ok(botStep(dealtAll, 0, seededRandom(9))).table)
+  })
+
+  it('«HUD у всех мест» — в памяти устройства; стол, сохранённый до этого флажка, — HUD только у моего места', () => {
+    const mine = start({ hudAll: false })
+    expect(parseBotTable(JSON.stringify(mine))).toEqual(mine)
+    expect(parseBotTable(JSON.stringify(start()))!.hudAll).toBe(true)
+    const { hudAll: _, ...old } = start()
+    expect(parseBotTable(JSON.stringify(old))!.hudAll).toBe(false)
   })
 
   it('старый стол против ботов, сохранённый до стилей, открывается: стили — по его уровню, всякий раз те же', () => {
