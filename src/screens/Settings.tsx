@@ -37,7 +37,7 @@ import { download } from './download'
 import { loadLastBackup, saveLastBackup } from './lastBackup'
 import { DEFAULT_SERVER, serverBase } from '../calc/pokerLink'
 import { NOTE_COLORS, NOTE_LABEL_MAX, labelOf, mergeNotes, setLabel, type NoteColor } from '../calc/playerNotes'
-import { DECK_LABELS, MY_BACK_LABELS, MY_FELT_LABELS, mergeMyLook, type MyLook } from '../calc/pokerLook'
+import { DECK_LABELS, deckOf, MY_BACK_LABELS, MY_FELT_LABELS, mergeMyLook, type MyLook } from '../calc/pokerLook'
 import { PlayingCard, useBigBlinds } from './PokerRoom'
 import {
   loadBigBlindsChoice,
@@ -893,7 +893,7 @@ function MyLookCard({ look, onChange }: { look: MyLook; onChange: (look: MyLook)
             <legend className="muted">Колода</legend>
             <div className="amounts">
               {DECK_LABELS.map(([deck, label]) => (
-                <LookChoice key={deck} on={look.deck === deck} onPick={() => update({ deck })}>
+                <LookChoice key={deck} on={deckOf(look) === deck} onPick={() => update({ deck })}>
                   {label}
                 </LookChoice>
               ))}
