@@ -775,16 +775,18 @@ function HandBody({ view: v }: { view: LastHandView | HistoryHandView }) {
 // «История раздач» вечера (#113): список — новые сверху, тап — раздача целиком, «← Все раздачи» — назад.
 // Карточкой под столом: панель хода внизу экрана не закрывает, игра идёт. hands — null: ещё не пришла;
 // note — почему не приходит (нет связи); старый список при этом остаётся.
-// Прошлый вечер (#114) — та же карточка: title — вместо «История раздач», back — вместо «Закрыть»
+// Прошлый вечер (#114) — та же карточка: title — вместо «История раздач», back — вместо «Закрыть».
+// Из карточки игрока (#197) — сразу раздача initial, «← Все раздачи» — весь её вечер
 export function HandHistory(props: {
   hands: HistoryHand[] | null
   note?: string | null
   title?: string
   back?: string
+  initial?: number
   onClose: () => void
 }) {
-  const { hands, note = null, title = 'История раздач', back = 'Закрыть', onClose } = props
-  const [open, setOpen] = useState<number | null>(null)
+  const { hands, note = null, title = 'История раздач', back = 'Закрыть', initial, onClose } = props
+  const [open, setOpen] = useState<number | null>(initial ?? null)
   const ref = useRef<HTMLElement>(null)
   const hand = hands?.find((h) => h.number === open) ?? null
   const list = hands ? historyList(hands) : []

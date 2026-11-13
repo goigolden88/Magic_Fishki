@@ -1175,6 +1175,15 @@ textarea.note-input {
   color: var(--muted);
 }
 
+/* Ещё числа (#197): подписи длиннее HUD («bb/100», «W$SD»); мало случаев — строка приглушена сама по себе */
+.hud-rows.more-rows div {
+  grid-template-columns: 4.2rem 1fr;
+}
+
+.more-rows .few {
+  color: var(--muted);
+}
+
 /* Секунды на ход — у места того, чей ход (#75): значком на левом верхнем углу, место не растёт */
 .seat-timer {
   position: absolute;
