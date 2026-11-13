@@ -1979,6 +1979,36 @@ a.button-link.casino-game {
   margin-top: 4px;
 }
 
+/* Ползунок ставки с «−» и «+» по бокам (Р-69): ползунок — всё место между кнопками */
+.bet-range-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.2rem;
+}
+
+.bet-range-row input.bet-range {
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
+  margin: 0;
+}
+
+.bet-step {
+  flex: 0 0 auto;
+  min-width: 2.75rem;
+  min-height: 2.4rem;
+  padding: 0;
+  font-size: 1.3rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* «66 % банка · 12 ББ» — под суммой */
+.bet-share {
+  margin-top: 0.2rem;
+}
+
 /* Ползунок ставки: крупный бегунок под палец */
 input.bet-range {
   -webkit-appearance: none;

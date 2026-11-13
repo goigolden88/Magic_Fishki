@@ -2,6 +2,7 @@ import { parseBotTable, type BotTable } from '../calc/botTable'
 import { parseLocalTable, type LocalTable } from '../calc/localTable'
 import { serverBase, type SavedSeat } from '../calc/pokerLink'
 import { parseLabels, parseNotes, type NoteLabels, type PlayerNotes } from '../calc/playerNotes'
+import { BET_STEP_DEFAULT, parseBetStep, type BetStep } from '../calc/pokerLayout'
 import { isDefaultLook, MY_LOOK_DEFAULT, parseMyLook, type MyLook } from '../calc/pokerLook'
 import { parseQuickBets, QUICK_BETS_DEFAULT, type QuickBets } from '../calc/quickBets'
 import { parseQuickRoom, type QuickRoom } from '../calc/quickRoom'
@@ -12,7 +13,7 @@ import type { CSSProperties } from 'react'
 // звук «ваш ход», «карты всегда открыты», «анимация карт», стол на этом телефоне и стол против ботов — данные этого устройства,
 // а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21, Р-38).
 // Заметки об игроках и подписи их цветов (Р-56), личный «Вид стола» (Р-61), своя «Быстрая комната», показ в ББ
-// и быстрые ставки (Р-62), размер стола и панели ставок (Р-63) — тоже в localStorage, но в копию идут
+// и быстрые ставки (Р-62), размер стола и панели ставок (Р-63), шаг колеса и «−»/«+» (Р-69) — тоже в localStorage, но в копию идут
 const PASSWORD_KEY = 'fishki.poker.password'
 const SERVER_KEY = 'fishki.poker.server'
 const SEATS_KEY = 'fishki.poker.seats'
@@ -32,6 +33,7 @@ const BB_KEY = 'fishki.poker.bigBlinds'
 const BETS_KEY = 'fishki.poker.quickBets'
 const TABLE_SIZE_KEY = 'fishki.poker.tableSize'
 const DOCK_SIZE_KEY = 'fishki.poker.dockSize'
+const BET_STEP_KEY = 'fishki.poker.betStep'
 
 function read(key: string): string {
   try {
@@ -288,6 +290,29 @@ export const loadQuickBets = (): QuickBets => loadQuickBetsChoice() ?? QUICK_BET
 export function saveQuickBets(bets: QuickBets | null) {
   quickBets = bets
   write(BETS_KEY, bets ? JSON.stringify(bets) : '')
+}
+
+// Шаг колеса мыши и «−»/«+» у ползунка (Р-69): «1 ББ» или «0,5 ББ», в копию идёт. null — не выбран: 1 ББ.
+// Подписчики — панель хода: выбор в «Настройках» действует на столе сразу
+let betStep: BetStep | null | undefined // undefined — ещё не читали
+const betStepListeners = new Set<() => void>()
+
+export function loadBetStepChoice(): BetStep | null {
+  if (betStep === undefined) betStep = parseBetStep(read(BET_STEP_KEY))
+  return betStep
+}
+
+export const loadBetStep = (): BetStep => loadBetStepChoice() ?? BET_STEP_DEFAULT
+
+export function saveBetStep(step: BetStep | null) {
+  betStep = step
+  write(BET_STEP_KEY, step ?? '')
+  for (const listener of betStepListeners) listener()
+}
+
+export function subscribeBetStep(listener: () => void): () => void {
+  betStepListeners.add(listener)
+  return () => betStepListeners.delete(listener)
 }
 
 // Размер стола и панели ставок на широком окне (Р-63): свой выбор этого устройства, в копию идёт.

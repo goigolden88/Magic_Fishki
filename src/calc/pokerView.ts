@@ -22,7 +22,8 @@ import {
   type Level,
 } from '../poker/tournament'
 import { formatNumber, formatTenths } from './format'
-import { QUICK_BETS_DEFAULT, quickRaises, type QuickBets } from './quickBets'
+import type { BetSpot } from './pokerLayout'
+import { PRE_RERAISE, QUICK_BETS_DEFAULT, quickRaises, type QuickBets } from './quickBets'
 
 const NBSP = ' '
 
@@ -97,6 +98,7 @@ export type RaiseView = {
   allIn: boolean // max — это олл-ин
   potLimit: number | null // пот-лимит (#80): «Не больше банка: N» — до этой ставки; без лимита — null
   quick: { label: string; to: number }[]
+  spot: BetSpot // для ползунка (Р-69): ставка круга, банк после колла, ББ, до флопа — быстрые суммы
 }
 
 // Кнопки хода. Не мой ход — те же кнопки, но неактивны (myTurn)
@@ -400,6 +402,13 @@ export function actionsView(table: TableState, meId: string, bets: QuickBets = Q
   const cap = potLimit(hand, seat)
   const max = cap !== null ? Math.min(stack, cap) : stack
   const pot = hand.seats.reduce((sum, s) => sum + s.committed, 0)
+  const preflop = hand.stage === 'preflop'
+  // Ползунок (Р-69): до флопа прилипает к суммам быстрых кнопок — своим «N ББ» или «×2,5», «×3» после чужого рейза
+  const pre = !preflop
+    ? []
+    : hand.currentBet > hand.bb
+      ? PRE_RERAISE.map((m) => Math.round((hand.currentBet * m) / 10))
+      : bets.pre.map((m) => Math.round((hand.bb * m) / 10))
   return {
     myTurn: index === hand.toAct,
     check: toCall === 0,
@@ -414,7 +423,7 @@ export function actionsView(table: TableState, meId: string, bets: QuickBets = Q
           // Быстрые суммы (Р-62): «Мин» и свои кнопки; олл-ин на экране — своей кнопкой
           quick: quickRaises(
             {
-              preflop: hand.stage === 'preflop',
+              preflop,
               currentBet: hand.currentBet,
               toCall,
               pot,
@@ -425,6 +434,7 @@ export function actionsView(table: TableState, meId: string, bets: QuickBets = Q
             },
             bets,
           ),
+          spot: { preflop, currentBet: hand.currentBet, pot: pot + toCall, bb: hand.bb, pre },
         }
       : null,
     allIn: stack <= hand.currentBet || (reopened && (cap === null || stack <= cap)) ? stack : null,

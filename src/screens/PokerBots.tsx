@@ -179,7 +179,6 @@ function BotTableCard(props: {
   const history = useMemo(() => bots.history.map((h) => handFor(h, bots.meId)), [bots.history, bots.meId])
   const mine = useMyCards(table, v.myCards)
   const copyWorks = useHandCopy(botsEvening(bots.id, table, bots.meId), history, mine)
-  const sb = table.hand?.sb ?? table.settings.sb
   // Мои фишки кончились — вместо «Начать раздачу» карточка «Докупиться» / «Закончить»
   const broke = iAmBroke(bots)
   const dock = broke ? 'none' : dockOf(v)
@@ -274,7 +273,6 @@ function BotTableCard(props: {
           <ActionsCard
             key={`${v.handNumber}-${v.stage}-${table.hand?.log.length ?? 0}-${v.actions.raise?.min ?? ''}`}
             actions={v.actions}
-            sb={sb}
             bb={v.bb}
             who={null}
             online
