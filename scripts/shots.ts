@@ -273,6 +273,8 @@ async function scenario(cdp: Cdp, size: Size): Promise<void> {
   await screen('Против ботов', size, async () => {
     await d.click('Против ботов')
     await d.waitText('Карты ботов открыты')
+    await d.waitText('После паса — сразу доигрывать')
+    await d.shot('03a-protiv-botov-forma')
     await d.click('Начать')
     await d.waitText('Стол с ботами')
     await myTurn(d)
@@ -284,6 +286,12 @@ async function scenario(cdp: Cdp, size: Size): Promise<void> {
     await d.shot('03b-protiv-botov-bb', false)
     await tapMyName(d)
     await d.waitText('Суммы в фишках')
+    // Пас — боты играют дальше: внизу «Доиграть сразу» (#194); нажал — сразу итог раздачи
+    await foldUntilPlayOn(d)
+    await d.shot('03c-protiv-botov-doigrat', false)
+    await d.click('Доиграть сразу')
+    await d.waitText('Новая раздача через') // раздача кончилась — отсчёт до следующей («Быстро» в форме сначала)
+    await d.shot('03d-protiv-botov-itog', false)
   })
 
   // Стол на одном телефоне на 10 мест — самый тесный стол: места не наезжают на панель хода
@@ -378,6 +386,19 @@ async function myTurn(d: Device): Promise<void> {
     await sleep(200)
   }
   throw new Error(`за ${BOTS_TIMEOUT / 1000} с не дошла очередь хода — панели хода нет`)
+}
+
+// Против ботов: в свой ход — «Пас», пока после него раздача не пойдёт дальше между ботами («Доиграть сразу»);
+// остался один бот — раздача кончилась, ждать следующей очереди
+async function foldUntilPlayOn(d: Device): Promise<void> {
+  const started = Date.now()
+  while (Date.now() - started < BOTS_TIMEOUT) {
+    await myTurn(d)
+    await d.click('Пас')
+    await sleep(300)
+    if (await d.eval<boolean>(`[...document.querySelectorAll('button')].some((b) => b.innerText.trim() === 'Доиграть сразу')`)) return
+  }
+  throw new Error(`за ${BOTS_TIMEOUT / 1000} с после паса раздача ни разу не пошла дальше — нет «Доиграть сразу»`)
 }
 
 // Коснуться своего имени у места за столом (Р-64): суммы ББ ↔ фишки
