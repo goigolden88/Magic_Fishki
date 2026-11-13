@@ -4,16 +4,19 @@ import { botsEvening } from '../calc/evenings'
 import { NO_COPY, useHandCopy, useMyCards } from './handCopy'
 import {
   autoDealBotHand,
+  autoFinishNow,
   BOT_PAUSE_MS,
   botAutoStart,
   botGameLine,
   botGameOf,
   botNextHandAt,
   botPause,
+  botsPlayOn,
   botStep,
   botTableView,
   botToAct,
   dealBotHand,
+  finishBotHand,
   iAmBroke,
   myMove,
   myRebuy,
@@ -77,11 +80,18 @@ export function PokerBotsScreen() {
     return true
   }
 
-  // Очередь бота — он ходит сам через паузу. Метка — раздача и число ходов в ней: новый ход — новый таймер
+  // Очередь бота — он ходит сам через паузу. Метка — раздача и число ходов в ней: новый ход — новый таймер.
+  // «После паса — сразу доигрывать» (#194) и я сбросил — раздача доигрывается сразу, без пауз
   const hand = bots?.table.hand
   const mark = bots && hand && botToAct(bots) ? `${hand.number}-${hand.log.length}` : null
   useEffect(() => {
     if (!mark) return
+    const bt = latest.current
+    if (!bt || !botToAct(bt)) return
+    if (autoFinishNow(bt)) {
+      apply((b, now) => finishBotHand(b, now, Math.random))
+      return
+    }
     const id = setTimeout(() => apply((bt, now) => botStep(bt, now, Math.random)), BOT_PAUSE_MS)
     return () => clearTimeout(id)
   }, [mark])
@@ -176,6 +186,8 @@ function BotTableCard(props: {
   // «Перерыв» / «Продолжить» — у стола с раздачей «сама» (#156); кнопкой — как раньше, без него
   const auto = botAutoStart(bots) !== 'off'
   const pause = () => apply((bt, now) => botPause(bt, !v.paused, now))
+  // Флажок «После паса — сразу доигрывать» включён — доигрывает экран сам, кнопки нет
+  const playOn = botsPlayOn(bots) && !bots.autoFinish
 
   // Колонка (#97): стол — на весь первый экран, под ним листается остальное, панель хода — внизу.
   // Широкое окно (Р-63): стол и панель — целиком в окне, панель — справа внизу; под ними листается страница
@@ -223,6 +235,7 @@ function BotTableCard(props: {
               Ботов: {botCount} · уровень «{level}» · карты ботов {bots.open ? 'открыты' : 'закрыты'}.{' '}
               {botGameLine(botGameOf(bots))}. Кончились фишки у бота — он докупается сам.
               {auto && ' Следующая раздача начинается сама.'}
+              {bots.autoFinish && ' После паса раздача доигрывается сразу.'}
             </p>
             {/* В раздаче «Перерыв» — здесь: она доигрывается, новая сама не начнётся; между раздачами — внизу экрана */}
             {auto && table.hand && (
@@ -256,7 +269,15 @@ function BotTableCard(props: {
             onAct={(body) => apply((bt, now) => myMove(bt, body.action, now))}
           />
         )}
-        {dock === 'wait' && <p className="dock wait-strip">{waitLine(v)}</p>}
+        {/* Я сбросил, а боты играют дальше — «Доиграть сразу» вместо «Ждём хода» (#194) */}
+        {dock === 'wait' && playOn && (
+          <section className="dock">
+            <button type="button" className="big primary wide" onClick={() => apply((bt, now) => finishBotHand(bt, now, Math.random))}>
+              Доиграть сразу
+            </button>
+          </section>
+        )}
+        {dock === 'wait' && !playOn && <p className="dock wait-strip">{waitLine(v)}</p>}
         {dock === 'host' && (
           <HostDock view={v} pause={auto} onStart={() => apply((bt, now) => dealBotHand(bt, now))} onPause={pause} />
         )}
