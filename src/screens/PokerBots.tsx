@@ -15,21 +15,23 @@ import {
   botStep,
   botTableView,
   botToAct,
+  canTopUpAll,
   dealBotHand,
   finishBotHand,
   iAmBroke,
   myMove,
   myRebuy,
   resumeBotTable,
+  topUpAll,
   type BotStep,
   type BotTable,
 } from '../calc/botTable'
-import { formatNumber } from '../calc/format'
+import { formatNumber, stackText } from '../calc/format'
 import { dockOf, waitLine } from '../calc/pokerLayout'
 import { lookClass } from '../calc/pokerLook'
 import { handFor } from '../poker/history'
 import { NO_STORAGE } from './PokerLocal'
-import { ActionsCard, blindsLine, HandHistory, HostDock, LastHand, PokerTable, PotList } from './PokerRoom'
+import { ActionsCard, blindsLine, HandHistory, HostDock, LastHand, PokerTable, PotList, useBigBlinds } from './PokerRoom'
 import {
   clearBotTable,
   loadBotTable,
@@ -188,6 +190,15 @@ function BotTableCard(props: {
   const pause = () => apply((bt, now) => botPause(bt, !v.paused, now))
   // Флажок «После паса — сразу доигрывать» включён — доигрывает экран сам, кнопки нет
   const playOn = botsPlayOn(bots) && !bots.autoFinish
+  // «Докупить всех до N» (#195): раздачи нет, у кого-то меньше стартового стека; N — в ББ или фишками,
+  // как суммы за столом. Внизу экрана, над кнопками ведущего; мои фишки кончились — в карточке докупа
+  const inBB = useBigBlinds()
+  const topUp = canTopUpAll(bots)
+  const topUpButton = (
+    <button type="button" className="big wide" onClick={() => apply((bt, now) => topUpAll(bt, now))}>
+      Докупить всех до {stackText(table.settings.startingStack, inBB ? v.bb : null)}
+    </button>
+  )
 
   // Колонка (#97): стол — на весь первый экран, под ним листается остальное, панель хода — внизу.
   // Широкое окно (Р-63): стол и панель — целиком в окне, панель — справа внизу; под ними листается страница
@@ -210,6 +221,7 @@ function BotTableCard(props: {
               <button type="button" className="big primary wide" onClick={() => apply((bt, now) => myRebuy(bt, now))}>
                 Докупиться на {formatNumber(table.settings.startingStack)}
               </button>
+              {topUp && topUpButton}
               <button type="button" className="big wide danger-text" onClick={onFinish}>
                 Закончить
               </button>
@@ -278,6 +290,7 @@ function BotTableCard(props: {
           </section>
         )}
         {dock === 'wait' && !playOn && <p className="dock wait-strip">{waitLine(v)}</p>}
+        {dock === 'host' && topUp && <section className="dock">{topUpButton}</section>}
         {dock === 'host' && (
           <HostDock view={v} pause={auto} onStart={() => apply((bt, now) => dealBotHand(bt, now))} onPause={pause} />
         )}

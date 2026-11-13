@@ -14,6 +14,7 @@ import {
   botNextHandAt,
   botPause,
   botsPlayOn,
+  canTopUpAll,
   finishBotHand,
   resumeBotTable,
   botGameOf,
@@ -27,6 +28,7 @@ import {
   myRebuy,
   parseBotTable,
   startBotTable,
+  topUpAll,
   type BotForm,
   type BotStep,
   type BotTable,
@@ -523,5 +525,71 @@ describe('стол против ботов: доиграть сразу', () => 
     expect(botTableView(done, 2000).paused).toBe(true)
     expect(botNextHandAt(done)).toBeNull()
     expect(botNextHandAt(ok(botPause(done, false, 5000)))).toBe(5000 + AUTO_START_MS.fast)
+  })
+})
+
+// «Докупить всех до стартового стека» (#195)
+describe('стол против ботов: докупить всех до стартового стека', () => {
+  // Стол между раздачами со стеками chips по местам
+  function withChips(bt: BotTable, chips: number[]): BotTable {
+    return { ...bt, table: { ...bt.table, players: bt.table.players.map((p, i) => ({ ...p, chips: chips[i] })) } }
+  }
+  function played(form: Partial<BotForm>, seed: number): BotTable {
+    let t = ok(dealBotHand(start(form), 0, bytesOf(seededRandom(seed))))
+    for (let moves = 0; t.table.hand; moves++) {
+      if (moves > 200) throw new Error('раздача не кончается')
+      t = play(t, seededRandom(seed + moves))
+    }
+    return t
+  }
+
+  it('у кого меньше — ровно до стартового стека, мне тоже; у кого столько и больше — как был; докуп — обычный', () => {
+    const bt = withChips(start({ bots: 3 }), [400, 1000, 1500, 0])
+    expect(canTopUpAll(bt)).toBe(true)
+    const before = bt.table.chipLog.length
+    const done = ok(topUpAll(bt, 7000))
+    expect(done.table.players.map((p) => p.chips)).toEqual([1000, 1000, 1500, 1000])
+    expect(done.table.players.map((p, i) => p.buyIn - bt.table.players[i].buyIn)).toEqual([600, 0, 0, 1000])
+    const [me, , , last] = bt.table.players
+    expect(done.table.chipLog.slice(before)).toEqual([
+      { kind: 'rebuy', playerId: me.id, by: bt.meId, from: 400, to: 1000, at: 7000 },
+      { kind: 'rebuy', playerId: last.id, by: bt.meId, from: 0, to: 1000, at: 7000 },
+    ])
+    expect(iAmBroke(done)).toBe(false)
+    // Докупать больше некого — кнопки нет
+    expect(canTopUpAll(done)).toBe(false)
+    expect(topUpAll(done, 8000)).toEqual({ ok: false, error: 'У всех уже стартовый стек или больше' })
+  })
+
+  it('у всех стартовый стек и больше или идёт раздача — нельзя, стол как был', () => {
+    expect(canTopUpAll(start())).toBe(false)
+    expect(canTopUpAll(withChips(start({ bots: 2 }), [1000, 1200, 3000]))).toBe(false)
+    let dealing = ok(dealBotHand(start({ bots: 2 }), 0, bytesOf(seededRandom(9))))
+    dealing = { ...dealing, table: { ...dealing.table, players: dealing.table.players.map((p, i) => (i === 1 ? { ...p, chips: 10 } : p)) } }
+    expect(canTopUpAll(dealing)).toBe(false)
+    expect(topUpAll(dealing, 0)).toEqual({ ok: false, error: 'Докупить всех — между раздачами' })
+  })
+
+  it('на отсчёте — отсчёт как шёл; в «Перерыве» — перерыв остаётся; мои фишки кончились — после докупа снова сами', () => {
+    const FAST = AUTO_START_MS.fast
+    const t = played({ bots: 2, autoStart: 'fast' }, 31)
+    expect(botNextHandAt(t)).toBe(FAST)
+    const short = withChips(t, [500, 2000, 300])
+    const counted = ok(topUpAll(short, 1000))
+    expect(counted.table.players.map((p) => p.chips)).toEqual([1000, 2000, 1000])
+    expect(botNextHandAt(counted)).toBe(FAST)
+    // В «Перерыве»
+    const paused = ok(topUpAll(ok(botPause(short, true, 1000)), 2000))
+    expect(botTableView(paused, 2000).paused).toBe(true)
+    expect(botNextHandAt(paused)).toBeNull()
+    expect(paused.table.players.map((p) => p.chips)).toEqual([1000, 2000, 1000])
+    // У меня ноль: раздача сама снята; докуп всех — снова через полную паузу, раздача идёт
+    const broke = ok(botPause(ok(botPause(withChips(t, [0, 2500, 500]), true, 3000)), false, 3000))
+    expect(iAmBroke(broke)).toBe(true)
+    expect(botNextHandAt(broke)).toBeNull()
+    const back = ok(topUpAll(broke, 4000))
+    expect(back.table.players.map((p) => p.chips)).toEqual([1000, 2500, 1000])
+    expect(botNextHandAt(back)).toBe(4000 + FAST)
+    expect(ok(autoDealBotHand(back, 4000 + FAST, bytesOf(seededRandom(32)))).table.hand).not.toBeNull()
   })
 })
