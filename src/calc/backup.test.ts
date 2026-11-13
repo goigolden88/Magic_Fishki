@@ -76,7 +76,7 @@ describe('файл-копия: сохранение (Р-11)', () => {
     expect(backup.hands).toEqual([])
     expect(backup.notes).toEqual({})
     expect(backup.noteLabels).toEqual({})
-    expect(backup.look).toEqual({ felt: null, cardBack: null, deck: 'two' })
+    expect(backup.look).toEqual({ felt: null, cardBack: null, deck: null })
     expect(backup.games.map((g) => g.id)).toEqual(['g1', 'g2'])
     expect(backup.games[0]).toEqual(real)
     expect(backup.settings).toEqual(SETTINGS)
@@ -351,18 +351,29 @@ describe('файл-копия формата 5: вид стола', () => {
     expect(parse(text)).toEqual({ ok: true, backup })
   })
 
-  it('копия формата 4 (без вида) читается как раньше — «Как у стола», две масти цветом', () => {
+  it('копия формата 4 (без вида) читается как раньше — «Как у стола», колода не выбрана', () => {
     const { look: _l, ...old } = makeBackup([game('g1')], SETTINGS, NOW, [], {}, {}, LOOK)
     const parsed = parse(JSON.stringify({ ...old, format: 4 }))
     expect(parsed).toEqual({ ok: true, backup: backupOf([game('g1')]) })
+    expect(parsed.ok && parsed.backup.look.deck).toBeNull()
   })
 
-  it('формат 5: вида нет или значение не из готовых — «Как у стола», копия читается', () => {
+  it('формат 5: вида нет или значение не из готовых — «Как у стола», колода не выбрана, копия читается', () => {
     const { look: _l, ...noLook } = backupOf([])
     const parsed = parse(JSON.stringify(noLook))
-    expect(parsed.ok && parsed.backup.look).toEqual({ felt: null, cardBack: null, deck: 'two' })
+    expect(parsed.ok && parsed.backup.look).toEqual({ felt: null, cardBack: null, deck: null })
     const odd = parse(JSON.stringify({ ...backupOf([]), look: { felt: 'pink', cardBack: 'dark', deck: 'six' } }))
-    expect(odd.ok && odd.backup.look).toEqual({ felt: null, cardBack: 'dark', deck: 'two' })
+    expect(odd.ok && odd.backup.look).toEqual({ felt: null, cardBack: 'dark', deck: null })
+  })
+
+  it('колода не выбрана — в копии null и читается обратно так же; «две масти» — как записаны (#192)', () => {
+    const none = makeBackup([], SETTINGS, NOW)
+    expect(JSON.parse(backupText(none)).look.deck).toBeNull()
+    expect(parse(backupText(none))).toEqual({ ok: true, backup: none })
+    const two = makeBackup([], SETTINGS, NOW, [], {}, {}, { felt: null, cardBack: null, deck: 'two' })
+    const parsed = parse(backupText(two))
+    expect(parsed.ok && parsed.backup.look.deck).toBe('two')
+    expect(parsed.ok && parsed.backup.format).toBe(6)
   })
 })
 

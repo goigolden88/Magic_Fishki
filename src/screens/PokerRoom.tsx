@@ -55,7 +55,7 @@ import { mixView, type MixView } from '../calc/pokerMix'
 import { runView, type RunView } from '../calc/pokerRuns'
 import { runsText } from '../calc/quickRoom'
 import { gameFromTable, gameFromTournament } from '../calc/pokerGame'
-import { lookClass, lookOf, suitClass } from '../calc/pokerLook'
+import { deckOf, lookClass, lookOf, suitClass } from '../calc/pokerLook'
 import { timerSettings, turnSecondsOf } from '../calc/pokerTimer'
 import { levelText, prizesOf } from '../calc/tournamentForm'
 import { formatDate, today } from '../dates'
@@ -837,11 +837,11 @@ export function HandHistory(props: {
 type CardSize = 'small' | 'mid' | 'big'
 
 // fly — ключ карты для анимации раздачи (#133, cardFly): группа и номер в ней; без него карта не летает.
-// Цвет масти — по колоде из личного «Вида стола» (Р-61): две масти цветом или четыре цвета
+// Цвет масти — по колоде из личного «Вида стола» (Р-61): две масти цветом или четыре цвета; не выбрана — четыре (#192)
 export function PlayingCard(props: { card: Card | null; size?: CardSize; mark?: 'win' | 'dim'; fly?: string }) {
   const { card, size, mark, fly } = props
   const f = card === null ? null : cardFace(card)
-  const color = card === null ? '' : suitClass(card, loadMyLook().deck)
+  const color = card === null ? '' : suitClass(card, deckOf(loadMyLook()))
   const cls = ['playing-card', size, !f && 'back', color, mark].filter(Boolean).join(' ')
   if (!f) return <span className={cls} data-fly={fly} aria-label="карта рубашкой" />
   return (

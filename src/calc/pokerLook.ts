@@ -24,13 +24,20 @@ export function lookOf(settings: Partial<Settings>): Look {
 
 // Личный «Вид стола» (Р-61, #170): выбор этого телефона поверх выбора ведущего — сукно, рубашка и колода.
 // Новые сукна и рубашки — только здесь: ведущему остаются прежние четыре, их проверяет сервер.
-// null — «Как у стола» (выбор ведущего); колода — «Две масти цветом» или «Четыре цвета»
+// null — «Как у стола» (выбор ведущего); колода — «Две масти цветом» или «Четыре цвета»,
+// null у колоды — не выбрана на этом телефоне: четыре цвета (#192), а восстановление из копии может её дописать
 export type MyFelt = Felt | 'navy' | 'black'
 export type MyBack = CardBack | 'chip' | 'dark'
 export type Deck = 'two' | 'four'
-export type MyLook = { felt: MyFelt | null; cardBack: MyBack | null; deck: Deck }
+export type MyLook = { felt: MyFelt | null; cardBack: MyBack | null; deck: Deck | null }
 
-export const MY_LOOK_DEFAULT: MyLook = { felt: null, cardBack: null, deck: 'two' }
+export const MY_LOOK_DEFAULT: MyLook = { felt: null, cardBack: null, deck: null }
+export const DECK_DEFAULT: Deck = 'four'
+
+// Колода, которой рисуются карты: своя или, если не выбрана, по умолчанию
+export function deckOf(mine: MyLook): Deck {
+  return mine.deck ?? DECK_DEFAULT
+}
 
 export const MY_FELT_LABELS: [MyFelt, string][] = [
   ...FELT_LABELS,
@@ -53,18 +60,20 @@ function oneOf<T extends string>(labels: [T, string][], v: unknown): T | null {
   return labels.some(([id]) => id === v) ? (v as T) : null
 }
 
-// Из памяти телефона или копии: не из готовых или нет поля — «Как у стола» и две масти цветом
+// Из памяти телефона или копии: не из готовых или нет поля — «Как у стола» и колода не выбрана.
+// Записанная колода остаётся как есть: прежние версии писали её всегда, «две масти» в записи — две масти
 export function parseMyLook(raw: unknown): MyLook {
   const o = typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
   return {
     felt: oneOf(MY_FELT_LABELS, o.felt),
     cardBack: oneOf(MY_BACK_LABELS, o.cardBack),
-    deck: oneOf(DECK_LABELS, o.deck) ?? 'two',
+    deck: oneOf(DECK_LABELS, o.deck),
   }
 }
 
+// Ничего не выбрано — записи в памяти телефона нет; выбранная колода, и «две масти» тоже, — запись есть
 export function isDefaultLook(mine: MyLook): boolean {
-  return mine.felt === null && mine.cardBack === null && mine.deck === 'two'
+  return mine.felt === null && mine.cardBack === null && mine.deck === null
 }
 
 // Восстановление из копии: выбор копии — там, где на этом телефоне ничего не выбрано; свой — не перезаписывается
@@ -72,7 +81,7 @@ export function mergeMyLook(local: MyLook, backup: MyLook): MyLook {
   return {
     felt: local.felt ?? backup.felt,
     cardBack: local.cardBack ?? backup.cardBack,
-    deck: local.deck === 'two' ? backup.deck : local.deck,
+    deck: local.deck ?? backup.deck,
   }
 }
 

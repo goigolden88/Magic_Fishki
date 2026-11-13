@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { hostDo, parseLocalTable, startLocalTable } from '../calc/localTable'
 import {
   DECK_LABELS,
+  deckOf,
+  isDefaultLook,
   lookClass,
   lookOf,
   mergeMyLook,
@@ -112,16 +114,41 @@ describe('личный вид стола (Р-61)', () => {
     expect(['As', 'Kh', 'Qd', 'Jc'].map((c) => suitClass(c, 'four'))).toEqual(['suit-s', 'suit-h', 'suit-d', 'suit-c'])
   })
 
-  it('из памяти: не из готовых, не объект или нет поля — «Как у стола» и две масти', () => {
+  it('из памяти: не из готовых, не объект или нет поля — «Как у стола» и колода не выбрана', () => {
     expect(parseMyLook(null)).toEqual(MY_LOOK_DEFAULT)
     expect(parseMyLook([1])).toEqual(MY_LOOK_DEFAULT)
     expect(parseMyLook({ felt: 'black', cardBack: 'toString', deck: 'four' })).toEqual({ felt: 'black', cardBack: null, deck: 'four' })
+    expect(parseMyLook({ felt: 'black', deck: 'six' }).deck).toBeNull()
+  })
+
+  it('колода по умолчанию — четыре цвета; записанная — как в записи (#192)', () => {
+    expect(MY_LOOK_DEFAULT.deck).toBeNull()
+    expect(deckOf(MY_LOOK_DEFAULT)).toBe('four')
+    expect(deckOf(parseMyLook({ felt: 'navy' }))).toBe('four')
+    expect(deckOf(parseMyLook({ felt: null, cardBack: null, deck: 'two' }))).toBe('two')
+    expect(deckOf(parseMyLook({ deck: 'four' }))).toBe('four')
+  })
+
+  it('«ничего не выбрано» — только без своей колоды: выбор «две масти» сам по себе запоминается', () => {
+    expect(isDefaultLook(MY_LOOK_DEFAULT)).toBe(true)
+    expect(isDefaultLook({ ...MY_LOOK_DEFAULT, deck: 'two' })).toBe(false)
+    expect(isDefaultLook({ ...MY_LOOK_DEFAULT, deck: 'four' })).toBe(false)
+    expect(isDefaultLook({ ...MY_LOOK_DEFAULT, felt: 'black' })).toBe(false)
+    const saved = JSON.parse(JSON.stringify({ ...MY_LOOK_DEFAULT, deck: 'two' }))
+    expect(parseMyLook(saved)).toEqual({ felt: null, cardBack: null, deck: 'two' })
   })
 
   it('восстановление: из копии — что здесь не выбрано; свой выбор остаётся', () => {
     const backup = { felt: 'navy' as const, cardBack: 'chip' as const, deck: 'four' as const }
     expect(mergeMyLook(MY_LOOK_DEFAULT, backup)).toEqual(backup)
-    expect(mergeMyLook({ felt: 'green', cardBack: null, deck: 'two' }, backup)).toEqual({ felt: 'green', cardBack: 'chip', deck: 'four' })
+    expect(mergeMyLook({ felt: 'green', cardBack: null, deck: null }, backup)).toEqual({ felt: 'green', cardBack: 'chip', deck: 'four' })
     expect(mergeMyLook(backup, MY_LOOK_DEFAULT)).toEqual(backup)
+  })
+
+  it('восстановление: свои «две масти» копия не затирает; копия без колоды не выбирает её здесь', () => {
+    const backup = { felt: null, cardBack: null, deck: 'four' as const }
+    expect(mergeMyLook({ ...MY_LOOK_DEFAULT, deck: 'two' }, backup).deck).toBe('two')
+    expect(mergeMyLook(MY_LOOK_DEFAULT, { ...MY_LOOK_DEFAULT, deck: 'two' }).deck).toBe('two')
+    expect(mergeMyLook(MY_LOOK_DEFAULT, MY_LOOK_DEFAULT).deck).toBeNull()
   })
 })
