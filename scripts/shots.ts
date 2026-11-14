@@ -97,6 +97,10 @@ function contrastProbe(): Low[] {
     const i = stack.findIndex((s) => s === el || s.contains(el))
     if (i < 0) return null
     const layers = stack.slice(i).reverse()
+    // Сквозь касания (pointer-events: none — подсказка поверх стола) под точкой нет: el и его предки до найденного
+    const missed: Element[] = []
+    for (let x: Element | null = el; x && x !== stack[i]; x = x.parentElement) missed.unshift(x)
+    layers.push(...missed)
     if (!self && layers[layers.length - 1] === el) layers.pop()
     let all: Rgb[] = [[255, 255, 255]]
     for (const layer of layers) {
