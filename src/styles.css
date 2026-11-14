@@ -1657,6 +1657,11 @@ textarea.note-input {
   vertical-align: middle;
 }
 
+/* «Лицо карт» (#219): «Классическое» — длинное слово, ячейка шире обычной, чтобы оно вошло в кнопку целиком */
+.amounts.face-pick {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 9rem), 1fr));
+}
+
 /* Образец колоды в «Виде стола» (Р-61): по карте каждой масти */
 .deck-sample {
   gap: 0.3rem;

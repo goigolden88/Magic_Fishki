@@ -937,7 +937,7 @@ function MyLookCard({ look, onChange }: { look: MyLook; onChange: (look: MyLook)
           </fieldset>
           <fieldset className="players-pick">
             <legend className="muted">Лицо карт</legend>
-            <div className="amounts">
+            <div className="amounts face-pick">
               {FACE_LABELS.map(([face, label]) => (
                 <LookChoice key={face} on={faceOf(look) === face} onPick={() => update({ face })}>
                   {label}
