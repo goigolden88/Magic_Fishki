@@ -150,6 +150,37 @@ describe('стол на этом телефоне в памяти устройс
     })
   })
 
+  it('«Продолжить» (#209): последняя открытая игра; стирается со своим столом, чужой стол её не трогает', async () => {
+    const storage = fakeStorage()
+    vi.stubGlobal('localStorage', storage)
+    let s = await reload()
+    expect(s.loadLastGame()).toBeNull()
+
+    s.saveLastGame('bots')
+    s = await reload()
+    expect(s.loadLastGame()?.kind).toBe('bots')
+    s.clearLocalTable() // другой стол — запись про ботов остаётся
+    expect(s.loadLastGame()?.kind).toBe('bots')
+    s.clearBotTable()
+    expect(s.loadLastGame()).toBeNull()
+
+    s.saveLastGame('local')
+    s.clearLocalTable()
+    expect(s.loadLastGame()).toBeNull()
+
+    s.saveSeat('KQ7MZP', { playerId: 'id1', token: 'tok' })
+    s.saveLastGame('room', 'KQ7MZP', 'https://poker.example.dev')
+    s = await reload()
+    expect(s.loadLastGame()).toMatchObject({ kind: 'room', code: 'KQ7MZP', server: 'https://poker.example.dev' })
+    s.saveSeat('AB12CD', null) // вышли из другой комнаты
+    expect(s.loadLastGame()?.code).toBe('KQ7MZP')
+    s.saveSeat('KQ7MZP', { playerId: 'id1', token: 'tok2' }) // пересадили — место есть, запись та же
+    expect(s.loadLastGame()?.code).toBe('KQ7MZP')
+    s.saveSeat('KQ7MZP', null)
+    expect(s.loadLastGame()).toBeNull()
+    expect(storage.data.has('fishki.poker.last')).toBe(false)
+  })
+
   it('заметки об игроках (Р-56): помнятся после перезапуска, подписчик узнаёт о правке; пустые — следов нет', async () => {
     const storage = fakeStorage()
     vi.stubGlobal('localStorage', storage)

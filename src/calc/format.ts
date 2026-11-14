@@ -71,6 +71,23 @@ export function pluralForm(n: number, one: string, few: string, many: string): s
   return abs % 10 >= 2 && abs % 10 <= 4 ? few : many
 }
 
+// Дней между двумя днями YYYY-MM-DD, по календарю
+export function daysBetween(from: string, to: string): number {
+  const utc = (d: string) => {
+    const [y, m, day] = d.split('-').map(Number)
+    return Date.UTC(y, m - 1, day)
+  }
+  return Math.round((utc(to) - utc(from)) / 86_400_000)
+}
+
+// Когда был день from, если сегодня to: «сегодня», «вчера», «3 дня назад», «21 день назад»; будущее — «сегодня»
+export function daysAgoText(from: string, to: string): string {
+  const days = Math.max(0, daysBetween(from, to))
+  if (days === 0) return 'сегодня'
+  if (days === 1) return 'вчера'
+  return `${days} ${pluralForm(days, 'день', 'дня', 'дней')} назад`
+}
+
 // Строка «сходится ли игра» — число с основанием
 export function balanceText(b: Balance): string {
   if (b.chipsIn === 0 && b.chipsOut === 0) return 'Записей пока нет'

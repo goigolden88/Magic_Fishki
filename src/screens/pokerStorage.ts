@@ -1,4 +1,5 @@
 import { parseBotTable, type BotTable } from '../calc/botTable'
+import { isLastGame, parseLastGame, type LastGame, type LastGameKind } from '../calc/lastGame'
 import { parseLocalTable, type LocalTable } from '../calc/localTable'
 import { serverBase, type SavedSeat } from '../calc/pokerLink'
 import { parseLabels, parseNotes, type NoteLabels, type PlayerNotes } from '../calc/playerNotes'
@@ -10,7 +11,8 @@ import { parseDockSize, parseTableSize, tableFitVars, type DockSize } from '../c
 import type { CSSProperties } from 'react'
 
 // Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги,
-// звук «ваш ход», «карты всегда открыты», «анимация карт», стол на этом телефоне и стол против ботов — данные этого устройства,
+// звук «ваш ход», «карты всегда открыты», «анимация карт», стол на этом телефоне и стол против ботов,
+// последняя открытая игра для «Продолжить» (#209) — данные этого устройства,
 // а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21, Р-38).
 // Заметки об игроках и подписи их цветов (Р-56), личный «Вид стола» (Р-61), своя «Быстрая комната», показ в ББ
 // и быстрые ставки (Р-62), размер стола и панели ставок (Р-63), шаг колеса и «−»/«+» (Р-69) — тоже в localStorage, но в копию идут
@@ -34,6 +36,7 @@ const BETS_KEY = 'fishki.poker.quickBets'
 const TABLE_SIZE_KEY = 'fishki.poker.tableSize'
 const DOCK_SIZE_KEY = 'fishki.poker.dockSize'
 const BET_STEP_KEY = 'fishki.poker.betStep'
+const LAST_KEY = 'fishki.poker.last'
 
 function read(key: string): string {
   try {
@@ -114,6 +117,22 @@ export function saveSeat(code: string, seat: SavedSeat | null) {
   if (seat) seats[code] = seat
   else delete seats[code]
   write(SEATS_KEY, Object.keys(seats).length ? JSON.stringify(seats) : '')
+  if (!seat) forgetLastGame('room', code)
+}
+
+// Последняя открытая незаконченная игра (#209) — полоса «Продолжить» на «Играть»: пишется при открытии стола,
+// стирается вместе со столом («Закончить», «Удалить стол», выход из комнаты), если запись про него
+export function loadLastGame(): LastGame | null {
+  return parseStored(LAST_KEY, parseLastGame)
+}
+
+export function saveLastGame(kind: LastGameKind, code?: string, server?: string) {
+  const game: LastGame = kind === 'room' && code ? { kind, at: Date.now(), code, ...(server ? { server } : {}) } : { kind, at: Date.now() }
+  write(LAST_KEY, JSON.stringify(game))
+}
+
+function forgetLastGame(kind: LastGameKind, code?: string) {
+  if (isLastGame(loadLastGame(), kind, code)) write(LAST_KEY, '')
 }
 
 // Итог какого стола уже записан игрой: «код/место» → id игры. Повторное «Закончить игру»
@@ -164,6 +183,7 @@ export function saveLocalTable(local: LocalTable): boolean {
 export function clearLocalTable() {
   localTable = null
   write(LOCAL_KEY, '')
+  forgetLastGame('local')
 }
 
 // Стол против ботов (#117, Р-38): свой ключ — со «Столом на этом телефоне» не мешают друг другу.
@@ -189,6 +209,7 @@ export function saveBotTable(bots: BotTable): boolean {
 export function clearBotTable() {
   botTable = null
   write(BOTS_KEY, '')
+  forgetLastGame('bots')
 }
 
 // Заметки об игроках и подписи цветов (Р-56): копия — в памяти страницы, экраны подписаны на перемены —

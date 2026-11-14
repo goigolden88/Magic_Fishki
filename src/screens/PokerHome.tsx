@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { BOT_LEVELS, type BotLevel } from '../calc/bot'
 import {
   BOT_AUTO_START_DEFAULT,
@@ -13,7 +13,8 @@ import {
 } from '../calc/botTable'
 import { eveningDay, eveningLine, type EveningSummary } from '../calc/evenings'
 import { parseChips } from '../calc/format'
-import { localStartError, startLocalTable } from '../calc/localTable'
+import { lastGameText } from '../calc/lastGame'
+import { LOCAL_MAX_SEATS, localStartError, startLocalTable } from '../calc/localTable'
 import { allPicked, toggleAll } from '../calc/pick'
 import { createFailure, DEFAULT_SERVER, NO_CONNECTION, parseRoomLink, roomHash, roomsUrl, serverBase } from '../calc/pokerLink'
 import { lookOf } from '../calc/pokerLook'
@@ -47,10 +48,12 @@ import {
   clearBotTable,
   clearLocalTable,
   loadBotTable,
+  loadLastGame,
   loadLocalTable,
   loadMe,
   loadPassword,
   loadQuickRoom,
+  loadSeat,
   loadSeats,
   loadServer,
   saveBotTable,
@@ -145,8 +148,10 @@ export function PokerHomeScreen() {
     location.hash = roomHash(link.code, undefined, link.server)
   }
 
+  const last = continueOf()
+
   return (
-    <main className="screen">
+    <main className="screen poker-home">
       <header className="bar">
         <a className="bar-link" href="#/">
           ← Игры
@@ -156,31 +161,22 @@ export function PokerHomeScreen() {
         </a>
       </header>
       <h1>Играть</h1>
-      <p className="muted">Комната по ссылке для всех телефонов, стол на одном телефоне, игра против ботов или казино.</p>
 
-      {bots && (
-        <section className="card">
-          <h2>Игра против ботов идёт</h2>
-          <a className="big primary wide button-link" href={BOTS_HASH}>
+      {/* #209: последняя открытая незаконченная игра — вернуться одним касанием */}
+      {last && (
+        <section className="continue-strip" aria-label="Последняя игра">
+          <div className="continue-text">
+            <p className="continue-kicker">Последняя игра</p>
+            <p className="continue-title">{last.title}</p>
+            <p className="continue-line">{last.line}</p>
+          </div>
+          <a className="big button-link continue-go" href={last.href}>
             Продолжить
           </a>
-          <button type="button" className="big wide danger-text" onClick={removeBots}>
-            Закончить
-          </button>
         </section>
       )}
 
-      {local && (
-        <section className="card">
-          <h2>Стол на этом телефоне идёт</h2>
-          <a className="big primary wide button-link" href={LOCAL_HASH}>
-            Продолжить стол
-          </a>
-          <button type="button" className="big wide danger-text" onClick={removeLocal}>
-            Удалить стол
-          </button>
-        </section>
-      )}
+      <p className="muted lead">Комната по ссылке для всех телефонов, стол на одном телефоне, игра против ботов или казино.</p>
 
       {creating === 'room' ? (
         <NewRoomCard first={firstTime} onCancel={() => setCreating(null)} />
@@ -191,38 +187,73 @@ export function PokerHomeScreen() {
       ) : creating === 'casino' ? (
         <CasinoPickCard onCancel={() => setCreating(null)} />
       ) : (
-        <>
-          <div className="row">
-            <button
-              type="button"
-              className="big primary grow"
-              disabled={!quick || quickBusy}
-              onClick={() => void quickRoom()}
-            >
-              {quickBusy ? 'Создаём…' : 'Быстрая комната'}
-            </button>
-            <button type="button" className="big" onClick={() => openForm(false)}>
-              Настроить…
-            </button>
-          </div>
-          {quick && <p className="muted">{quickRoomLine(quickRoomSettings(quick.buyin, quick.room))}</p>}
-          {quickError && <p className="warn">{quickError}</p>}
-          {!local && (
-            <button type="button" className="big primary wide" onClick={() => setCreating('local')}>
-              Стол на этом телефоне
-            </button>
-          )}
+        // Режимы карточками (#209): телефон — колонкой, от 600 px — по два, от 1024 px — в ряд
+        <div className="modes">
+          <ModeCard suit="♠" title="Комната по ссылке" text="У каждого карты на своём телефоне">
+            {quick && <p className="mode-note">{quickRoomLine(quickRoomSettings(quick.buyin, quick.room))}</p>}
+            {quickError && <p className="warn">{quickError}</p>}
+            <div className="mode-buttons">
+              <button type="button" className="big primary" disabled={!quick || quickBusy} onClick={() => void quickRoom()}>
+                {quickBusy ? 'Создаём…' : 'Быстрая комната'}
+              </button>
+              <button type="button" className="big" onClick={() => openForm(false)}>
+                Настроить…
+              </button>
+            </div>
+          </ModeCard>
+
+          <ModeCard suit="♥" red title="Стол на этом телефоне" text="Один телефон ведёт игру для всей компании">
+            <p className="mode-note">До {LOCAL_MAX_SEATS} гостей</p>
+            {local ? (
+              <div className="mode-buttons">
+                <a className="big primary button-link" href={LOCAL_HASH}>
+                  Продолжить
+                </a>
+                <button type="button" className="big danger-text" onClick={removeLocal}>
+                  Удалить стол
+                </button>
+              </div>
+            ) : (
+              <div className="mode-buttons">
+                <button type="button" className="big primary" onClick={() => setCreating('local')}>
+                  Открыть стол
+                </button>
+              </div>
+            )}
+          </ModeCard>
+
           {/* Стол с ботами — свой: «Стол на этом телефоне» ему не мешает */}
-          {!bots && (
-            <button type="button" className="big wide" onClick={() => setCreating('bots')}>
-              Против ботов
-            </button>
-          )}
+          <ModeCard suit="♦" red title="Против ботов" text="Без сети, соперники — программа">
+            <p className="mode-note">
+              От {BOTS_MIN} до {BOTS_MAX} ботов
+            </p>
+            {bots ? (
+              <div className="mode-buttons">
+                <a className="big primary button-link" href={BOTS_HASH}>
+                  Продолжить
+                </a>
+                <button type="button" className="big danger-text" onClick={removeBots}>
+                  Закончить
+                </button>
+              </div>
+            ) : (
+              <div className="mode-buttons">
+                <button type="button" className="big primary" onClick={() => setCreating('bots')}>
+                  Сесть за стол
+                </button>
+              </div>
+            )}
+          </ModeCard>
+
           {/* #129: казино — своя игра на этом телефоне; раунды пишутся в игру учёта */}
-          <button type="button" className="big wide" onClick={() => setCreating('casino')}>
-            Казино
-          </button>
-        </>
+          <ModeCard suit="♣" title="Казино" text="Раунды на одном телефоне, итог — в игру учёта">
+            <div className="mode-buttons">
+              <button type="button" className="big primary" onClick={() => setCreating('casino')}>
+                В казино
+              </button>
+            </div>
+          </ModeCard>
+        </div>
       )}
 
       {rooms.length > 0 && (
@@ -252,6 +283,40 @@ export function PokerHomeScreen() {
       <PastEvenings />
     </main>
   )
+}
+
+// Карточка режима (#209): значок масти, заголовок, пояснение; ниже — мелкая строка и кнопки
+function ModeCard({ suit, red = false, title, text, children }: { suit: string; red?: boolean; title: string; text: string; children: ReactNode }) {
+  return (
+    <section className="card mode-card">
+      <h2 className="mode-title">
+        <span className={red ? 'mode-suit red' : 'mode-suit'} aria-hidden="true">
+          {suit}
+        </span>
+        {title}
+      </h2>
+      <p className="mode-text">{text}</p>
+      {children}
+    </section>
+  )
+}
+
+// Полоса «Продолжить» (#209): последняя открытая игра, если её стол ещё есть на этом телефоне; иначе — полосы нет
+function continueOf(): { title: string; line: string; href: string } | null {
+  const last = loadLastGame()
+  if (!last) return null
+  const day = today()
+  if (last.kind === 'bots') {
+    const bots = loadBotTable()
+    return bots ? { ...lastGameText(last, bots.table, day), href: BOTS_HASH } : null
+  }
+  if (last.kind === 'local') {
+    const local = loadLocalTable()
+    return local && !local.gameId ? { ...lastGameText(last, local.table, day), href: LOCAL_HASH } : null
+  }
+  const seat = last.code ? loadSeat(last.code) : null
+  if (!seat || !last.code) return null
+  return { ...lastGameText(last, null, day), href: roomHash(last.code, undefined, seat.server ?? last.server) }
 }
 
 // «Прошлые вечера» (#114): копия раздач на этом телефоне — строка на вечер (дата, стол, раздач);
