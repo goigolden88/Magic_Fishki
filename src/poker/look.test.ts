@@ -3,6 +3,8 @@ import { hostDo, parseLocalTable, startLocalTable } from '../calc/localTable'
 import {
   DECK_LABELS,
   deckOf,
+  FACE_LABELS,
+  faceOf,
   isDefaultLook,
   lookClass,
   lookOf,
@@ -117,7 +119,12 @@ describe('личный вид стола (Р-61)', () => {
   it('из памяти: не из готовых, не объект или нет поля — «Как у стола» и колода не выбрана', () => {
     expect(parseMyLook(null)).toEqual(MY_LOOK_DEFAULT)
     expect(parseMyLook([1])).toEqual(MY_LOOK_DEFAULT)
-    expect(parseMyLook({ felt: 'black', cardBack: 'toString', deck: 'four' })).toEqual({ felt: 'black', cardBack: null, deck: 'four' })
+    expect(parseMyLook({ felt: 'black', cardBack: 'toString', deck: 'four' })).toEqual({
+      felt: 'black',
+      cardBack: null,
+      deck: 'four',
+      face: null,
+    })
     expect(parseMyLook({ felt: 'black', deck: 'six' }).deck).toBeNull()
   })
 
@@ -135,14 +142,58 @@ describe('личный вид стола (Р-61)', () => {
     expect(isDefaultLook({ ...MY_LOOK_DEFAULT, deck: 'four' })).toBe(false)
     expect(isDefaultLook({ ...MY_LOOK_DEFAULT, felt: 'black' })).toBe(false)
     const saved = JSON.parse(JSON.stringify({ ...MY_LOOK_DEFAULT, deck: 'two' }))
-    expect(parseMyLook(saved)).toEqual({ felt: null, cardBack: null, deck: 'two' })
+    expect(parseMyLook(saved)).toEqual({ felt: null, cardBack: null, deck: 'two', face: null })
   })
 
   it('восстановление: из копии — что здесь не выбрано; свой выбор остаётся', () => {
-    const backup = { felt: 'navy' as const, cardBack: 'chip' as const, deck: 'four' as const }
+    const backup = { felt: 'navy' as const, cardBack: 'chip' as const, deck: 'four' as const, face: null }
     expect(mergeMyLook(MY_LOOK_DEFAULT, backup)).toEqual(backup)
-    expect(mergeMyLook({ felt: 'green', cardBack: null, deck: null }, backup)).toEqual({ felt: 'green', cardBack: 'chip', deck: 'four' })
+    expect(mergeMyLook({ felt: 'green', cardBack: null, deck: null }, backup)).toEqual({
+      felt: 'green',
+      cardBack: 'chip',
+      deck: 'four',
+      face: null,
+    })
     expect(mergeMyLook(backup, MY_LOOK_DEFAULT)).toEqual(backup)
+  })
+
+  it('лицо карт (#219): из памяти — только из готовых; мусор, не строка или нет поля — не выбрано', () => {
+    expect(FACE_LABELS.map(([id]) => id)).toEqual(['big', 'classic', 'color'])
+    expect(MY_LOOK_DEFAULT.face).toBeNull()
+    expect(parseMyLook({ face: 'classic' }).face).toBe('classic')
+    expect(parseMyLook({ face: 'color' }).face).toBe('color')
+    expect(parseMyLook({ face: 'big' }).face).toBe('big')
+    expect(parseMyLook({ face: 'gg' }).face).toBeNull()
+    expect(parseMyLook({ face: 'toString' }).face).toBeNull()
+    expect(parseMyLook({ face: 2 }).face).toBeNull()
+    expect(parseMyLook({ face: ['color'] }).face).toBeNull()
+    expect(parseMyLook({ felt: 'navy' }).face).toBeNull()
+  })
+
+  it('лицо карт: запись до #219 без поля читается как прежде, а рисуется «Крупным»', () => {
+    const old = JSON.parse(JSON.stringify({ felt: 'black', cardBack: 'chip', deck: 'two' }))
+    expect(parseMyLook(old)).toEqual({ felt: 'black', cardBack: 'chip', deck: 'two', face: null })
+    expect(faceOf(parseMyLook(old))).toBe('big')
+    expect(faceOf(MY_LOOK_DEFAULT)).toBe('big')
+    expect(faceOf({ felt: null, cardBack: null, deck: null })).toBe('big')
+    expect(faceOf({ ...MY_LOOK_DEFAULT, face: 'color' })).toBe('color')
+  })
+
+  it('лицо карт: выбранное, и «Крупное» тоже, — запись есть; туда и обратно — то же', () => {
+    expect(isDefaultLook({ felt: null, cardBack: null, deck: null })).toBe(true)
+    expect(isDefaultLook({ ...MY_LOOK_DEFAULT, face: 'classic' })).toBe(false)
+    expect(isDefaultLook({ ...MY_LOOK_DEFAULT, face: 'big' })).toBe(false)
+    const saved = JSON.parse(JSON.stringify({ ...MY_LOOK_DEFAULT, face: 'color' }))
+    expect(parseMyLook(saved)).toEqual({ felt: null, cardBack: null, deck: null, face: 'color' })
+  })
+
+  it('лицо карт: восстановление — своё побеждает копию, не выбранное здесь берётся из копии', () => {
+    const backup = { ...MY_LOOK_DEFAULT, face: 'color' as const }
+    expect(mergeMyLook(MY_LOOK_DEFAULT, backup).face).toBe('color')
+    expect(mergeMyLook({ ...MY_LOOK_DEFAULT, face: 'classic' }, backup).face).toBe('classic')
+    expect(mergeMyLook({ ...MY_LOOK_DEFAULT, face: 'big' }, backup).face).toBe('big')
+    expect(mergeMyLook(MY_LOOK_DEFAULT, { felt: null, cardBack: null, deck: null }).face).toBeNull()
+    expect(mergeMyLook({ felt: null, cardBack: null, deck: null }, backup).face).toBe('color')
   })
 
   it('восстановление: свои «две масти» копия не затирает; копия без колоды не выбирает её здесь', () => {

@@ -29,14 +29,23 @@ export function lookOf(settings: Partial<Settings>): Look {
 export type MyFelt = Felt | 'navy' | 'black'
 export type MyBack = CardBack | 'chip' | 'dark'
 export type Deck = 'two' | 'four'
-export type MyLook = { felt: MyFelt | null; cardBack: MyBack | null; deck: Deck | null }
+// Лицо карт (#219): «Крупное» — ранг и масть строкой по центру белой карты, «Классическое» — индекс в углу и масть
+// по центру, «Цветное» — карта залита цветом масти, белые ранг и масть. null или нет поля (записи до #219) — «Крупное»
+export type Face = 'big' | 'classic' | 'color'
+export type MyLook = { felt: MyFelt | null; cardBack: MyBack | null; deck: Deck | null; face?: Face | null }
 
-export const MY_LOOK_DEFAULT: MyLook = { felt: null, cardBack: null, deck: null }
+export const MY_LOOK_DEFAULT: MyLook = { felt: null, cardBack: null, deck: null, face: null }
 export const DECK_DEFAULT: Deck = 'four'
+export const FACE_DEFAULT: Face = 'big'
 
 // Колода, которой рисуются карты: своя или, если не выбрана, по умолчанию
 export function deckOf(mine: MyLook): Deck {
   return mine.deck ?? DECK_DEFAULT
+}
+
+// Лицо, которым рисуются карты: своё или, если не выбрано, «Крупное»
+export function faceOf(mine: MyLook): Face {
+  return mine.face ?? FACE_DEFAULT
 }
 
 export const MY_FELT_LABELS: [MyFelt, string][] = [
@@ -56,6 +65,12 @@ export const DECK_LABELS: [Deck, string][] = [
   ['four', 'Четыре цвета'],
 ]
 
+export const FACE_LABELS: [Face, string][] = [
+  ['big', 'Крупное'],
+  ['classic', 'Классическое'],
+  ['color', 'Цветное'],
+]
+
 function oneOf<T extends string>(labels: [T, string][], v: unknown): T | null {
   return labels.some(([id]) => id === v) ? (v as T) : null
 }
@@ -68,12 +83,14 @@ export function parseMyLook(raw: unknown): MyLook {
     felt: oneOf(MY_FELT_LABELS, o.felt),
     cardBack: oneOf(MY_BACK_LABELS, o.cardBack),
     deck: oneOf(DECK_LABELS, o.deck),
+    face: oneOf(FACE_LABELS, o.face),
   }
 }
 
-// Ничего не выбрано — записи в памяти телефона нет; выбранная колода, и «две масти» тоже, — запись есть
+// Ничего не выбрано — записи в памяти телефона нет; выбранная колода, и «две масти» тоже, — запись есть;
+// выбранное лицо, и «Крупное» тоже, — запись есть
 export function isDefaultLook(mine: MyLook): boolean {
-  return mine.felt === null && mine.cardBack === null && mine.deck === null
+  return mine.felt === null && mine.cardBack === null && mine.deck === null && (mine.face ?? null) === null
 }
 
 // Восстановление из копии: выбор копии — там, где на этом телефоне ничего не выбрано; свой — не перезаписывается
@@ -82,6 +99,7 @@ export function mergeMyLook(local: MyLook, backup: MyLook): MyLook {
     felt: local.felt ?? backup.felt,
     cardBack: local.cardBack ?? backup.cardBack,
     deck: local.deck ?? backup.deck,
+    face: local.face ?? backup.face ?? null,
   }
 }
 

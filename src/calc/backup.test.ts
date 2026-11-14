@@ -76,7 +76,7 @@ describe('файл-копия: сохранение (Р-11)', () => {
     expect(backup.hands).toEqual([])
     expect(backup.notes).toEqual({})
     expect(backup.noteLabels).toEqual({})
-    expect(backup.look).toEqual({ felt: null, cardBack: null, deck: null })
+    expect(backup.look).toEqual({ felt: null, cardBack: null, deck: null, face: null })
     expect(backup.games.map((g) => g.id)).toEqual(['g1', 'g2'])
     expect(backup.games[0]).toEqual(real)
     expect(backup.settings).toEqual(SETTINGS)
@@ -342,7 +342,7 @@ describe('файл-копия формата 4: заметки', () => {
 
 // Личный «Вид стола» в копии (Р-61)
 describe('файл-копия формата 5: вид стола', () => {
-  const LOOK = { felt: 'navy' as const, cardBack: 'chip' as const, deck: 'four' as const }
+  const LOOK = { felt: 'navy' as const, cardBack: 'chip' as const, deck: 'four' as const, face: 'classic' as const }
 
   it('выбор вида — в копии и читается обратно без потерь', () => {
     const backup = makeBackup([game('g1')], SETTINGS, NOW, [], {}, {}, LOOK)
@@ -361,9 +361,20 @@ describe('файл-копия формата 5: вид стола', () => {
   it('формат 5: вида нет или значение не из готовых — «Как у стола», колода не выбрана, копия читается', () => {
     const { look: _l, ...noLook } = backupOf([])
     const parsed = parse(JSON.stringify(noLook))
-    expect(parsed.ok && parsed.backup.look).toEqual({ felt: null, cardBack: null, deck: null })
-    const odd = parse(JSON.stringify({ ...backupOf([]), look: { felt: 'pink', cardBack: 'dark', deck: 'six' } }))
-    expect(odd.ok && odd.backup.look).toEqual({ felt: null, cardBack: 'dark', deck: null })
+    expect(parsed.ok && parsed.backup.look).toEqual({ felt: null, cardBack: null, deck: null, face: null })
+    const odd = parse(JSON.stringify({ ...backupOf([]), look: { felt: 'pink', cardBack: 'dark', deck: 'six', face: 'gg' } }))
+    expect(odd.ok && odd.backup.look).toEqual({ felt: null, cardBack: 'dark', deck: null, face: null })
+  })
+
+  it('лицо карт (#219): в копии и читается обратно; копия без лица — не выбрано; формат прежний', () => {
+    const color = makeBackup([], SETTINGS, NOW, [], {}, {}, { ...LOOK, face: 'color' })
+    const text = backupText(color)
+    expect(JSON.parse(text).look.face).toBe('color')
+    expect(JSON.parse(text).format).toBe(6)
+    expect(parse(text)).toEqual({ ok: true, backup: color })
+    const { face: _f, ...before } = LOOK
+    const old = parse(JSON.stringify({ ...backupOf([]), look: before }))
+    expect(old.ok && old.backup.look).toEqual({ felt: 'navy', cardBack: 'chip', deck: 'four', face: null })
   })
 
   it('колода не выбрана — в копии null и читается обратно так же; «две масти» — как записаны (#192)', () => {
