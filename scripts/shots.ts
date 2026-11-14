@@ -751,6 +751,7 @@ async function casinoAndHelpSteps(d: Device): Promise<void> {
     await boardsGoing(d)
     await d.shot('04-kazino')
   })
+  const casino = await d.eval<string>('location.hash') // раунд этого казино — для снимков в другом лице карт
 
   // Казино на шестерых (Р-67, #193) — только телефон: места одним рядом сверху, всё без прокрутки.
   // Новая игра «только казино» из шести гостей; снимок — первый экран, как его видно на телефоне
@@ -777,11 +778,43 @@ async function casinoAndHelpSteps(d: Device): Promise<void> {
     })
   }
 
+  // Лицо карт (#219): касание в «Виде стола» — образец колоды в этом лице; затем тот же раунд казино в нём —
+  // рука места, стол, строка победителя, подсветка и приглушение; остальные столы ещё рубашкой.
+  // Перед следующими экранами — снова «Крупное»
+  const faces = [
+    ['Классическое', '08b-vid-stola-klassicheskoe', '04d-kazino-klassicheskoe'],
+    ['Цветное', '08c-vid-stola-cvetnoe', '04e-kazino-cvetnoe'],
+  ] as const
+  for (const [face, look, shot] of faces) {
+    await screen(`Лицо карт «${face}»`, size, async () => {
+      await pickFace(d, face)
+      await d.waitFor('.deck-sample .playing-card.face-' + (face === 'Цветное' ? 'color' : 'classic'))
+      await d.shot(look)
+      await d.goto(casino)
+      await d.waitFor('.casino-board.open .playing-card.face-' + (face === 'Цветное' ? 'color' : 'classic'))
+      await sleep(600) // переворот карт стола
+      await d.shot(shot)
+    })
+  }
+  await screen('Лицо карт «Крупное»', size, async () => {
+    await pickFace(d, 'Крупное')
+    await d.waitFor('.deck-sample .playing-card:not(.face-classic):not(.face-color)')
+  })
+
   await screen('Справка', size, async () => {
     await d.goto('#/help')
     await d.waitFor('details.card.help')
     await d.shot('06-spravka')
   })
+}
+
+// «Настройки» → «Вид стола» → «Лицо карт»: выбрать касанием
+async function pickFace(d: Device, face: string): Promise<void> {
+  await d.goto('#/settings')
+  await d.waitText('Выбрать вид стола')
+  await d.click('Выбрать вид стола')
+  await d.waitText('Лицо карт')
+  await d.click(face)
 }
 
 // Стол на одном телефоне на 10 гостей (выдуманные имена): раздача началась, ход — у первого, панель хода с ползунком

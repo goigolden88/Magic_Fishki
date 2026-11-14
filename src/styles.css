@@ -1767,6 +1767,71 @@ textarea.note-input {
   opacity: 0.4;
 }
 
+/* Лицо карт (#219): «Классическое» и «Цветное»; «Крупное» — карта без класса лица, как до #219.
+   Карта — контейнер: свою ширину видит сама, где бы ни стояла (стол, места, казино с размерами из casinoLayout).
+   Узкая (уже 1,9rem, и без запросов к контейнеру — Safari до 16) — только индекс по центру: ранг над мастью
+   тем же шрифтом, что у «Крупного» на этом месте. Широкая — индекс в углу и повтор по центру: масть
+   у «Классического», крупный ранг у «Цветного». Размеры карты не меняются */
+.playing-card.face-classic,
+.playing-card.face-color {
+  position: relative;
+  container-type: inline-size;
+}
+
+.card-index {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.card-pip {
+  display: none;
+}
+
+@container (min-width: 1.9rem) {
+  .card-index {
+    position: absolute;
+    top: 5%;
+    left: 9%;
+    font-size: 27cqi;
+    letter-spacing: -0.05em;
+  }
+
+  .card-pip {
+    display: block;
+    font-size: 62cqi;
+  }
+
+  .face-color .card-pip {
+    margin-top: 14cqi;
+    font-size: 56cqi;
+    letter-spacing: -0.06em;
+  }
+}
+
+/* «Цветное»: карта залита цветом масти по колоде — четыре цвета (классы suit-*) или две масти (red и без класса);
+   пики светлее #111, чтобы карта не сливалась с чёрным сукном. Кант — outline: тень занята подсветкой .win */
+/* от гаммы не зависит */
+.playing-card.face-color {
+  background: #222;
+  color: #fff;
+  outline: 1px solid rgba(255, 255, 255, 0.35);
+  outline-offset: -1px;
+}
+
+.playing-card.face-color.red,
+.playing-card.face-color.suit-h {
+  background: #c62828;
+}
+
+.playing-card.face-color.suit-d {
+  background: #1565c0;
+}
+
+.playing-card.face-color.suit-c {
+  background: #2e7d32;
+}
+
 .last-best {
   display: block;
   margin-top: 2px;

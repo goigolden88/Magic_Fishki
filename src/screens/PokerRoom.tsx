@@ -59,7 +59,7 @@ import { mixView, type MixView } from '../calc/pokerMix'
 import { runView, type RunView } from '../calc/pokerRuns'
 import { runsText } from '../calc/quickRoom'
 import { gameFromTable, gameFromTournament } from '../calc/pokerGame'
-import { deckOf, lookClass, lookOf, suitClass } from '../calc/pokerLook'
+import { deckOf, faceOf, lookClass, lookOf, suitClass } from '../calc/pokerLook'
 import { timerSettings, turnSecondsOf } from '../calc/pokerTimer'
 import { levelText, prizesOf } from '../calc/tournamentForm'
 import { formatDate, today } from '../dates'
@@ -854,17 +854,34 @@ export function HandHistory(props: {
 type CardSize = 'small' | 'mid' | 'big'
 
 // fly — ключ карты для анимации раздачи (#133, cardFly): группа и номер в ней; без него карта не летает.
-// Цвет масти — по колоде из личного «Вида стола» (Р-61): две масти цветом или четыре цвета; не выбрана — четыре (#192)
+// Цвет масти — по колоде из личного «Вида стола» (Р-61): две масти цветом или четыре цвета; не выбрана — четыре (#192).
+// Лицо (#219) — оттуда же: «Крупное» — ранг и масть строкой; «Классическое» и «Цветное» — индекс (ранг над мастью)
+// и повтор по центру: масть или крупный ранг. Узкая карта показывает только индекс по центру (styles.css).
+// Читалка экрана слышит индекс, повтор по центру скрыт от неё
 export function PlayingCard(props: { card: Card | null; size?: CardSize; mark?: 'win' | 'dim'; fly?: string }) {
   const { card, size, mark, fly } = props
   const f = card === null ? null : cardFace(card)
-  const color = card === null ? '' : suitClass(card, deckOf(loadMyLook()))
-  const cls = ['playing-card', size, !f && 'back', color, mark].filter(Boolean).join(' ')
+  const mine = loadMyLook()
+  const color = card === null ? '' : suitClass(card, deckOf(mine))
+  const face = f ? faceOf(mine) : 'big'
+  const cls = ['playing-card', size, !f && 'back', color, face !== 'big' && `face-${face}`, mark].filter(Boolean).join(' ')
   if (!f) return <span className={cls} data-fly={fly} aria-label="карта рубашкой" />
+  if (face === 'big')
+    return (
+      <span className={cls} data-fly={fly}>
+        {f.rank}
+        {f.suit}
+      </span>
+    )
   return (
     <span className={cls} data-fly={fly}>
-      {f.rank}
-      {f.suit}
+      <span className="card-index">
+        <span>{f.rank}</span>
+        <span>{f.suit}</span>
+      </span>
+      <span className="card-pip" aria-hidden="true">
+        {face === 'classic' ? f.suit : f.rank}
+      </span>
     </span>
   )
 }

@@ -37,7 +37,7 @@ import { download } from './download'
 import { loadLastBackup, saveLastBackup } from './lastBackup'
 import { DEFAULT_SERVER, serverBase } from '../calc/pokerLink'
 import { NOTE_COLORS, NOTE_LABEL_MAX, labelOf, mergeNotes, setLabel, type NoteColor } from '../calc/playerNotes'
-import { DECK_LABELS, deckOf, MY_BACK_LABELS, MY_FELT_LABELS, mergeMyLook, type MyLook } from '../calc/pokerLook'
+import { DECK_LABELS, deckOf, FACE_LABELS, faceOf, MY_BACK_LABELS, MY_FELT_LABELS, mergeMyLook, type MyLook } from '../calc/pokerLook'
 import { PlayingCard, useBetStep, useBigBlinds } from './PokerRoom'
 import { BET_STEP_DEFAULT, BET_STEP_LABELS } from '../calc/pokerLayout'
 import {
@@ -932,6 +932,16 @@ function MyLookCard({ look, onChange }: { look: MyLook; onChange: (look: MyLook)
             <div className="card-row deck-sample" aria-hidden="true">
               {DECK_SAMPLE.map((c) => (
                 <PlayingCard key={c} card={c} size="mid" />
+              ))}
+            </div>
+          </fieldset>
+          <fieldset className="players-pick">
+            <legend className="muted">Лицо карт</legend>
+            <div className="amounts">
+              {FACE_LABELS.map(([face, label]) => (
+                <LookChoice key={face} on={faceOf(look) === face} onPick={() => update({ face })}>
+                  {label}
+                </LookChoice>
               ))}
             </div>
           </fieldset>
