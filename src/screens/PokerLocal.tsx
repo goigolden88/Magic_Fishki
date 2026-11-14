@@ -31,6 +31,7 @@ import {
   loadLocalTable,
   loadMyLook,
   loadQuickBets,
+  saveLastGame,
   saveLocalTable,
   storageWorks,
   tableFitStyle,
@@ -73,6 +74,8 @@ export function PokerLocalScreen() {
       setAmounts(s.quickAmounts)
       setRegulars(s.players)
     })
+    // Открыли идущий стол — он последний для «Продолжить» на «Играть» (#209); записанный — стирается ниже
+    if (local && !local.gameId) saveLastGame('local')
   }, [])
 
   // Итог уже записан, а стол не стёрт (оборвалось посередине) — второй игры не писать, раздачи —

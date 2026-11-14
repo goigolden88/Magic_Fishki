@@ -7,8 +7,8 @@
 // Chrome — по DevTools-протоколу (обычный --screenshot не умеет нажимать кнопки), без сторонних библиотек.
 // Размеры: 390 × 844 (телефон), 1366 × 768 (ноутбук), 1920 × 1080 (монитор); у каждого — своё хранилище.
 // PNG — в shots/ (не в репо), имя — «ширина-номер-экран.png». Сбой — код выхода 1 и строка, какой экран.
-// Гамма (Р-70): весь сценарий — в «Ночи», а затем «Клуб» и «День» — «Настройки», «Игры», «Играть» и стол против ботов
-// («ширина-гамма-номер-экран.png»). SHOTS_THEME=club или day — весь сценарий в этой гамме (имена прежние), без остальных.
+// Гамма (Р-70): весь сценарий — в «Ночи», а затем «Клуб» и «День» — «Настройки», «Игры», «Играть», стол против ботов
+// и «Играть» с полосой «Продолжить» (#209) («ширина-гамма-номер-экран.png»). SHOTS_THEME=club или day — весь сценарий в этой гамме (имена прежние), без остальных.
 // Гамма выбирается касанием в «Настройках», как у человека.
 // Chrome — google-chrome, google-chrome-stable или chromium; свой путь — переменная CHROME
 import { spawn, type ChildProcess } from 'node:child_process'
@@ -263,8 +263,18 @@ async function playStep(d: Device): Promise<void> {
   await screen('Играть', d.size, async () => {
     await d.goto('#/poker')
     await d.waitText('Войти по ссылке')
-    await d.waitText('Против ботов')
+    await d.waitText('Сесть за стол')
     await d.shot('02-igrat')
+  })
+}
+
+// «Играть» с полосой «Продолжить» (#209): после стола против ботов он — последняя игра
+async function playContinueStep(d: Device): Promise<void> {
+  await screen('Играть: продолжить', d.size, async () => {
+    await d.goto('#/poker')
+    await d.waitText('Войти по ссылке')
+    await d.waitText('Последняя игра')
+    await d.shot('02b-igrat-prodolzhit')
   })
 }
 
@@ -276,13 +286,14 @@ async function themeScenario(cdp: Cdp, size: Size, theme: Theme): Promise<void> 
   await gamesStep(d)
   await playStep(d)
   await screen('Против ботов', size, async () => {
-    await d.click('Против ботов')
+    await d.click('Сесть за стол')
     await d.waitText('Карты ботов открыты')
     await d.click('Начать')
     await d.waitText('Стол с ботами')
     await myTurn(d)
     await d.shot('03-protiv-botov', false)
   })
+  await playContinueStep(d)
 }
 
 async function scenario(cdp: Cdp, size: Size, theme: Theme): Promise<void> {
@@ -311,7 +322,7 @@ async function scenario(cdp: Cdp, size: Size, theme: Theme): Promise<void> {
   await playStep(d)
 
   await screen('Против ботов', size, async () => {
-    await d.click('Против ботов')
+    await d.click('Сесть за стол')
     await d.waitText('Карты ботов открыты')
     await d.waitText('После паса — сразу доигрывать')
     await d.shot('03a-protiv-botov-forma')
@@ -343,11 +354,13 @@ async function scenario(cdp: Cdp, size: Size, theme: Theme): Promise<void> {
     await d.shot('03f-protiv-botov-dokupleny', false)
   })
 
+  await playContinueStep(d)
+
   // Стол на одном телефоне на 10 мест — самый тесный стол: места не наезжают на панель хода
   await screen('Стол на этом телефоне', size, async () => {
     await d.goto('#/poker')
     await d.waitText('Войти по ссылке')
-    await d.click('Стол на этом телефоне')
+    await d.click('Открыть стол')
     await d.waitText('Ведущий ходит за каждого')
     for (const name of GUESTS) {
       await d.type('input[aria-label="Имя гостя"]', name)
@@ -373,7 +386,7 @@ async function scenario(cdp: Cdp, size: Size, theme: Theme): Promise<void> {
   await screen('Казино', size, async () => {
     await d.goto('#/poker')
     await d.waitText('Войти по ссылке')
-    await d.click('Казино')
+    await d.click('В казино')
     await d.waitText('Новая игра — только казино')
     await d.click('Демо: игра идёт')
     await d.waitText('карты раздаёт программа, всё в открытую')
@@ -388,7 +401,7 @@ async function scenario(cdp: Cdp, size: Size, theme: Theme): Promise<void> {
     await screen('Казино на шестерых', size, async () => {
       await d.goto('#/poker')
       await d.waitText('Войти по ссылке')
-      await d.click('Казино')
+      await d.click('В казино')
       await d.waitText('Новая игра — только казино')
       await d.click('Новая игра — только казино')
       await d.waitFor('input[aria-label="Имя гостя"]')
