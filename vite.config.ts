@@ -59,7 +59,8 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
+        // woff2 — шрифты из src/fonts: без них в кеше без сети был бы системный шрифт
+        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest,woff2}'],
         // ?app=fishki в адресе запуска не мешает взять index.html из кеша без сети
         // (первые два — значения Workbox по умолчанию)
         ignoreURLParametersMatching: [/^utm_/, /^fbclid$/, /^app$/],

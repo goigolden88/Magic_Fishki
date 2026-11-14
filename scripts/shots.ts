@@ -10,6 +10,7 @@
 // Гамма (Р-70): весь сценарий — в «Ночи», а затем «Клуб» и «День» — «Настройки», «Игры», «Играть», стол против ботов
 // и «Играть» с полосой «Продолжить» (#209) («ширина-гамма-номер-экран.png»). SHOTS_THEME=club или day — весь сценарий в этой гамме (имена прежние), без остальных.
 // Гамма выбирается касанием в «Настройках», как у человека.
+// Шрифты (#218): снимок — после document.fonts.ready; на первом экране каждого размера оба шрифта должны быть загружены.
 // Chrome — google-chrome, google-chrome-stable или chromium; свой путь — переменная CHROME
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -31,6 +32,7 @@ const GUESTS = ['Аня', 'Боря', 'Вика', 'Гоша', 'Даша', 'Ег�
 const BOTS_TIMEOUT = 60_000 // боты ходят через секунду; моя очередь может прийти не в первой раздаче
 type Theme = 'night' | 'club' | 'day'
 const THEME_BUTTONS: Record<Theme, string> = { night: 'Ночь', club: 'Клуб', day: 'День' } // кнопки «Оформления»
+const FONTS = ['Golos Text', 'Geologica'] // шрифты приложения (src/fonts, #218): текст и заголовки
 
 // ─── DevTools-протокол ───────────────────────────────────────────────────────
 
@@ -204,7 +206,8 @@ class Device {
   // Снимок. whole — страница целиком: длинная вытягивается на время снимка во всю высоту.
   // Стол (боты) — только первый экран: он и так на весь экран, панель хода — внизу
   async shot(file: string, whole = true): Promise<void> {
-    await sleep(400) // перерисовка и шрифты
+    await this.eval('document.fonts.ready.then(() => true)') // шрифты из src/fonts догрузились (#218)
+    await sleep(400) // перерисовка
     const height = whole ? await this.eval<number>('Math.max(document.documentElement.scrollHeight, innerHeight)') : this.size.height
     if (height > this.size.height) {
       await this.metrics(height)
@@ -215,6 +218,15 @@ class Device {
     const path = join(OUT, `${this.size.name}-${this.prefix}${file}.png`)
     await writeFile(path, Buffer.from(data, 'base64'))
     console.log('  снимок', path)
+  }
+
+  // Оба шрифта приложения (#218) загружены: иначе снимки были бы системным шрифтом
+  async fontsLoaded(): Promise<void> {
+    const loaded = await this.eval<string[]>(
+      "document.fonts.ready.then(() => [...document.fonts].filter((f) => f.status === 'loaded').map((f) => f.family.replace(/[\"']/g, '')))",
+    )
+    const missing = FONTS.filter((family) => !loaded.includes(family))
+    if (missing.length > 0) throw new Error(`не загрузился шрифт ${missing.join(', ')} (загружены: ${loaded.join(', ') || 'ни одного'})`)
   }
 }
 
@@ -239,6 +251,7 @@ async function settingsStep(d: Device, theme: Theme): Promise<void> {
   await screen('Настройки', d.size, async () => {
     await d.goto('#/settings')
     await d.waitText('Добавить демо-данные')
+    await d.fontsLoaded() // первый экран каждого размера
     if (theme !== 'night') {
       await d.click(THEME_BUTTONS[theme])
       await d.waitFor(`html[data-theme="${theme}"]`)
