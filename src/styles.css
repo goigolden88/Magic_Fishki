@@ -1,6 +1,26 @@
 /* Крупно и контрастно: играют вечером, с телефона, одной рукой.
    Гаммы (Р-70): «Ночь» — :root (сначала), «Клуб» и «День» — data-theme на <html> (src/calc/theme.ts).
    Новый цвет — во все три блока; фон --bg — тот же, что theme-color гаммы в theme.ts и index.html */
+
+/* Шрифт один на все гаммы: текст — Golos Text, заголовки — Geologica (OFL 1.1, src/fonts/).
+   Файлы переменные (вес 400–700) и лежат в приложении — без сети тот же вид;
+   не загрузился — системный стек ниже. Значков мастей, ✕, ✓ в них нет: их рисует системный */
+@font-face {
+  font-family: 'Golos Text';
+  src: url('./fonts/golos-text.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geologica';
+  src: url('./fonts/geologica.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --bg: #101217;
   --card: #181b22;
@@ -33,7 +53,7 @@
   --gold-glow: rgba(91, 157, 255, 0.35);
   --gold-edge: rgba(91, 157, 255, 0.45);
   color-scheme: dark;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Golos Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 18px;
   line-height: 1.4;
   color: var(--text);
@@ -122,6 +142,13 @@ body {
 h1 {
   font-size: 1.6rem;
   margin: 8px 0 4px;
+}
+
+/* Заголовки — Geologica; .group-title стоит на <h2> и берёт его же */
+h1,
+h2,
+h3 {
+  font-family: 'Geologica', 'Golos Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 h2 {
