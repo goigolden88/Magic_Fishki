@@ -9,6 +9,27 @@
   --red: #ff6b5e;
   --accent: #2e9e5b;
   --gold: #e7b84a;
+  /* Тёмные заливки — парой «заливка / текст на заливке» (--on-…): гамма задаёт обе */
+  --on-accent: #f1f5f2;
+  --buyin: #24543a;
+  --on-buyin: #f1f5f2;
+  --cashout: #6b4a12;
+  --on-cashout: #f1f5f2;
+  --danger: #8a2a22;
+  --on-danger: #f1f5f2;
+  /* Место, чей ход; выбранный цвет заметки */
+  --to-act: #24543a;
+  --to-act-line: var(--green);
+  --to-act-glow: rgba(62, 207, 122, 0.35);
+  --picked: #24543a;
+  /* Тени, подложки и подсказки поверх стола */
+  --shade: rgba(0, 0, 0, 0.25);
+  --tip-bg: rgba(0, 0, 0, 0.78);
+  --on-tip: #fff;
+  --pop-shadow: rgba(0, 0, 0, 0.6);
+  --swatch-edge: rgba(0, 0, 0, 0.45);
+  --gold-glow: rgba(231, 184, 74, 0.35);
+  --gold-edge: rgba(231, 184, 74, 0.45);
   color-scheme: dark;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 18px;
@@ -209,20 +230,24 @@ button.big {
 
 button.primary {
   background: var(--accent);
+  color: var(--on-accent);
 }
 
 button.buyin,
 button.rebuy {
-  background: #24543a;
+  background: var(--buyin);
+  color: var(--on-buyin);
 }
 
 button.cashout {
-  background: #6b4a12;
+  background: var(--cashout);
+  color: var(--on-cashout);
 }
 
 /* Удаление игры: первое нажатие — красный текст, второе — красная кнопка */
 button.danger {
-  background: #8a2a22;
+  background: var(--danger);
+  color: var(--on-danger);
 }
 
 button.danger-text {
@@ -597,6 +622,7 @@ a.button-link {
 
 a.button-link.primary {
   background: var(--accent);
+  color: var(--on-accent);
 }
 
 .table-info {
@@ -713,6 +739,7 @@ button.bar-button {
 }
 
 /* Сукно (#77) — класс на обёртке стола; цвета не светлее зелёного: текст на сукне читается как прежде */
+/* от гаммы не зависит */
 .felt-green {
   --felt-1: #21704a;
   --felt-2: #17573a;
@@ -738,6 +765,7 @@ button.bar-button {
 }
 
 /* Сукна только для личного «Вида стола» (Р-61): тёмно-синее и чёрное */
+/* от гаммы не зависит */
 .felt-navy {
   --felt-1: #1d2f5c;
   --felt-2: #152447;
@@ -750,6 +778,7 @@ button.bar-button {
   --felt-3: #0c0c0e;
 }
 
+/* от гаммы не зависит */
 .felt {
   border-radius: 50%;
   background: radial-gradient(
@@ -762,7 +791,9 @@ button.bar-button {
   box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.5);
 }
 
-/* Центр — между столбиками мест, чуть выше середины: внизу моё место с крупными картами */
+/* Центр — между столбиками мест, чуть выше середины: внизу моё место с крупными картами.
+   Текст прямо на сукне — свои светлые цвета, а не --text / --muted гаммы */
+/* от гаммы не зависит */
 .felt-center {
   position: absolute;
   left: 50%;
@@ -772,6 +803,12 @@ button.bar-button {
   text-align: center;
   font-size: 0.8rem;
   line-height: 1.3;
+  color: #f1f5f2;
+}
+
+/* от гаммы не зависит */
+.felt-center .muted {
+  color: #9bb0a3;
 }
 
 .felt-center div {
@@ -817,9 +854,9 @@ button.bar-button {
 }
 
 .seat.to-act {
-  border-color: var(--green);
-  background: #24543a;
-  box-shadow: 0 0 0 3px rgba(62, 207, 122, 0.35);
+  border-color: var(--to-act-line);
+  background: var(--to-act);
+  box-shadow: 0 0 0 3px var(--to-act-glow);
 }
 
 .seat.folded {
@@ -829,7 +866,7 @@ button.bar-button {
 /* Свободное место между раздачами (#98): пунктир, без фона; кнопкой — касание пересаживает */
 .seat.free {
   border-style: dashed;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--shade);
   color: var(--muted);
 }
 
@@ -914,8 +951,8 @@ button.pot-total {
   z-index: 5;
   padding: 0.4rem 0.9rem;
   border-radius: 999px;
-  background: rgba(0, 0, 0, 0.78);
-  color: #fff;
+  background: var(--tip-bg);
+  color: var(--on-tip);
   font-weight: 600;
   white-space: nowrap;
   pointer-events: none;
@@ -949,7 +986,7 @@ button.note-dot {
   flex: none;
   width: 0.8rem;
   height: 0.8rem;
-  border: 1px solid rgba(0, 0, 0, 0.45);
+  border: 1px solid var(--swatch-edge);
   border-radius: 50%;
   vertical-align: middle;
 }
@@ -1007,7 +1044,7 @@ button.note-color {
 
 button.note-color.on {
   border-color: var(--gold);
-  background: #24543a;
+  background: var(--picked);
 }
 
 .note-color-label {
@@ -1094,7 +1131,7 @@ textarea.note-input {
   padding: 0.05rem 0;
   border: 1px solid var(--line);
   border-radius: 0.35rem;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--shade);
   color: var(--text);
   font: inherit;
   font-size: 0.68rem;
@@ -1126,7 +1163,7 @@ textarea.note-input {
   border: 2px solid var(--gold);
   border-radius: 0.8rem;
   background: var(--card);
-  box-shadow: 0 0.4rem 1.5rem rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0.4rem 1.5rem var(--pop-shadow);
 }
 
 .hud-name {
@@ -1215,6 +1252,7 @@ textarea.note-input {
   white-space: nowrap;
 }
 
+/* от гаммы не зависит */
 .seat-dealer {
   position: absolute;
   top: -0.5rem;
@@ -1230,13 +1268,14 @@ textarea.note-input {
 }
 
 /* Ставка улицы — у края места со стороны стола (betSide), наполовину на месте */
+/* от гаммы не зависит */
 .bet-chip {
   position: absolute;
   z-index: 1;
   padding: 0.05rem 0.35rem;
   border-radius: 0.6rem;
   background: rgba(0, 0, 0, 0.6);
-  color: var(--gold);
+  color: #e7b84a;
   font-size: 0.8rem;
   font-weight: 600;
   line-height: 1.3;
@@ -1270,6 +1309,7 @@ textarea.note-input {
   vertical-align: middle;
 }
 
+/* от гаммы не зависит */
 .playing-card {
   display: inline-flex;
   align-items: center;
@@ -1298,11 +1338,13 @@ textarea.note-input {
   }
 }
 
+/* от гаммы не зависит */
 .playing-card.red {
   color: #c62828;
 }
 
 /* Колода в четыре цвета (Р-61): класс по масти; цвета тёмные — читаются на светлой карте */
+/* от гаммы не зависит */
 .playing-card.suit-s {
   color: #111;
 }
@@ -1319,12 +1361,14 @@ textarea.note-input {
   color: #2e7d32;
 }
 
+/* от гаммы не зависит */
 .playing-card.back {
   border: 2px solid #f7f7f2;
   background: repeating-linear-gradient(45deg, #7a1f2b 0 4px, #a8323f 4px 8px);
 }
 
 /* Рубашка (#77) — класс на обёртке стола; без него (казино) — классика */
+/* от гаммы не зависит */
 .back-blue .playing-card.back {
   background: repeating-linear-gradient(45deg, #22406a 0 4px, #2f5a8c 4px 8px);
 }
@@ -1335,11 +1379,12 @@ textarea.note-input {
 
 .back-geo .playing-card.back {
   background:
-    radial-gradient(circle, var(--gold) 0 2px, transparent 2px) 0 0 / 8px 8px,
+    radial-gradient(circle, #e7b84a 0 2px, transparent 2px) 0 0 / 8px 8px,
     #5a1c28;
 }
 
 /* Рубашки только для личного «Вида стола» (Р-61): однотонная с фишкой в середине и тёмная с тонким узором */
+/* от гаммы не зависит */
 .back-chip .playing-card.back {
   background:
     radial-gradient(circle, #f7f7f2 0 18%, #1f6f8b 18% 26%, #f7f7f2 26% 32%, transparent 32%),
@@ -1355,6 +1400,7 @@ textarea.note-input {
 }
 
 /* Образцы в выборе вида стола: кружок сукна и маленькая рубашка */
+/* от гаммы не зависит */
 .look-swatch {
   display: inline-block;
   width: 18px;
@@ -1691,7 +1737,7 @@ textarea.note-input {
 
 .casino-seat.winner {
   border-color: var(--gold);
-  box-shadow: 0 0 0 3px rgba(231, 184, 74, 0.35);
+  box-shadow: 0 0 0 3px var(--gold-glow);
 }
 
 .casino-hand {
@@ -1722,13 +1768,13 @@ textarea.note-input {
   padding: 0.3rem;
   border: 2px solid transparent;
   border-radius: 0.6rem;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--shade);
   text-align: center;
   font-size: 0.8rem;
 }
 
 .casino-board.open {
-  border-color: rgba(231, 184, 74, 0.45);
+  border-color: var(--gold-edge);
 }
 
 /* Последний открытый — его победители в рамке у мест */
