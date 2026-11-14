@@ -8,7 +8,8 @@
 // Размеры: 390 × 844 (телефон), 1366 × 768 (ноутбук), 1920 × 1080 (монитор); у каждого — своё хранилище.
 // PNG — в shots/ (не в репо), имя — «ширина-номер-экран.png». Сбой — код выхода 1 и строка, какой экран.
 // Гамма (Р-70): весь сценарий — в «Ночи», а затем «Клуб» и «День» — «Настройки», «Игры», «Играть», стол против ботов
-// и «Играть» с полосой «Продолжить» (#209) («ширина-гамма-номер-экран.png»). SHOTS_THEME=club или day — весь сценарий в этой гамме (имена прежние), без остальных.
+// и «Играть» с полосой «Продолжить» (#209) («ширина-гамма-номер-экран.png»). SHOTS_THEME=club или day — весь сценарий в этой гамме (имена прежние), без остальных;
+// «Места и панель» — тоже в ней (#211).
 // Гамма выбирается касанием в «Настройках», как у человека.
 // Шрифты (#218): снимок — после document.fonts.ready; на первом экране каждого размера оба шрифта должны быть загружены.
 // Стол на широком окне (#210): на каждом снимке стола на 1366 и 1920 — проверка, что ни одно место (.seat) не под
@@ -566,6 +567,14 @@ async function pickTheme(d: Device, theme: Theme): Promise<void> {
   await d.waitFor(`html[data-theme="${theme}"]`)
 }
 
+// Свежее хранилище — гамма сценария (SHOTS_THEME) касанием в «Настройках», без снимка (#211)
+async function themeOnly(d: Device): Promise<void> {
+  if (runTheme === 'night') return
+  await d.goto('#/settings')
+  await d.waitText('Добавить демо-данные')
+  await pickTheme(d, runTheme)
+}
+
 // Отправить форму поля selector — как Enter в поле
 async function submit(d: Device, selector: string): Promise<void> {
   const done = await d.eval<boolean>(`(() => {
@@ -797,6 +806,7 @@ async function localTable(d: Device): Promise<void> {
 
 // Против ботов с bots ботами (1…5) — с чистого хранилища: форма, «Начать», мой ход
 async function botsTable(d: Device, bots: number): Promise<void> {
+  await themeOnly(d)
   await d.goto('#/poker')
   await d.waitText('Сесть за стол')
   await d.click('Сесть за стол')
@@ -842,6 +852,7 @@ async function wideTableStep(cdp: Cdp, size: Size): Promise<void> {
   })
   await screen('Стол на этом телефоне, 10 мест', size, async () => {
     const d = await Device.open(cdp, size)
+    await themeOnly(d)
     await localTable(d)
     await d.tableShot('10e-stol-10-mest')
     await tableFit(d, 'large', 100)
