@@ -252,7 +252,7 @@ function LocalTableCard(props: {
   const pause = () => apply((s, now) => hostDo(s, { type: 'pause', paused: !v.paused }, now))
 
   // Колонка (#97): стол — на весь первый экран, под ним листается ведущий, панель хода — внизу.
-  // Широкое окно (Р-63): стол и панель — целиком в окне, панель — справа внизу; под ними листается страница
+  // Широкое окно (Р-63): стол и панель — целиком в окне, панель — справа внизу поверх края стола (#210); под ними листается страница
   return (
     <div className={`table-layout ${lookClass(table.settings, loadMyLook())}`} style={tableFitStyle()}>
       <div className="table-scroll">
