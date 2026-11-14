@@ -8,12 +8,20 @@
 // Размеры: 390 × 844 (телефон), 1366 × 768 (ноутбук), 1920 × 1080 (монитор); у каждого — своё хранилище.
 // PNG — в shots/ (не в репо), имя — «ширина-номер-экран.png». Сбой — код выхода 1 и строка, какой экран.
 // Гамма (Р-70): весь сценарий — в «Ночи», а затем «Клуб» и «День» — «Настройки», «Игры», «Играть», стол против ботов
-// и «Играть» с полосой «Продолжить» (#209) («ширина-гамма-номер-экран.png»). SHOTS_THEME=club или day — весь сценарий в этой гамме (имена прежние), без остальных.
+// и «Играть» с полосой «Продолжить» (#209) («ширина-гамма-номер-экран.png»). SHOTS_THEME=club или day — весь сценарий в этой гамме (имена прежние), без остальных;
+// «Места и панель» — тоже в ней (#211).
 // Гамма выбирается касанием в «Настройках», как у человека.
 // Шрифты (#218): снимок — после document.fonts.ready; на первом экране каждого размера оба шрифта должны быть загружены.
 // Стол на широком окне (#210): на каждом снимке стола на 1366 и 1920 — проверка, что ни одно место (.seat) не под
 // панелью хода (.table-dock), иначе сбой; ещё — свой шаг «Места и панель» (2, 6 и 10 мест, «Крупная» при 100 и 70 %).
 // npm run shots -- table — только этот шаг.
+// Учёт вечера (#211): открытая «Демо: игра идёт» после записи выхода, закрытая «Демо: пятница» с итогом, второе
+// касание «Удалить игру» (без удаления), карточка постоянного игрока с открытой заметкой (своё хранилище: постоянный
+// и закрытая игра с ним — только там). npm run shots -- uchet — сценарий без столов покера: учёт, «Игроки»,
+// «Настройки», казино, справка.
+// Контраст (#211): после каждого снимка — замер на странице: текст к своему фону (не ниже 4,5 : 1, крупный —
+// 3 : 1) и края кнопок и полей к тому, что под ними (3 : 1); что ниже — строкой «контраст …», по разу на гамму.
+// Сбоем не считается: это подсказка для глаз, снимок — главное.
 // Chrome — google-chrome, google-chrome-stable или chromium; свой путь — переменная CHROME
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -36,6 +44,161 @@ const BOTS_TIMEOUT = 60_000 // боты ходят через секунду; м
 type Theme = 'night' | 'club' | 'day'
 const THEME_BUTTONS: Record<Theme, string> = { night: 'Ночь', club: 'Клуб', day: 'День' } // кнопки «Оформления»
 const FONTS = ['Golos Text', 'Geologica'] // шрифты приложения (src/fonts, #218): текст и заголовки
+let runTheme: Theme = 'night' // гамма всего сценария (SHOTS_THEME)
+const reported = new Set<string>() // замеры контраста, уже выведенные: гамма, что, цвета
+
+// ─── Замер контраста (#211) ──────────────────────────────────────────────────
+
+// Пара ниже нормы: что (текст, выключено, край), образец, где, цвет и фон, контраст и норма
+type Low = { kind: string; text: string; where: string; fg: string; bg: string; ratio: number; need: number }
+
+// Выполняется в странице (через toString — без ссылок наружу). Фон — всё, что под точкой (elementsFromPoint),
+// снизу вверх: заливки с прозрачностью и opacity предков; градиент (сукно) — каждый его цвет, берётся худший.
+// Фон картинкой — не замеряется. Крупный текст — от 1,2 rem жирным (от 600) или от 24 px
+function contrastProbe(): Low[] {
+  type Rgba = [number, number, number, number]
+  type Rgb = [number, number, number]
+  const COLOR = /rgba?\(([^)]*)\)/g
+  const parse = (s: string): Rgba | null => {
+    const m = /rgba?\(([^)]*)\)/.exec(s)
+    if (!m) return null
+    const p = m[1].split(/[\s,/]+/).filter(Boolean).map(Number)
+    return [p[0], p[1], p[2], p.length > 3 ? p[3] : 1]
+  }
+  const over = (top: Rgba, below: Rgb, alpha = 1): Rgb => {
+    const a = top[3] * alpha
+    return [top[0] * a + below[0] * (1 - a), top[1] * a + below[1] * (1 - a), top[2] * a + below[2] * (1 - a)]
+  }
+  const lum = (c: Rgb): number => {
+    const f = (v: number) => {
+      const s = v / 255
+      return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+    }
+    return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2])
+  }
+  const contrast = (a: Rgb, b: Rgb): number => {
+    const x = lum(a)
+    const y = lum(b)
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)
+  }
+  const hex = (c: Rgb): string => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')
+  const opacityOf = (el: Element): number => {
+    let o = 1
+    for (let x: Element | null = el; x; x = x.parentElement) o *= parseFloat(getComputedStyle(x).opacity)
+    return o
+  }
+  const where = (el: Element): string => {
+    const name = (x: Element) => x.tagName.toLowerCase() + [...x.classList].map((c) => '.' + c).join('')
+    const parent = el.parentElement?.closest('[class]')
+    return el.classList.length > 0 || !parent ? name(el) : `${name(el)} в ${name(parent)}`
+  }
+  // Цвета под точкой x, y — снизу вверх до el (self — и его заливка); null — фон картинкой или el не под точкой
+  const backdrops = (el: Element, x: number, y: number, self: boolean): Rgb[] | null => {
+    const stack = document.elementsFromPoint(x, y)
+    const i = stack.findIndex((s) => s === el || s.contains(el))
+    if (i < 0) return null
+    const layers = stack.slice(i).reverse()
+    // Сквозь касания (pointer-events: none — подсказка поверх стола) под точкой нет: el и его предки до найденного
+    const missed: Element[] = []
+    for (let x: Element | null = el; x && x !== stack[i]; x = x.parentElement) missed.unshift(x)
+    layers.push(...missed)
+    if (!self && layers[layers.length - 1] === el) layers.pop()
+    let all: Rgb[] = [[255, 255, 255]]
+    for (const layer of layers) {
+      const cs = getComputedStyle(layer)
+      const o = opacityOf(layer)
+      const fill = parse(cs.backgroundColor)
+      if (fill && fill[3] > 0) all = all.map((c) => over(fill, c, o))
+      const image = cs.backgroundImage
+      if (image && image !== 'none') {
+        if (image.includes('url(')) return null
+        const stops = [...image.matchAll(COLOR)].map((m) => parse(m[0])).filter((s): s is Rgba => s !== null)
+        if (stops.length > 0) all = all.flatMap((c) => stops.map((s) => over(s, c, o))).slice(0, 48)
+      }
+    }
+    return all
+  }
+  const rem = parseFloat(getComputedStyle(document.documentElement).fontSize)
+  const lows: Low[] = []
+  const seen = new Set<string>()
+  const add = (low: Low) => {
+    const key = `${low.kind}|${low.fg}|${low.bg}|${low.need}`
+    if (seen.has(key)) return
+    seen.add(key)
+    lows.push(low)
+  }
+  // Текст к своему фону: el — где он, rect — где на экране, color — его цвет
+  const text = (el: Element, sample: string, rect: DOMRect) => {
+    const cs = getComputedStyle(el)
+    if (cs.visibility !== 'visible' || rect.width < 1 || rect.height < 1) return
+    const x = rect.left + rect.width / 2
+    const y = rect.top + rect.height / 2
+    if (x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return
+    const color = parse(cs.color)
+    const o = opacityOf(el)
+    if (!color || color[3] * o < 0.05) return // не видно: анимация, пустая подсказка
+    const under = backdrops(el, x, y, true)
+    if (!under) return
+    const size = parseFloat(cs.fontSize)
+    const need = (size >= 1.2 * rem && parseInt(cs.fontWeight, 10) >= 600) || size >= 24 ? 3 : 4.5
+    let worst = Infinity
+    let fg: Rgb = [0, 0, 0]
+    let bg: Rgb = [0, 0, 0]
+    for (const b of under) {
+      const f = over(color, b, o)
+      const k = contrast(f, b)
+      if (k < worst) [worst, fg, bg] = [k, f, b]
+    }
+    if (worst >= need) return
+    const off = el.closest(':disabled') !== null
+    add({ kind: off ? 'выключено' : 'текст', text: sample.slice(0, 40), where: where(el), fg: hex(fg), bg: hex(bg), ratio: worst, need })
+  }
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    const sample = (n.textContent ?? '').trim()
+    const el = n.parentElement
+    if (!sample || !el || el.closest('script, style, option')) continue
+    const range = document.createRange()
+    range.selectNodeContents(n)
+    const rect = range.getClientRects()[0]
+    if (rect) text(el, sample, rect)
+  }
+  // Значения полей и выбранное в select
+  for (const el of document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+    'input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea',
+  )) {
+    const value = el instanceof HTMLSelectElement ? (el.selectedOptions[0]?.text ?? '') : el.value
+    if (value.trim()) text(el, value.trim(), el.getBoundingClientRect())
+  }
+  // Края: кнопки и поля с рамкой, рамка победителя казино и стола — рамка или заливка к тому, что под ними, от 3 : 1
+  for (const el of document.querySelectorAll('button, input, select, textarea, .casino-seat.winner, .casino-board.last, .seat.winner')) {
+    const cs = getComputedStyle(el)
+    if (parseFloat(cs.borderTopWidth) < 1 || cs.borderTopStyle === 'none' || el.matches(':disabled')) continue
+    if (el instanceof HTMLInputElement && ['checkbox', 'radio', 'range'].includes(el.type)) continue
+    const line = parse(cs.borderTopColor)
+    if (!line || line[3] === 0) continue
+    const r = el.getBoundingClientRect()
+    const x = r.left + r.width / 2
+    const y = r.top + r.height / 2
+    if (r.width < 1 || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) continue
+    const under = backdrops(el, x, y, false)
+    if (!under) continue
+    const o = opacityOf(el)
+    const fill = parse(cs.backgroundColor) ?? [0, 0, 0, 0]
+    let worst = Infinity
+    let fg: Rgb = [0, 0, 0]
+    let bg: Rgb = [0, 0, 0]
+    for (const b of under) {
+      const edge = over(line, b, o)
+      const k = Math.max(contrast(edge, b), contrast(over(fill, b, o), b))
+      if (k < worst) [worst, fg, bg] = [k, edge, b]
+    }
+    if (worst >= 3) continue
+    const sample = (el instanceof HTMLElement ? el.innerText : '').trim().split('\n')[0] || el.getAttribute('aria-label') || el.getAttribute('placeholder') || ''
+    add({ kind: 'край', text: sample.slice(0, 40), where: where(el), fg: hex(fg), bg: hex(bg), ratio: worst, need: 3 })
+  }
+  return lows
+}
 
 // ─── DevTools-протокол ───────────────────────────────────────────────────────
 
@@ -121,12 +284,14 @@ class Device {
   private session: string
   readonly size: Size
   private prefix: string // перед именем снимка: «club-» у снимков другой гаммы, иначе пусто
+  private theme: string // гамма снимков этого устройства — для строк замера контраста
 
   private constructor(cdp: Cdp, session: string, size: Size, prefix: string) {
     this.cdp = cdp
     this.session = session
     this.size = size
     this.prefix = prefix
+    this.theme = prefix ? prefix.slice(0, -1) : runTheme
   }
 
   static async open(cdp: Cdp, size: Size, prefix = ''): Promise<Device> {
@@ -230,10 +395,21 @@ class Device {
       await sleep(300)
     }
     const { data } = await this.cdp.send<{ data: string }>('Page.captureScreenshot', { format: 'png' }, this.session)
+    const lows = await this.eval<Low[]>(`(${contrastProbe.toString()})()`).catch((error: unknown) => {
+      console.log('  контраст не замерен:', error instanceof Error ? error.message.split('\n')[0] : error)
+      return [] as Low[]
+    })
     if (height > this.size.height) await this.metrics(this.size.height)
     const path = join(OUT, `${this.size.name}-${this.prefix}${file}.png`)
     await writeFile(path, Buffer.from(data, 'base64'))
     console.log('  снимок', path)
+    for (const low of lows) {
+      const key = `${this.theme}|${low.kind}|${low.fg}|${low.bg}|${low.need}`
+      if (reported.has(key)) continue
+      reported.add(key)
+      const ratio = low.ratio.toFixed(2).replace('.', ',')
+      console.log(`  контраст ${this.theme}: ${ratio} : 1 (нужно ${String(low.need).replace('.', ',')}) — ${low.kind} «${low.text}», ${low.where}: ${low.fg} на ${low.bg}`)
+    }
   }
 
   // Снимок стола покера — первый экран; на широком окне (#210) сначала — ни одно место не под панелью хода
@@ -310,15 +486,126 @@ async function settingsStep(d: Device, theme: Theme): Promise<void> {
     await d.goto('#/settings')
     await d.waitText('Добавить демо-данные')
     await d.fontsLoaded() // первый экран каждого размера
-    if (theme !== 'night') {
-      await d.click(THEME_BUTTONS[theme])
-      await d.waitFor(`html[data-theme="${theme}"]`)
-    }
+    await pickTheme(d, theme)
     await d.shot('05-nastroyki')
     // Демо-игры (Р-04) — для «Игр» и казино
     await d.click('Добавить демо-данные')
     await d.waitText('Добавлено демо-игр')
   })
+}
+
+// Учёт вечера (#211): открытая игра после записи выхода, закрытая с итогом и переводами, второе касание «Удалить игру»
+async function accountingStep(d: Device): Promise<void> {
+  await screen('Игра идёт', d.size, async () => {
+    await d.goto('#/')
+    await d.waitText('Демо: игра идёт')
+    await d.click('Демо: игра идёт')
+    await d.waitText('Закрыть игру')
+    await recordExit(d, 'Вера', 1000) // у Веры выхода не было; 1 000 из 1 500 — игра не сходится на 500 фишек
+    await d.waitText('Не хватает 500 фишек')
+    await d.shot('10-igra')
+  })
+  await screen('Итог', d.size, async () => {
+    await d.goto('#/')
+    await d.waitText('Демо: пятница')
+    await d.click('Демо: пятница')
+    await d.waitText('Открыть снова')
+    await d.shot('11-itog')
+  })
+  await screen('Удалить игру', d.size, async () => {
+    await d.click('Удалить игру')
+    await d.waitText('Точно удалить')
+    await d.shot('13-udalit')
+    await d.click('Отмена') // игру не удалять
+    await d.waitText('Удалить игру')
+  })
+}
+
+// Карточка постоянного игрока — своё хранилище: постоянные «Аня» и «Боря», закрытая игра с ними (закуп по умолчанию,
+// выходы 1 500 и 500); в карточке Ани — открытая заметка с выбранным цветом. Постоянные — только здесь:
+// у остальных шагов (столы, казино) участников они бы поменяли
+async function playerStep(cdp: Cdp, size: Size, theme: Theme): Promise<void> {
+  await screen('Карточка игрока', size, async () => {
+    const d = await Device.open(cdp, size)
+    await d.goto('#/settings')
+    await d.waitText('Постоянные игроки')
+    await pickTheme(d, theme)
+    for (const name of ['Аня', 'Боря']) {
+      await d.type('input[placeholder="Имя игрока"]', name)
+      await submit(d, 'input[placeholder="Имя игрока"]')
+      await d.waitText(name)
+    }
+    await d.goto('#/')
+    await d.click('Записать игру')
+    await d.click('Вручную')
+    await d.waitText('Новая игра')
+    await d.waitText('Участники: 2 из 2')
+    await d.click('Создать')
+    await d.waitText('Записать всем закуп')
+    await d.click('Да')
+    await d.waitText('Закрыть игру')
+    await recordExit(d, 'Аня', 1500)
+    await recordExit(d, 'Боря', 500)
+    await d.click('Закрыть игру')
+    await d.waitText('Открыть снова')
+    await d.goto('#/players')
+    await d.waitText('Аня')
+    await d.click('Аня')
+    await d.waitText('За всё время')
+    await d.click('Написать заметку')
+    await d.waitFor('button.note-color')
+    await d.eval("(document.querySelector('button.note-color').click(), true)")
+    await d.waitFor('button.note-color.on')
+    await d.shot('12-igrok')
+  })
+}
+
+// Гамма — касанием в «Оформлении» на открытых «Настройках»; «Ночь» — как у того, кто не выбирал
+async function pickTheme(d: Device, theme: Theme): Promise<void> {
+  if (theme === 'night') return
+  await d.click(THEME_BUTTONS[theme])
+  await d.waitFor(`html[data-theme="${theme}"]`)
+}
+
+// Свежее хранилище — гамма сценария (SHOTS_THEME) касанием в «Настройках», без снимка (#211)
+async function themeOnly(d: Device): Promise<void> {
+  if (runTheme === 'night') return
+  await d.goto('#/settings')
+  await d.waitText('Добавить демо-данные')
+  await pickTheme(d, runTheme)
+}
+
+// Отправить форму поля selector — как Enter в поле
+async function submit(d: Device, selector: string): Promise<void> {
+  const done = await d.eval<boolean>(`(() => {
+    const el = document.querySelector(${JSON.stringify(selector)})
+    if (!el || !el.form) return false
+    el.form.requestSubmit()
+    return true
+  })()`)
+  if (!done) throw new Error(`нет формы у поля ${selector}`)
+}
+
+// Записать выход участнику игры: «Выход» в его карточке → число → «Выход»
+async function recordExit(d: Device, name: string, chips: number): Promise<void> {
+  const field = 'input[aria-label="Выход, фишек"]'
+  const done = await d.eval<boolean>(`(() => {
+    const card = [...document.querySelectorAll('li.card.player')].find((li) => li.querySelector('.player-head strong')?.textContent.trim() === ${JSON.stringify(name)})
+    const button = card && [...card.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Выход')
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  if (!done) throw new Error(`нет кнопки «Выход» у «${name}»`)
+  await d.waitFor(field)
+  await d.type(field, String(chips))
+  await sleep(100)
+  await submit(d, field)
+  const started = Date.now()
+  while (await d.eval<boolean>(`!!document.querySelector(${JSON.stringify(field)})`)) {
+    if (Date.now() - started > TIMEOUT) throw new Error(`выход «${name}» не записался`)
+    await sleep(200)
+  }
 }
 
 async function gamesStep(d: Device): Promise<void> {
@@ -367,12 +654,15 @@ async function themeScenario(cdp: Cdp, size: Size, theme: Theme): Promise<void> 
   await playContinueStep(d)
 }
 
-async function scenario(cdp: Cdp, size: Size, theme: Theme): Promise<void> {
+// uchet — без столов покера (npm run shots -- uchet): учёт, «Игроки», «Настройки», казино, справка
+async function scenario(cdp: Cdp, size: Size, theme: Theme, uchet: boolean): Promise<void> {
   console.log(`Размер ${size.width} × ${size.height}`)
   const d = await Device.open(cdp, size)
 
   await settingsStep(d, theme)
   await gamesStep(d)
+  await accountingStep(d)
+  await playerStep(cdp, size, theme)
 
   await screen('Игроки', size, async () => {
     await d.goto('#/players')
@@ -390,6 +680,13 @@ async function scenario(cdp: Cdp, size: Size, theme: Theme): Promise<void> {
     await d.shot('08-vid-stola')
   })
 
+  if (!uchet) await pokerSteps(d)
+  await casinoAndHelpSteps(d)
+}
+
+// «Играть», против ботов, «Продолжить», стол на этом телефоне — после «Вида стола», до казино
+async function pokerSteps(d: Device): Promise<void> {
+  const size = d.size
   await playStep(d)
 
   await screen('Против ботов', size, async () => {
@@ -438,7 +735,11 @@ async function scenario(cdp: Cdp, size: Size, theme: Theme): Promise<void> {
     await sleep(500)
     await d.tableShot('09b-stol-na-telefone-pererejz')
   })
+}
 
+// Казино (на телефоне — ещё на шестерых) и справка — в конце сценария
+async function casinoAndHelpSteps(d: Device): Promise<void> {
+  const size = d.size
   await screen('Казино', size, async () => {
     await d.goto('#/poker')
     await d.waitText('Войти по ссылке')
@@ -505,6 +806,7 @@ async function localTable(d: Device): Promise<void> {
 
 // Против ботов с bots ботами (1…5) — с чистого хранилища: форма, «Начать», мой ход
 async function botsTable(d: Device, bots: number): Promise<void> {
+  await themeOnly(d)
   await d.goto('#/poker')
   await d.waitText('Сесть за стол')
   await d.click('Сесть за стол')
@@ -550,6 +852,7 @@ async function wideTableStep(cdp: Cdp, size: Size): Promise<void> {
   })
   await screen('Стол на этом телефоне, 10 мест', size, async () => {
     const d = await Device.open(cdp, size)
+    await themeOnly(d)
     await localTable(d)
     await d.tableShot('10e-stol-10-mest')
     await tableFit(d, 'large', 100)
@@ -648,6 +951,7 @@ function shotsTheme(): Theme {
 
 async function main(): Promise<void> {
   const theme = shotsTheme()
+  runTheme = theme
   await rm(OUT, { recursive: true, force: true })
   await mkdir(OUT, { recursive: true })
   console.log('Сборка сайта…')
@@ -662,9 +966,10 @@ async function main(): Promise<void> {
     chrome = launched.process
     cdp = await Cdp.connect(launched.url)
     const onlyTable = process.argv.includes('table') // npm run shots -- table: только места и панель (#210)
-    if (!onlyTable) for (const size of SIZES) await scenario(cdp, size, theme)
-    for (const size of SIZES) await wideTableStep(cdp, size)
-    if (!process.env.SHOTS_THEME && !onlyTable) {
+    const uchet = process.argv.includes('uchet') // npm run shots -- uchet: без столов покера (#211)
+    if (!onlyTable) for (const size of SIZES) await scenario(cdp, size, theme, uchet)
+    if (!uchet) for (const size of SIZES) await wideTableStep(cdp, size)
+    if (!process.env.SHOTS_THEME && !onlyTable && !uchet) {
       for (const other of ['club', 'day'] as const) for (const size of SIZES) await themeScenario(cdp, size, other)
     }
     console.log('Готово: снимки в', OUT)
