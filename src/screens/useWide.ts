@@ -3,20 +3,24 @@ import { useEffect, useState } from 'react'
 // Широкое окно (Р-53): от 1024 px — раскладка для компьютера. Тот же порог, что у @media в styles.css
 export const WIDE_QUERY = '(min-width: 1024px)'
 
-function matches(): boolean {
-  return typeof matchMedia === 'function' && matchMedia(WIDE_QUERY).matches
+// Широкое и не высокое окно (Р-63): стол покера с панелью хода у его правого нижнего угла (#210) —
+// тот же запрос, что у @media стола в styles.css
+export const WIDE_TABLE_QUERY = '(min-width: 1024px) and (min-aspect-ratio: 1/1)'
+
+function matches(query: string): boolean {
+  return typeof matchMedia === 'function' && matchMedia(query).matches
 }
 
-// true — окно не уже порога; меняется само, когда окно растягивают или сужают
-export function useWide(): boolean {
-  const [wide, setWide] = useState(matches)
+// true — окно подходит под запрос (сначала — не уже порога); меняется само, когда окно растягивают или сужают
+export function useWide(query: string = WIDE_QUERY): boolean {
+  const [wide, setWide] = useState(() => matches(query))
   useEffect(() => {
     if (typeof matchMedia !== 'function') return
-    const query = matchMedia(WIDE_QUERY)
-    const update = () => setWide(query.matches)
+    const list = matchMedia(query)
+    const update = () => setWide(list.matches)
     update()
-    query.addEventListener('change', update)
-    return () => query.removeEventListener('change', update)
-  }, [])
+    list.addEventListener('change', update)
+    return () => list.removeEventListener('change', update)
+  }, [query])
   return wide
 }

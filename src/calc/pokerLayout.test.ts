@@ -6,11 +6,16 @@ import {
   betSlider,
   betStepChips,
   dockOf,
+  MAX_RIGHT_Y,
+  MY_SPOT_WIDE,
   parseBetStep,
   potShareAmount,
   SEAT_H,
+  SEAT_H_WIDE,
   SEAT_W,
+  SEAT_W_WIDE,
   seatSpots,
+  seatSpotsWide,
   SLIDER_TRACK,
   sliderAmount,
   sliderIndex,
@@ -20,6 +25,7 @@ import {
   waitLine,
   type BetSlider,
   type BetSpot,
+  type Spot,
 } from './pokerLayout'
 
 describe('рассадка вокруг стола', () => {
@@ -112,6 +118,55 @@ describe('рассадка вокруг стола', () => {
     expect(new Set(spots.map((p) => `${p.x}:${p.y}`)).size).toBe(12)
   })
 
+  it('широкое окно: образец на шестерых — я левее центра внизу, справа — не ниже панели', () => {
+    expect(seatSpotsWide(6)).toEqual([
+      { x: 36, y: 100 },
+      { x: 0, y: 40 },
+      { x: 15, y: 0 },
+      { x: 50, y: 0 },
+      { x: 85, y: 0 },
+      { x: 100, y: 40 },
+    ])
+    expect(seatSpotsWide(1)).toEqual([MY_SPOT_WIDE])
+    // Я на месте 2: место 2 — точка 0, место 3 — точка 1 … место 1 — точка 5
+    expect(spotsBySeat(6, 2, true)).toEqual(Array.from({ length: 6 }, (_, k) => seatSpotsWide(6)[(k + 4) % 6]))
+    expect(spotsBySeat(6, null, true)).toEqual(seatSpotsWide(6))
+  })
+
+  it('широкое окно, 2…10 мест, любое моё место: точки разные, по часовой, соседи не наезжают, справа внизу пусто', () => {
+    for (let n = 2; n <= 10; n++) {
+      for (let me = 0; me < n; me++) {
+        const spots = spotsBySeat(n, me, true)
+        expect(spots).toHaveLength(n)
+        expect(spots[me]).toEqual(MY_SPOT_WIDE)
+        expect(new Set(spots.map((p) => `${p.x}:${p.y}`)).size, `${n} мест, я на ${me}`).toBe(n)
+        // По часовой от меня: угол от центра стола (экранный, y вниз) растёт по номерам мест
+        const angles = Array.from({ length: n }, (_, k) => spotAngle(spots[(me + k) % n]))
+        const from = angles[0]
+        const turned = angles.map((a) => (a - from + 720) % 360)
+        for (let k = 1; k < n; k++) expect(turned[k], `${n} мест, я на ${me}: ${k}-й после меня`).toBeGreaterThan(turned[k - 1])
+        // Места — прямоугольники, как на экране: не пересекаются
+        for (let i = 0; i < n; i++) {
+          for (let j = i + 1; j < n; j++) {
+            const a = wideRect(spots[i], i === me)
+            const b = wideRect(spots[j], j === me)
+            expect(overlap(a, b), `${n} мест, я на ${me}: ${i} и ${j}`).toBe(false)
+          }
+        }
+        // Справа внизу — панель хода: чужих мест там нет, справа — не ниже MAX_RIGHT_Y
+        for (const [k, p] of spots.entries()) {
+          if (k === me) continue
+          expect(p.x > 45 && p.y > 45, `${n} мест, я на ${me}: место ${k} под панелью`).toBe(false)
+          if (p.x > 45) expect(p.y).toBeLessThanOrEqual(MAX_RIGHT_Y)
+          expect(p.x).toBeGreaterThanOrEqual(0)
+          expect(p.x).toBeLessThanOrEqual(100)
+          expect(p.y).toBeGreaterThanOrEqual(0)
+          expect(p.y).toBeLessThanOrEqual(100)
+        }
+      }
+    }
+  })
+
   it('ставка — у края места со стороны стола; у моего места — сбоку: над ним центр стола', () => {
     expect(betSide({ x: 50, y: 100 })).toBe('right')
     expect(betSide({ x: 70, y: 80 })).toBe('left')
@@ -122,6 +177,26 @@ describe('рассадка вокруг стола', () => {
     expect(betSide({ x: 67, y: 0 })).toBe('below')
   })
 })
+
+// Угол точки от центра слоя мест, 0…360°, по часовой на экране (y вниз)
+function spotAngle(p: Spot): number {
+  return ((Math.atan2(p.y - 50, p.x - 50) * 180) / Math.PI + 360) % 360
+}
+
+type Rect = { left: number; right: number; top: number; bottom: number }
+
+// Место на широком окне в процентах слоя мест — как в styles.css: моё и нижние (y ≥ 90) растут вверх от точки,
+// остальные — по центру точки; моё — в 1,3 раза шире
+function wideRect(p: Spot, mine: boolean): Rect {
+  const w = (mine ? 1.3 : 1) * SEAT_W_WIDE
+  const up = mine || p.y >= 90
+  const top = up ? p.y - SEAT_H_WIDE : p.y - SEAT_H_WIDE / 2
+  return { left: p.x - w / 2, right: p.x + w / 2, top, bottom: top + SEAT_H_WIDE }
+}
+
+function overlap(a: Rect, b: Rect): boolean {
+  return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom
+}
 
 describe('панель внизу экрана стола', () => {
   const view = (o: Partial<Parameters<typeof dockOf>[0]> = {}) => ({

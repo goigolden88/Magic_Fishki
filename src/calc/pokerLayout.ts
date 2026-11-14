@@ -5,10 +5,11 @@ import { formatBB, formatNumber, stackText } from './format'
 export type Spot = { x: number; y: number } // проценты слоя мест: x — слева, y — сверху
 
 // Точки по номеру места (#98): точек — на все «Мест за столом», и занятых, и свободных; моё место —
-// точка 0 (внизу по центру), дальше по номерам мест по часовой. Меня за столом нет — внизу место 0.
-// Элемент k — точка места k: пересел — точка другая, остальные стоят где стояли
-export function spotsBySeat(maxSeats: number, mySeat: number | null): Spot[] {
-  const spots = seatSpots(maxSeats)
+// точка 0 (внизу), дальше по номерам мест по часовой. Меня за столом нет — внизу место 0.
+// Элемент k — точка места k: пересел — точка другая, остальные стоят где стояли.
+// wide — широкое окно с панелью хода у стола (#210): точки seatSpotsWide, иначе — seatSpots
+export function spotsBySeat(maxSeats: number, mySeat: number | null, wide = false): Spot[] {
+  const spots = wide ? seatSpotsWide(maxSeats) : seatSpots(maxSeats)
   const n = spots.length
   const shift = mySeat ?? 0
   return spots.map((_, k) => spots[(((k - shift) % n) + n) % n])
@@ -45,6 +46,53 @@ export function seatSpots(n: number): Spot[] {
   if (!set) return Array.from({ length: k }, (_, i) => ovalSpot(i, k))
   const right = [...set.left].reverse().map((p) => ({ x: 100 - p.x, y: p.y }))
   return [{ x: 50, y: 100 }, ...set.left, ...set.top, ...right]
+}
+
+// Широкое окно (#210): панель хода стоит у правого нижнего угла стола, поверх его края, — моё место левее
+// центра внизу, остальные по часовой: (внизу слева при 10), столбиком вверх по левому краю, по верху слева
+// направо, справа — не ниже MAX_RIGHT_Y: справа внизу, под панелью, мест нет. Соседи — не ближе
+// SEAT_W_WIDE × SEAT_H_WIDE (места — прямоугольники, как на экране)
+export const MY_SPOT_WIDE: Spot = { x: 36, y: 100 }
+
+// Сколько места занимает место на широком окне, в процентах слоя мест: замер на 1366 × 768 при «Размере стола»
+// 100 % (слой мест ≈ 1200 × 630 px, место ≈ 115 px шириной, моё — в 1,3 раза шире; высота — с HUD и картами)
+export const SEAT_W_WIDE = 10
+export const SEAT_H_WIDE = 20
+// Ниже этой точки справа мест нет: под ней — панель хода («Крупная», ход с ползунком)
+export const MAX_RIGHT_Y = 40
+
+const SPOTS_WIDE: Spot[][] = [
+  [], // 1 — только я
+  [{ x: 50, y: 0 }],
+  [{ x: 0, y: 40 }, { x: 100, y: 40 }],
+  [{ x: 0, y: 40 }, { x: 50, y: 0 }, { x: 100, y: 40 }],
+  [{ x: 0, y: 40 }, { x: 30, y: 0 }, { x: 70, y: 0 }, { x: 100, y: 40 }],
+  [{ x: 0, y: 40 }, { x: 15, y: 0 }, { x: 50, y: 0 }, { x: 85, y: 0 }, { x: 100, y: 40 }],
+  [{ x: 0, y: 72 }, { x: 0, y: 30 }, { x: 15, y: 0 }, { x: 50, y: 0 }, { x: 85, y: 0 }, { x: 100, y: 40 }],
+  [
+    { x: 0, y: 72 }, { x: 0, y: 30 },
+    { x: 15, y: 0 }, { x: 38, y: 0 }, { x: 62, y: 0 }, { x: 85, y: 0 },
+    { x: 100, y: 40 },
+  ],
+  [
+    { x: 0, y: 75 }, { x: 0, y: 35 },
+    { x: 10, y: 0 }, { x: 30, y: 0 }, { x: 50, y: 0 }, { x: 70, y: 0 }, { x: 90, y: 0 },
+    { x: 100, y: 40 },
+  ],
+  [
+    { x: 12, y: 100 }, { x: 0, y: 62 }, { x: 0, y: 24 },
+    { x: 10, y: 0 }, { x: 30, y: 0 }, { x: 50, y: 0 }, { x: 70, y: 0 }, { x: 90, y: 0 },
+    { x: 100, y: 40 },
+  ],
+]
+
+// Точки n мест на широком окне по порядку: 0 — я (левее центра внизу), дальше по часовой.
+// Мест больше десяти — как на телефоне (seatSpots): таких столов нет
+export function seatSpotsWide(n: number): Spot[] {
+  const k = Math.max(1, Math.round(n))
+  const set = SPOTS_WIDE[k - 1]
+  if (!set) return seatSpots(k)
+  return [MY_SPOT_WIDE, ...set]
 }
 
 function ovalSpot(i: number, n: number): Spot {

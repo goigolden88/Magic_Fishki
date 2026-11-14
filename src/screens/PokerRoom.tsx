@@ -99,6 +99,7 @@ import { TimerFields, timerForm, type TimerForm } from './TimerFields'
 import { PrizeFields, TournamentPanel, TournamentResults } from './Tournament'
 import { signalTurn, unlockSound } from './turnSignal'
 import { useRoom, type Lobby, type Room } from './useRoom'
+import { useWide, WIDE_TABLE_QUERY } from './useWide'
 
 // Стол покера онлайн (Р-14, Р-19): вход по ссылке, ставки с телефонов, кнопки ведущего.
 // Карты живые — на столе; экран ведёт фишки, банки и очередь хода. Карты на телефонах (Р-23) —
@@ -995,8 +996,9 @@ function ShowCard(props: {
   )
 }
 
-// Овальный стол: я внизу по центру, остальные по номерам мест по часовой (готовые точки — seatSpots
-// на все «Мест за столом», spotsBySeat); между раздачами — и свободные места (#98). Ставка улицы — у места
+// Стол — «стадион» (#210): я внизу по центру, остальные по номерам мест по часовой (готовые точки — seatSpots
+// на все «Мест за столом», spotsBySeat); на широком окне с панелью у угла стола — я левее центра,
+// точки seatSpotsWide; между раздачами — и свободные места (#98). Ставка улицы — у места
 // со стороны стола, в центре — улица и банк. Стол заполняет свою рамку (#97): у комнаты и у стола
 // на телефоне — всё место над панелью хода. open — свои карты лицом без пальца (#86).
 // onSeat — касание свободного места пересаживает меня туда; нет — свободные места только видны.
@@ -1016,7 +1018,9 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
   const toggleUnit = useUnitToggle(inBB)
   const mine = v.seats.some((s) => s.isMe)
   const bottom = v.me?.seat ?? 0
-  const spots = spotsBySeat(v.maxSeats, v.me?.seat ?? null)
+  // Широкое окно (#210): панель хода — у правого нижнего угла стола, точки мест — свои, справа внизу мест нет
+  const wide = useWide(WIDE_TABLE_QUERY)
+  const spots = spotsBySeat(v.maxSeats, v.me?.seat ?? null, wide)
   const hudSeat = v.seats.find((s) => s.id === hudOf && s.hud !== null)
   const showNote = (name: string, edit: boolean) => {
     setHudOf(null)
