@@ -237,8 +237,8 @@ class Device {
   }
 
   // Снимок стола покера — первый экран; на широком окне (#210) сначала — ни одно место не под панелью хода
+  // Без лишней паузы: боты ходят раз в секунду, а следующий шаг может ждать их раздачу (#194)
   async tableShot(file: string): Promise<void> {
-    await sleep(400) // перерисовка
     await seatsClearOfDock(this)
     await this.shot(file, false)
   }
