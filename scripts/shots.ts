@@ -11,6 +11,9 @@
 // и «Играть» с полосой «Продолжить» (#209) («ширина-гамма-номер-экран.png»). SHOTS_THEME=club или day — весь сценарий в этой гамме (имена прежние), без остальных.
 // Гамма выбирается касанием в «Настройках», как у человека.
 // Шрифты (#218): снимок — после document.fonts.ready; на первом экране каждого размера оба шрифта должны быть загружены.
+// Стол на широком окне (#210): на каждом снимке стола на 1366 и 1920 — проверка, что ни одно место (.seat) не под
+// панелью хода (.table-dock), иначе сбой; ещё — свой шаг «Места и панель» (2, 6 и 10 мест, «Крупная» при 100 и 70 %).
+// npm run shots -- table — только этот шаг.
 // Chrome — google-chrome, google-chrome-stable или chromium; свой путь — переменная CHROME
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -140,6 +143,19 @@ class Device {
     await this.cdp.send('Page.navigate', { url: SITE + hash }, this.session)
   }
 
+  // Перезагрузить страницу (смена одного хеша её не перезагружает) и дождаться новой
+  async reload(): Promise<void> {
+    await this.eval('window.__beforeReload = true')
+    await this.cdp.send('Page.reload', {}, this.session)
+    const started = Date.now()
+    while (Date.now() - started < TIMEOUT) {
+      const fresh = await this.eval<boolean>("!window.__beforeReload && document.readyState === 'complete'").catch(() => false)
+      if (fresh) return
+      await sleep(200)
+    }
+    throw new Error('страница не перезагрузилась')
+  }
+
   async eval<T>(expression: string): Promise<T> {
     const r = await this.cdp.send<{ result: { value: T }; exceptionDetails?: { exception?: { description?: string }; text: string } }>(
       'Runtime.evaluate',
@@ -220,6 +236,13 @@ class Device {
     console.log('  снимок', path)
   }
 
+  // Снимок стола покера — первый экран; на широком окне (#210) сначала — ни одно место не под панелью хода
+  async tableShot(file: string): Promise<void> {
+    await sleep(400) // перерисовка
+    await seatsClearOfDock(this)
+    await this.shot(file, false)
+  }
+
   // Оба шрифта приложения (#218) загружены: иначе снимки были бы системным шрифтом
   async fontsLoaded(): Promise<void> {
     const loaded = await this.eval<string[]>(
@@ -232,6 +255,41 @@ class Device {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// Стол на широком и не высоком окне (#210): панель хода — поверх правого нижнего угла стола, и ни одно место
+// не под ней — прямоугольники каждого .seat и .table-dock не пересекаются, иначе сбой. Заодно — замер: самое
+// крупное место в процентах слоя мест (SEAT_W_WIDE, SEAT_H_WIDE в src/calc/pokerLayout.ts)
+async function seatsClearOfDock(d: Device): Promise<void> {
+  if (d.size.width < 1024 || d.size.width < d.size.height) return
+  const r = await d.eval<{ seats: number; hits: string[]; w: number; h: number; dock: string }>(`(() => {
+    const dock = document.querySelector('.table-dock').getBoundingClientRect()
+    const layer = document.querySelector('.spots').getBoundingClientRect()
+    const seats = [...document.querySelectorAll('.seat')]
+    const hits = []
+    let w = 0
+    let h = 0
+    for (const el of seats) {
+      const s = el.getBoundingClientRect()
+      w = Math.max(w, (s.width * 100) / layer.width)
+      h = Math.max(h, (s.height * 100) / layer.height)
+      const open = dock.width > 0 && dock.height > 0 // панели нет — пустой блок без высоты
+      if (open && s.left < dock.right && dock.left < s.right && s.top < dock.bottom && dock.top < s.bottom) {
+        hits.push((el.querySelector('.seat-name') || el).textContent.trim())
+      }
+    }
+    const pct = (n) => Math.round(n * 10) / 10
+    return {
+      seats: seats.length,
+      hits,
+      w: pct(w),
+      h: pct(h),
+      dock: Math.round(dock.width) + ' × ' + Math.round(dock.height) + ' px с ' + pct(((dock.left - layer.left) * 100) / layer.width) + ' % по ширине, ' + pct(((dock.top - layer.top) * 100) / layer.height) + ' % по высоте слоя мест',
+    }
+  })()`)
+  if (r.seats === 0) throw new Error('за столом нет мест')
+  console.log(`  мест ${r.seats}: самое крупное — ${r.w} × ${r.h} % слоя мест; панель ${r.dock}`)
+  if (r.hits.length > 0) throw new Error(`места под панелью хода: ${r.hits.join(', ')}`)
 }
 
 // Шаг сценария: сбой — с названием экрана и размером
@@ -304,7 +362,7 @@ async function themeScenario(cdp: Cdp, size: Size, theme: Theme): Promise<void> 
     await d.click('Начать')
     await d.waitText('Стол с ботами')
     await myTurn(d)
-    await d.shot('03-protiv-botov', false)
+    await d.tableShot('03-protiv-botov')
   })
   await playContinueStep(d)
 }
@@ -342,58 +400,43 @@ async function scenario(cdp: Cdp, size: Size, theme: Theme): Promise<void> {
     await d.click('Начать')
     await d.waitText('Стол с ботами')
     await myTurn(d)
-    await d.shot('03-protiv-botov', false)
+    await d.tableShot('03-protiv-botov')
     // Касание своего имени (Р-64) — суммы в ББ, с подсказкой; снова — обратно в фишки
     await tapMyName(d)
     await d.waitText('Суммы в ББ')
     await d.waitText(' ББ')
-    await d.shot('03b-protiv-botov-bb', false)
+    await d.tableShot('03b-protiv-botov-bb')
     await tapMyName(d)
     await d.waitText('Суммы в фишках')
     // Пас — боты играют дальше: внизу «Доиграть сразу» (#194); нажал — сразу итог раздачи
     await foldUntilPlayOn(d)
-    await d.shot('03c-protiv-botov-doigrat', false)
+    await d.tableShot('03c-protiv-botov-doigrat')
     await d.click('Доиграть сразу')
     await d.waitText('Новая раздача через') // раздача кончилась — отсчёт до следующей («Быстро» в форме сначала)
-    await d.shot('03d-protiv-botov-itog', false)
+    await d.tableShot('03d-protiv-botov-itog')
     // «Докупить всех до N» (#195): после раздачи у кого-то меньше стартового стека; «Перерыв» — чтобы отсчёт
     // не начал следующую раздачу до снимка. Нажал — у всех не меньше стартового, кнопки нет
     await d.waitText('Докупить всех до')
     await d.click('Перерыв')
     await d.waitText('Продолжить')
-    await d.shot('03e-protiv-botov-dokupit-vseh', false)
+    await d.tableShot('03e-protiv-botov-dokupit-vseh')
     await d.click('Докупить всех до')
     await waitGone(d, 'Докупить всех до')
-    await d.shot('03f-protiv-botov-dokupleny', false)
+    await d.tableShot('03f-protiv-botov-dokupleny')
   })
 
   await playContinueStep(d)
 
   // Стол на одном телефоне на 10 мест — самый тесный стол: места не наезжают на панель хода
   await screen('Стол на этом телефоне', size, async () => {
-    await d.goto('#/poker')
-    await d.waitText('Войти по ссылке')
-    await d.click('Открыть стол')
-    await d.waitText('Ведущий ходит за каждого')
-    for (const name of GUESTS) {
-      await d.type('input[aria-label="Имя гостя"]', name)
-      await sleep(100)
-      await d.click('Добавить')
-      await sleep(100)
-    }
-    await d.waitText(`За столом: ${GUESTS.length}`)
-    await d.click('Начать')
-    await d.waitText('Удалить стол')
-    await d.click('Начать раздачу')
-    await d.waitFor('.dock.actions')
-    await sleep(1500) // раздача долетела
-    await d.shot('09-stol-na-telefone', false)
+    await localTable(d)
+    await d.tableShot('09-stol-na-telefone')
     // Рейз до флопа — у следующего быстрые кнопки перерейза от ставки круга (Р-66)
     await d.click('3 ББ')
     await d.click('Рейз до')
     await d.waitText('×2,5')
     await sleep(500)
-    await d.shot('09b-stol-na-telefone-pererejz', false)
+    await d.tableShot('09b-stol-na-telefone-pererejz')
   })
 
   await screen('Казино', size, async () => {
@@ -437,6 +480,82 @@ async function scenario(cdp: Cdp, size: Size, theme: Theme): Promise<void> {
     await d.goto('#/help')
     await d.waitFor('details.card.help')
     await d.shot('06-spravka')
+  })
+}
+
+// Стол на одном телефоне на 10 гостей (выдуманные имена): раздача началась, ход — у первого, панель хода с ползунком
+async function localTable(d: Device): Promise<void> {
+  await d.goto('#/poker')
+  await d.waitText('Войти по ссылке')
+  await d.click('Открыть стол')
+  await d.waitText('Ведущий ходит за каждого')
+  for (const name of GUESTS) {
+    await d.type('input[aria-label="Имя гостя"]', name)
+    await sleep(100)
+    await d.click('Добавить')
+    await sleep(100)
+  }
+  await d.waitText(`За столом: ${GUESTS.length}`)
+  await d.click('Начать')
+  await d.waitText('Удалить стол')
+  await d.click('Начать раздачу')
+  await d.waitFor('.dock.actions')
+  await sleep(1500) // раздача долетела
+}
+
+// Против ботов с bots ботами (1…5) — с чистого хранилища: форма, «Начать», мой ход
+async function botsTable(d: Device, bots: number): Promise<void> {
+  await d.goto('#/poker')
+  await d.waitText('Сесть за стол')
+  await d.click('Сесть за стол')
+  await d.waitText('Карты ботов открыты')
+  await d.click(String(bots))
+  await d.click('Начать')
+  await d.waitText(`Ботов: ${bots}`)
+  await myTurn(d)
+}
+
+// «Панель ставок» и «Размер стола» (Р-63) — как их пишут «Настройки», в память устройства; стол читает их
+// при открытии — страница перезагружается, ход остаётся
+async function tableFit(d: Device, dock: 'medium' | 'large', size: number): Promise<void> {
+  await d.eval(`(() => {
+    localStorage.setItem('fishki.poker.dockSize', ${JSON.stringify(dock)})
+    localStorage.setItem('fishki.poker.tableSize', ${JSON.stringify(String(size))})
+    return true
+  })()`)
+  await d.reload()
+  await d.waitFor('.dock.actions')
+  await sleep(1500) // стол отрисован, без полёта карт
+}
+
+// Места и панель на широком окне (#210) — только 1366 и 1920: в свой ход (ползунок) на 2 места (1 бот),
+// 6 (5 ботов) и 10 (стол на телефоне), на 6 и 10 — ещё «Панель ставок: Крупная» при «Размере стола» 100 и 70 %.
+// Каждый стол — своё хранилище; на каждом снимке — проверка, что ни одно место не под панелью
+async function wideTableStep(cdp: Cdp, size: Size): Promise<void> {
+  if (size.width < 1024) return
+  console.log(`Места и панель, ${size.width} × ${size.height}`)
+  await screen('Против ботов, 2 места', size, async () => {
+    const d = await Device.open(cdp, size)
+    await botsTable(d, 1)
+    await d.tableShot('10a-stol-2-mesta')
+  })
+  await screen('Против ботов, 6 мест', size, async () => {
+    const d = await Device.open(cdp, size)
+    await botsTable(d, 5)
+    await d.tableShot('10b-stol-6-mest')
+    await tableFit(d, 'large', 100)
+    await d.tableShot('10c-stol-6-mest-krupnaya-100')
+    await tableFit(d, 'large', 70)
+    await d.tableShot('10d-stol-6-mest-krupnaya-70')
+  })
+  await screen('Стол на этом телефоне, 10 мест', size, async () => {
+    const d = await Device.open(cdp, size)
+    await localTable(d)
+    await d.tableShot('10e-stol-10-mest')
+    await tableFit(d, 'large', 100)
+    await d.tableShot('10f-stol-10-mest-krupnaya-100')
+    await tableFit(d, 'large', 70)
+    await d.tableShot('10g-stol-10-mest-krupnaya-70')
   })
 }
 
@@ -542,8 +661,10 @@ async function main(): Promise<void> {
     const launched = await launchChrome(profile)
     chrome = launched.process
     cdp = await Cdp.connect(launched.url)
-    for (const size of SIZES) await scenario(cdp, size, theme)
-    if (!process.env.SHOTS_THEME) {
+    const onlyTable = process.argv.includes('table') // npm run shots -- table: только места и панель (#210)
+    if (!onlyTable) for (const size of SIZES) await scenario(cdp, size, theme)
+    for (const size of SIZES) await wideTableStep(cdp, size)
+    if (!process.env.SHOTS_THEME && !onlyTable) {
       for (const other of ['club', 'day'] as const) for (const size of SIZES) await themeScenario(cdp, size, other)
     }
     console.log('Готово: снимки в', OUT)
