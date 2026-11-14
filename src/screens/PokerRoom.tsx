@@ -84,8 +84,10 @@ import {
   loadOpenCards,
   loadQuickBets,
   loadRecordedGame,
+  loadSeat,
   loadTurnSound,
   saveBigBlinds,
+  saveLastGame,
   saveOpenCards,
   saveRecordedGame,
   loadBetStep,
@@ -110,6 +112,9 @@ export function PokerRoomScreen({ code, server }: { code: string; server?: strin
 
   useEffect(() => {
     setGameId(room.me ? loadRecordedGame(code, room.me) : null)
+    // Своё место в комнате — она последняя для «Продолжить» на «Играть» (#209); сервер — как у места
+    const seat = room.me ? loadSeat(code) : null
+    if (seat) saveLastGame('room', code, seat.server)
   }, [code, room.me])
 
   async function shareRoom() {

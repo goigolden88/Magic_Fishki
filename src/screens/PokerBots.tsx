@@ -38,6 +38,7 @@ import {
   loadMyLook,
   loadQuickBets,
   saveBotTable,
+  saveLastGame,
   storageWorks,
   tableFitStyle,
 } from './pokerStorage'
@@ -65,6 +66,11 @@ export function PokerBotsScreen() {
   // Последний стол — для хода бота по таймеру: замыкание эффекта могло устареть
   const latest = useRef(bots)
   latest.current = bots
+
+  // Открыли стол — он последний для «Продолжить» на «Играть» (#209)
+  useEffect(() => {
+    if (latest.current) saveLastGame('bots')
+  }, [])
 
   // Ход за себя или за бота: удался — стол сразу в память устройства
   const apply: Apply = (make) => {

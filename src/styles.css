@@ -691,6 +691,109 @@ a.button-link.primary {
   color: var(--on-accent);
 }
 
+/* «Играть» (#209): полоса «Продолжить» — заливка цветом гаммы, кнопка — наоборот */
+.continue-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.continue-text {
+  flex: 10 1 12rem;
+  min-width: 0;
+}
+
+.continue-strip p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.continue-kicker {
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+
+.continue-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.continue-line {
+  font-size: 0.9rem;
+  opacity: 0.85;
+}
+
+.continue-strip a.continue-go {
+  flex: 1 0 auto;
+  padding: 0 1.25rem;
+  background: var(--on-accent);
+  color: var(--accent);
+}
+
+/* Режимы «Играть» карточками: телефон — колонкой, от 600 px — по два, от 1024 px — в ряд (styles ниже) */
+.modes {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+}
+
+.mode-card {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+}
+
+.mode-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.25rem;
+}
+
+.mode-suit {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.mode-suit.red {
+  color: var(--red);
+}
+
+.mode-card p {
+  margin: 0 0 0.5rem;
+}
+
+.mode-note {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+/* Кнопки — внизу карточки; в узкой карточке — друг под другом */
+.mode-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding-top: 0.25rem;
+}
+
+.mode-buttons > * {
+  flex: 1 1 auto;
+}
+
+@media (min-width: 600px) {
+  .modes {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .table-info {
   margin: 0 0 0.25rem;
   font-size: 0.8rem;
@@ -2425,6 +2528,21 @@ input.bet-amount {
 
   .casino-screen {
     max-width: var(--content-max);
+  }
+
+  /* «Играть» (#209): экран — шире, полоса и режимы — во всю его ширину, режимы в ряд;
+     формы режимов и всё ниже — колонкой по центру, как на других экранах */
+  .poker-home {
+    max-width: var(--content-max);
+  }
+
+  .poker-home .modes {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .poker-home > :not(.bar, h1, .continue-strip, .lead, .modes) {
+    max-width: var(--column-max);
+    margin-inline: auto;
   }
 
   /* Списки карточек («Игры», «Игроки», участники игры) — в две колонки */
