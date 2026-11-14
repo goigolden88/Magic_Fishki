@@ -3,7 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
-    <meta name="theme-color" content="#0f1a15" />
+    <meta name="theme-color" content="#101217" />
+    <script>
+      // Гамма (Р-70) — до первой отрисовки, чтобы «День» не мигал тёмным. Ключ и цвета — как в src/calc/theme.ts
+      // (тест сверяет); «Ночь» и не выбрано — без атрибута, цвета :root
+      try {
+        var theme = localStorage.getItem('fishki.theme')
+        var themeColors = { club: '#0f1a15', day: '#eef1f4' }
+        if (theme && Object.prototype.hasOwnProperty.call(themeColors, theme)) {
+          document.documentElement.setAttribute('data-theme', theme)
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', themeColors[theme])
+        }
+      } catch (e) {
+        // нет памяти браузера — «Ночь»
+      }
+    </script>
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />

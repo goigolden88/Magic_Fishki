@@ -74,6 +74,8 @@ import {
   TABLE_SIZE_STEP,
 } from '../calc/tableFit'
 import { useWide } from './useWide'
+import { THEME_ACCENT, THEME_COLOR, THEME_LABELS, themeOf } from '../calc/theme'
+import { loadThemeChoice, saveTheme } from './theme'
 
 export function SettingsScreen() {
   const [settings, setSettings] = useState<Settings | null>(null)
@@ -119,9 +121,13 @@ export function SettingsScreen() {
       <h1>Настройки</h1>
 
       {/* Р-53: на широком окне карточки — в две колонки, каждая не шире ≈ 640 px.
-          Р-59: разделы по смыслу, заголовок раздела — над его карточками; ключи хранения прежние */}
+          Р-59: разделы по смыслу, заголовок раздела — над его карточками; ключи хранения прежние.
+          Р-70: первый раздел — «Оформление», гамма всего приложения */}
       {settings !== null && rateText !== null && (
         <div className="cards">
+          <h2 className="group-title">Оформление</h2>
+          <ThemeCard key={`theme-${restored}`} />
+
           <h2 className="group-title">Учёт игр</h2>
           <form className="card" onSubmit={(e) => void save(e)}>
             <h3>Новая игра</h3>
@@ -519,6 +525,8 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
     saveDockSize(poker.dockSize)
     // Шаг колеса и «−»/«+» (Р-69): так же
     saveBetStep(poker.betStep)
+    // Гамма (Р-70): здесь не выбрана — из копии, и сразу на экране; выбранная здесь остаётся
+    saveTheme(poker.theme)
     onLook()
     onPlayers(plan.players)
     setGames(await listGames())
@@ -533,7 +541,7 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
       <p className="muted">
         Игры хранятся только в этом браузере: очистка данных сайта или новый телефон их сотрут. Копия — файл со всеми
         играми, настройками, раздачами прошлых вечеров покера, заметками об игроках, видом и размером стола, быстрой
-        комнатой, быстрыми ставками и шагом колеса ставки; восстановление добавляет недостающее и ничего не перезаписывает.
+        комнатой, быстрыми ставками, шагом колеса ставки и оформлением; восстановление добавляет недостающее и ничего не перезаписывает.
       </p>
       {games !== null && <p>{lastBackupText(last, games, today())}</p>}
       <button type="button" className="big primary wide" disabled={games === null} onClick={save}>
@@ -613,6 +621,7 @@ function localPokerPrefs(): PokerPrefs {
     tableSize: loadTableSizeChoice(),
     dockSize: loadDockSizeChoice(),
     betStep: loadBetStepChoice(),
+    theme: loadThemeChoice(),
   }
 }
 
@@ -1002,6 +1011,37 @@ function TableFitFields() {
 
 // Образец колоды: по карте каждой масти
 const DECK_SAMPLE = ['As', 'Kh', 'Qd', 'Jc']
+
+// «Оформление» (Р-70): гамма всего приложения — касание меняет цвета сразу, без перезагрузки.
+// Не выбрано — «Ночь». Только на этом телефоне, есть в копии
+function ThemeCard() {
+  const [theme, setTheme] = useState(() => themeOf(loadThemeChoice()))
+
+  return (
+    <section className="card">
+      <div className="amounts">
+        {THEME_LABELS.map(([id, label]) => (
+          <LookChoice
+            key={id}
+            on={theme === id}
+            onPick={() => {
+              setTheme(id)
+              saveTheme(id)
+            }}
+          >
+            <span
+              className="theme-swatch"
+              aria-hidden="true"
+              style={{ background: `linear-gradient(90deg, ${THEME_COLOR[id]} 50%, ${THEME_ACCENT[id]} 50%)` }}
+            />
+            {label}
+          </LookChoice>
+        ))}
+      </div>
+      <p className="muted">Меняет цвета всего приложения. Сукно и рубашки — в «Виде стола».</p>
+    </section>
+  )
+}
 
 function LookChoice(props: { on: boolean; onPick: () => void; children: ReactNode }) {
   return (

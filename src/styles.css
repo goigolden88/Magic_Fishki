@@ -1,5 +1,48 @@
-/* Крупно и контрастно: играют вечером, с телефона, одной рукой */
+/* Крупно и контрастно: играют вечером, с телефона, одной рукой.
+   Гаммы (Р-70): «Ночь» — :root (сначала), «Клуб» и «День» — data-theme на <html> (src/calc/theme.ts).
+   Новый цвет — во все три блока; фон --bg — тот же, что theme-color гаммы в theme.ts и index.html */
 :root {
+  --bg: #101217;
+  --card: #181b22;
+  --line: #313746;
+  --text: #eceef3;
+  --muted: #8c94a5;
+  --green: #3ecf7a;
+  --red: #ff6b5e;
+  --accent: #5b9dff;
+  --gold: #5b9dff;
+  /* Тёмные заливки — парой «заливка / текст на заливке» (--on-…): гамма задаёт обе */
+  --on-accent: #07101f;
+  --buyin: #24543a;
+  --on-buyin: #eceef3;
+  --cashout: #6b4a12;
+  --on-cashout: #eceef3;
+  --danger: #8a2a22;
+  --on-danger: #eceef3;
+  /* Место, чей ход; выбранный цвет заметки */
+  --to-act: #233045;
+  --to-act-line: #5b9dff;
+  --to-act-glow: rgba(91, 157, 255, 0.35);
+  --picked: #233045;
+  /* Тени, подложки и подсказки поверх стола */
+  --shade: rgba(0, 0, 0, 0.25);
+  --tip-bg: rgba(0, 0, 0, 0.78);
+  --on-tip: #fff;
+  --pop-shadow: rgba(0, 0, 0, 0.6);
+  --swatch-edge: rgba(0, 0, 0, 0.45);
+  --gold-glow: rgba(91, 157, 255, 0.35);
+  --gold-edge: rgba(91, 157, 255, 0.45);
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 18px;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+}
+
+/* «Клуб» — прежние цвета (до Р-70): зелень с золотом */
+:root[data-theme='club'] {
   --bg: #0f1a15;
   --card: #18271f;
   --line: #2a3f33;
@@ -9,7 +52,6 @@
   --red: #ff6b5e;
   --accent: #2e9e5b;
   --gold: #e7b84a;
-  /* Тёмные заливки — парой «заливка / текст на заливке» (--on-…): гамма задаёт обе */
   --on-accent: #f1f5f2;
   --buyin: #24543a;
   --on-buyin: #f1f5f2;
@@ -17,12 +59,10 @@
   --on-cashout: #f1f5f2;
   --danger: #8a2a22;
   --on-danger: #f1f5f2;
-  /* Место, чей ход; выбранный цвет заметки */
   --to-act: #24543a;
   --to-act-line: var(--green);
   --to-act-glow: rgba(62, 207, 122, 0.35);
   --picked: #24543a;
-  /* Тени, подложки и подсказки поверх стола */
   --shade: rgba(0, 0, 0, 0.25);
   --tip-bg: rgba(0, 0, 0, 0.78);
   --on-tip: #fff;
@@ -31,12 +71,38 @@
   --gold-glow: rgba(231, 184, 74, 0.35);
   --gold-edge: rgba(231, 184, 74, 0.45);
   color-scheme: dark;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  font-size: 18px;
-  line-height: 1.4;
-  color: var(--text);
-  background: var(--bg);
-  -webkit-text-size-adjust: 100%;
+}
+
+/* «День» — светлая */
+:root[data-theme='day'] {
+  --bg: #eef1f4;
+  --card: #ffffff;
+  --line: #d3d9e0;
+  --text: #17212b;
+  --muted: #5d6b7a;
+  --green: #15803d;
+  --red: #b3362a;
+  --accent: #14784a;
+  --gold: #14784a;
+  --on-accent: #ffffff;
+  --buyin: #dcefe4;
+  --on-buyin: #145c38;
+  --cashout: #f6e7c8;
+  --on-cashout: #7a4e00;
+  --danger: #b3362a;
+  --on-danger: #ffffff;
+  --to-act: #e3efe9;
+  --to-act-line: #14784a;
+  --to-act-glow: rgba(20, 120, 74, 0.3);
+  --picked: #e3efe9;
+  --shade: rgba(23, 33, 43, 0.06);
+  --tip-bg: rgba(0, 0, 0, 0.78);
+  --on-tip: #fff;
+  --pop-shadow: rgba(23, 33, 43, 0.18);
+  --swatch-edge: rgba(23, 33, 43, 0.35);
+  --gold-glow: rgba(20, 120, 74, 0.3);
+  --gold-edge: rgba(20, 120, 74, 0.45);
+  color-scheme: light;
 }
 
 * {
@@ -1410,6 +1476,17 @@ textarea.note-input {
   border-radius: 50%;
   background: var(--felt-1);
   vertical-align: -3px;
+}
+
+/* Образец гаммы в «Оформлении» (Р-70): половина — фон гаммы, половина — её главная кнопка; цвета — из theme.ts */
+.theme-swatch {
+  display: inline-block;
+  width: 1.1em;
+  height: 1.1em;
+  margin-right: 0.4em;
+  border: 2px solid var(--swatch-edge);
+  border-radius: 50%;
+  vertical-align: -0.2em;
 }
 
 .look-back {

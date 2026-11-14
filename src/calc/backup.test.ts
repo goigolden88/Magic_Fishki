@@ -387,6 +387,7 @@ describe('файл-копия формата 6: покер-рум', () => {
     tableSize: 85,
     dockSize: 'large' as const,
     betStep: 'half' as const,
+    theme: 'day' as const,
   }
 
   it('всё — в копии и читается обратно без потерь', () => {
@@ -411,6 +412,7 @@ describe('файл-копия формата 6: покер-рум', () => {
       tableSize: 120,
       dockSize: 'huge',
       betStep: 3,
+      theme: 'sunset',
     }
     const parsed = parse(JSON.stringify({ ...backupOf([]), poker: odd }))
     expect(parsed.ok && parsed.backup.poker).toEqual(POKER_PREFS_NONE)
@@ -425,24 +427,46 @@ describe('файл-копия формата 6: покер-рум', () => {
       tableSize: 85,
       dockSize: 'small',
       betStep: 'half',
+      theme: 'day',
     })
     // Шаг колеса (Р-69): выбранный здесь «1 ББ» копия не перезаписывает
     expect(mergePokerPrefs({ ...POKER_PREFS_NONE, betStep: 'bb' }, POKER).betStep).toBe('bb')
+    // Гамма (Р-70): выбранная здесь — даже «Ночь», как по умолчанию, — побеждает копию
+    expect(mergePokerPrefs({ ...POKER_PREFS_NONE, theme: 'night' }, POKER).theme).toBe('night')
+    expect(mergePokerPrefs({ ...POKER_PREFS_NONE, theme: 'club' }, POKER).theme).toBe('club')
     expect(mergePokerPrefs(POKER_PREFS_NONE, POKER_PREFS_NONE)).toEqual(POKER_PREFS_NONE)
   })
 
   // Р-63: размер стола и панели — в том же формате 6; копия 6 без них (до Р-63) читается — не заданы
   it('копия формата 6 без размера стола и панели — они не заданы, остальное на месте', () => {
-    const { tableSize: _t, dockSize: _d, betStep: _s, ...before } = POKER
+    const { tableSize: _t, dockSize: _d, betStep: _s, theme: _g, ...before } = POKER
     const parsed = parse(JSON.stringify({ ...backupOf([]), poker: before }))
-    expect(parsed.ok && parsed.backup.poker).toEqual({ ...before, tableSize: null, dockSize: null, betStep: null })
+    expect(parsed.ok && parsed.backup.poker).toEqual({ ...before, tableSize: null, dockSize: null, betStep: null, theme: null })
   })
 
   // Р-69: шаг колеса и «−»/«+» — в том же формате 6; копия без него читается — не задан (1 ББ)
   it('копия формата 6 без шага колеса — он не задан, остальное на месте', () => {
-    const { betStep: _s, ...before } = POKER
+    const { betStep: _s, theme: _g, ...before } = POKER
     const parsed = parse(JSON.stringify({ ...backupOf([]), poker: before }))
-    expect(parsed.ok && parsed.backup.poker).toEqual({ ...before, betStep: null })
+    expect(parsed.ok && parsed.backup.poker).toEqual({ ...before, betStep: null, theme: null })
+  })
+
+  // Р-70: гамма приложения — в том же формате 6; копия без неё (до Р-70) читается — не выбрана («Ночь»)
+  it('копия формата 6 без гаммы — она не выбрана, остальное на месте', () => {
+    const { theme: _g, ...before } = POKER
+    const parsed = parse(JSON.stringify({ ...backupOf([]), poker: before }))
+    expect(parsed.ok && parsed.backup.poker).toEqual({ ...before, theme: null })
+    expect(parsed.ok && parsed.backup.format).toBe(6)
+  })
+
+  it('гамма — в копии и обратно, формат прежний', () => {
+    for (const theme of ['night', 'club', 'day'] as const) {
+      const backup = makeBackup([], SETTINGS, NOW, [], {}, {}, undefined, { ...POKER_PREFS_NONE, theme })
+      const text = backupText(backup)
+      expect(JSON.parse(text).poker.theme).toBe(theme)
+      expect(JSON.parse(text).format).toBe(6)
+      expect(parse(text)).toEqual({ ok: true, backup })
+    }
   })
 })
 

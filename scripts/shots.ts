@@ -7,6 +7,9 @@
 // Chrome — по DevTools-протоколу (обычный --screenshot не умеет нажимать кнопки), без сторонних библиотек.
 // Размеры: 390 × 844 (телефон), 1366 × 768 (ноутбук), 1920 × 1080 (монитор); у каждого — своё хранилище.
 // PNG — в shots/ (не в репо), имя — «ширина-номер-экран.png». Сбой — код выхода 1 и строка, какой экран.
+// Гамма (Р-70): весь сценарий — в «Ночи», а затем «Клуб» и «День» — «Настройки», «Игры», «Играть» и стол против ботов
+// («ширина-гамма-номер-экран.png»). SHOTS_THEME=club или day — весь сценарий в этой гамме (имена прежние), без остальных.
+// Гамма выбирается касанием в «Настройках», как у человека.
 // Chrome — google-chrome, google-chrome-stable или chromium; свой путь — переменная CHROME
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -26,6 +29,8 @@ const SIZES: Size[] = [
 const TIMEOUT = 20_000
 const GUESTS = ['Аня', 'Боря', 'Вика', 'Гоша', 'Даша', 'Егор', 'Женя', 'Зоя', 'Илья', 'Катя'] // выдуманные гости стола
 const BOTS_TIMEOUT = 60_000 // боты ходят через секунду; моя очередь может прийти не в первой раздаче
+type Theme = 'night' | 'club' | 'day'
+const THEME_BUTTONS: Record<Theme, string> = { night: 'Ночь', club: 'Клуб', day: 'День' } // кнопки «Оформления»
 
 // ─── DevTools-протокол ───────────────────────────────────────────────────────
 
@@ -110,19 +115,21 @@ class Device {
   private cdp: Cdp
   private session: string
   readonly size: Size
+  private prefix: string // перед именем снимка: «club-» у снимков другой гаммы, иначе пусто
 
-  private constructor(cdp: Cdp, session: string, size: Size) {
+  private constructor(cdp: Cdp, session: string, size: Size, prefix: string) {
     this.cdp = cdp
     this.session = session
     this.size = size
+    this.prefix = prefix
   }
 
-  static async open(cdp: Cdp, size: Size): Promise<Device> {
+  static async open(cdp: Cdp, size: Size, prefix = ''): Promise<Device> {
     const { browserContextId } = await cdp.send<{ browserContextId: string }>('Target.createBrowserContext')
     const { targetId } = await cdp.send<{ targetId: string }>('Target.createTarget', { url: 'about:blank', browserContextId })
     const { sessionId } = await cdp.send<{ sessionId: string }>('Target.attachToTarget', { targetId, flatten: true })
     await cdp.send('Page.enable', {}, sessionId)
-    const device = new Device(cdp, sessionId, size)
+    const device = new Device(cdp, sessionId, size, prefix)
     await device.metrics(size.height)
     return device
   }
@@ -205,7 +212,7 @@ class Device {
     }
     const { data } = await this.cdp.send<{ data: string }>('Page.captureScreenshot', { format: 'png' }, this.session)
     if (height > this.size.height) await this.metrics(this.size.height)
-    const path = join(OUT, `${this.size.name}-${file}.png`)
+    const path = join(OUT, `${this.size.name}-${this.prefix}${file}.png`)
     await writeFile(path, Buffer.from(data, 'base64'))
     console.log('  снимок', path)
   }
@@ -227,25 +234,63 @@ async function screen(name: string, size: Size, run: () => Promise<void>): Promi
 
 // ─── Сценарий ────────────────────────────────────────────────────────────────
 
-async function scenario(cdp: Cdp, size: Size): Promise<void> {
-  console.log(`Размер ${size.width} × ${size.height}`)
-  const d = await Device.open(cdp, size)
-
-  await screen('Настройки', size, async () => {
+// «Настройки»: гамма — касанием в «Оформлении» («Ночь» не выбрана — как у того, кто не выбирал), снимок, демо-игры
+async function settingsStep(d: Device, theme: Theme): Promise<void> {
+  await screen('Настройки', d.size, async () => {
     await d.goto('#/settings')
     await d.waitText('Добавить демо-данные')
+    if (theme !== 'night') {
+      await d.click(THEME_BUTTONS[theme])
+      await d.waitFor(`html[data-theme="${theme}"]`)
+    }
     await d.shot('05-nastroyki')
     // Демо-игры (Р-04) — для «Игр» и казино
     await d.click('Добавить демо-данные')
     await d.waitText('Добавлено демо-игр')
   })
+}
 
-  await screen('Игры', size, async () => {
+async function gamesStep(d: Device): Promise<void> {
+  await screen('Игры', d.size, async () => {
     await d.goto('#/')
     await d.waitText('Демо: игра идёт')
     await d.waitText('Демо: пятница')
     await d.shot('01-igry')
   })
+}
+
+async function playStep(d: Device): Promise<void> {
+  await screen('Играть', d.size, async () => {
+    await d.goto('#/poker')
+    await d.waitText('Войти по ссылке')
+    await d.waitText('Против ботов')
+    await d.shot('02-igrat')
+  })
+}
+
+// Гамма, кроме основной: «Настройки», «Игры», «Играть» и стол против ботов в мой ход — своё хранилище, имена с гаммой
+async function themeScenario(cdp: Cdp, size: Size, theme: Theme): Promise<void> {
+  console.log(`Гамма ${theme}, ${size.width} × ${size.height}`)
+  const d = await Device.open(cdp, size, `${theme}-`)
+  await settingsStep(d, theme)
+  await gamesStep(d)
+  await playStep(d)
+  await screen('Против ботов', size, async () => {
+    await d.click('Против ботов')
+    await d.waitText('Карты ботов открыты')
+    await d.click('Начать')
+    await d.waitText('Стол с ботами')
+    await myTurn(d)
+    await d.shot('03-protiv-botov', false)
+  })
+}
+
+async function scenario(cdp: Cdp, size: Size, theme: Theme): Promise<void> {
+  console.log(`Размер ${size.width} × ${size.height}`)
+  const d = await Device.open(cdp, size)
+
+  await settingsStep(d, theme)
+  await gamesStep(d)
 
   await screen('Игроки', size, async () => {
     await d.goto('#/players')
@@ -263,12 +308,7 @@ async function scenario(cdp: Cdp, size: Size): Promise<void> {
     await d.shot('08-vid-stola')
   })
 
-  await screen('Играть', size, async () => {
-    await d.goto('#/poker')
-    await d.waitText('Войти по ссылке')
-    await d.waitText('Против ботов')
-    await d.shot('02-igrat')
-  })
+  await playStep(d)
 
   await screen('Против ботов', size, async () => {
     await d.click('Против ботов')
@@ -453,7 +493,16 @@ async function boardsGoing(d: Device): Promise<void> {
   throw new Error('после «Раздать» не открылся ни один стол')
 }
 
+// SHOTS_THEME: пусто — «Ночь» и ключевые экраны «Клуба» и «Дня»; club или day — весь сценарий в ней
+function shotsTheme(): Theme {
+  const raw = process.env.SHOTS_THEME ?? ''
+  if (raw === '') return 'night'
+  if (raw === 'night' || raw === 'club' || raw === 'day') return raw
+  throw new Error(`SHOTS_THEME=${raw}: гамма — night, club или day`)
+}
+
 async function main(): Promise<void> {
+  const theme = shotsTheme()
   await rm(OUT, { recursive: true, force: true })
   await mkdir(OUT, { recursive: true })
   console.log('Сборка сайта…')
@@ -467,7 +516,10 @@ async function main(): Promise<void> {
     const launched = await launchChrome(profile)
     chrome = launched.process
     cdp = await Cdp.connect(launched.url)
-    for (const size of SIZES) await scenario(cdp, size)
+    for (const size of SIZES) await scenario(cdp, size, theme)
+    if (!process.env.SHOTS_THEME) {
+      for (const other of ['club', 'day'] as const) for (const size of SIZES) await themeScenario(cdp, size, other)
+    }
     console.log('Готово: снимки в', OUT)
   } finally {
     if (cdp) {
