@@ -28,7 +28,7 @@
   --text: #eceef3;
   --muted: #8c94a5;
   --green: #3ecf7a;
-  --red: #ff6b5e;
+  --red: #ff7566; /* светлее «Клуба»: «Удалить игру» на кнопке --line — 4,5 : 1 (#211) */
   --accent: #5b9dff;
   --gold: #5b9dff;
   /* Тёмные заливки — парой «заливка / текст на заливке» (--on-…): гамма задаёт обе */
@@ -109,8 +109,8 @@
   --line: #d3d9e0;
   --text: #17212b;
   --muted: #5d6b7a;
-  --green: #15803d;
-  --red: #b3362a;
+  --green: #147a3a; /* цифры секунд --bg на --green у места — 4,5 : 1 (#211) */
+  --red: #ab3428; /* «Удалить игру» на кнопке --line — 4,5 : 1 (#211) */
   --accent: #14784a;
   --gold: #14784a;
   --on-accent: #ffffff;
@@ -2004,22 +2004,28 @@ textarea.note-input {
   width: min(100%, var(--board-w));
 }
 
+/* Стол казино лежит на сукне (#211): подложка, текст и рамки — цветами стола, как центр стола покера,
+   а не --shade / --text / --gold гаммы — в «Дне» они светлые и на сукне не читаются */
+/* от гаммы не зависит */
 .casino-board {
   padding: 0.3rem;
   border: 2px solid transparent;
   border-radius: 0.6rem;
-  background: var(--shade);
+  background: rgba(0, 0, 0, 0.25);
+  color: #f1f5f2;
   text-align: center;
   font-size: 0.8rem;
 }
 
+/* от гаммы не зависит */
 .casino-board.open {
-  border-color: var(--gold-edge);
+  border-color: rgba(231, 184, 74, 0.45);
 }
 
 /* Последний открытый — его победители в рамке у мест */
+/* от гаммы не зависит */
 .casino-board.last {
-  border-color: var(--gold);
+  border-color: #e7b84a;
 }
 
 .casino-board-line {
@@ -2057,12 +2063,16 @@ textarea.note-input {
   font-variant-numeric: tabular-nums;
 }
 
+/* Шансы — на сукне (#211): золото стола; приглушённое — светлее #9bb0a3 центра покера: мелкая строка
+   на подложке стола не ниже 4,5 : 1 */
+/* от гаммы не зависит */
 .odds-pct {
-  color: var(--gold);
+  color: #e7b84a;
 }
 
+/* от гаммы не зависит */
 .odds-more {
-  color: var(--muted);
+  color: #b8c7bd;
 }
 
 /* Строка шансов — кнопка во всю ширину стола (#142): касание раскрывает список столбиком и сворачивает.
