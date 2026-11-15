@@ -15,6 +15,7 @@ import {
   TRAINER_SIDES_MAX,
   TRAINER_SIDES_MIN,
   TRAINER_WEIGHTS,
+  CHARTS_GAME,
   trainerInput,
   weightLabel,
   winTieText,
@@ -33,14 +34,36 @@ type Side = TrainerSide & { id: number; text: string; error: string | null; weig
 let nextId = 1
 const newSide = (): Side => ({ id: nextId++, mode: 'hand', cards: [], range: emptyRange(), text: '', error: null, weight: TRAINER_WEIGHTS[0] })
 
+// Вкладки вверху (#214): сначала «Калькулятор»
+type Tab = 'calc' | 'charts'
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'calc', label: 'Калькулятор' },
+  { id: 'charts', label: 'Чарты' },
+]
+// Вкладка «Чарты» с данными — отдельный файл сборки: грузится при первом открытии (кеш PWA — без сети)
+type ChartsModule = typeof import('./TrainerCharts')
+
 // «Тренажёр» (#213, Р-73): калькулятор эквити — 2…6 сторон (рука или диапазон на сетке 13 × 13) и борд;
-// счёт — в фоне (useTrainerOdds). Ввод живёт, пока открыт экран: не хранится, при возврате — с чистого листа
+// счёт — в фоне (useTrainerOdds). Ввод живёт, пока открыт экран: не хранится, при возврате — с чистого листа.
+// Вкладки (#214, Р-76): «Калькулятор» и «Чарты»; переключение ввод вкладок не стирает
 export function TrainerScreen() {
+  const [tab, setTab] = useState<Tab>('calc')
+  const [charts, setCharts] = useState<ChartsModule | 'loading' | 'failed' | null>(null)
   const [sides, setSides] = useState<Side[]>(() => [newSide(), newSide()])
   const [board, setBoard] = useState<Card[]>([])
   const [open, setOpen] = useState<number | 'board' | null>(null) // чья колода открыта: сторона (id) или борд
   const input = useMemo(() => trainerInput(sides, board), [sides, board])
   const odds = useTrainerOdds('sides' in input ? input.sides : null, board)
+
+  function openTab(next: Tab) {
+    setTab(next)
+    if (next !== 'charts' || (charts !== null && charts !== 'failed')) return
+    setCharts('loading')
+    import('./TrainerCharts').then(
+      (m) => setCharts(m),
+      () => setCharts('failed'),
+    )
+  }
 
   const change = (id: number, make: (s: Side) => Side) => setSides((all) => all.map((s) => (s.id === id ? make(s) : s)))
 
@@ -77,6 +100,28 @@ export function TrainerScreen() {
         </a>
       </header>
       <h1>Тренажёр</h1>
+      <div className="row trainer-tabs" role="group" aria-label="Тренажёр">
+        {TABS.map((t) => (
+          <button key={t.id} type="button" className={tab === t.id ? 'big primary grow' : 'big grow'} aria-pressed={tab === t.id} onClick={() => openTab(t.id)}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div hidden={tab !== 'charts'}>
+        <p className="muted lead">
+          Префлоп {CHARTS_GAME}: как часто рука пасует, коллирует, рейзит и идёт олл-ин — по вашей позиции и тому, что было до вас.
+        </p>
+        {charts === 'loading' && <p className="muted">Загружаем чарты…</p>}
+        {charts === 'failed' && (
+          <p className="warn" role="alert">
+            Чарты не загрузились. Откройте сайт со связью — дальше они откроются и без сети.
+          </p>
+        )}
+        {charts !== null && typeof charts === 'object' && <charts.TrainerCharts />}
+      </div>
+
+      <div hidden={tab !== 'calc'}>
       <p className="muted lead">Сколько банка в среднем берёт каждая сторона: рука или диапазон, борд — до пяти карт. Только холдем.</p>
 
       <section className="card trainer-board">
@@ -162,6 +207,7 @@ export function TrainerScreen() {
           Добавить сторону
         </button>
       )}
+      </div>
     </main>
   )
 }
