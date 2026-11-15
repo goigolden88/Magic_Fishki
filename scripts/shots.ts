@@ -14,6 +14,9 @@
 // «Места и панель» — тоже в ней (#211).
 // Гамма выбирается касанием в «Настройках», как у человека.
 // Шрифты (#218): снимок — после document.fonts.ready; на первом экране каждого размера оба шрифта должны быть загружены.
+// Кнопки выбора (#238): в формах «Новая комната» (снимок 03g) и «Против ботов» и в «Виде стола» — каждая надпись
+// внутри своей кнопки, кнопки ряда одной высоты, от 44 px; на телефоне — ещё на 320, 360 и 768 px, иначе сбой.
+// npm run shots -- vybor — только эти три экрана на 390 и 1366.
 // Стол на широком окне (#210): на каждом снимке стола на 1366 и 1920 — проверка, что ни одно место (.seat) не под
 // панелью хода (.table-dock), иначе сбой; ещё — свой шаг «Места и панель» (2, 6 и 10 мест, «Крупная» при 100 и 70 %).
 // npm run shots -- table — только этот шаг.
@@ -381,9 +384,14 @@ class Device {
     if (!done) throw new Error(`нет поля ${selector}`)
   }
 
-  private metrics(height: number): Promise<unknown> {
-    const { width } = this.size
+  private metrics(height: number, width = this.size.width): Promise<unknown> {
     return this.cdp.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 600 }, this.session)
+  }
+
+  // Окно другой ширины — на время замера (#238); без числа — снова своя
+  async setWidth(width = this.size.width): Promise<void> {
+    await this.metrics(this.size.height, width)
+    await sleep(300)
   }
 
   // Снимок. whole — страница целиком: длинная вытягивается на время снимка во всю высоту.
@@ -468,6 +476,50 @@ async function seatsClearOfDock(d: Device): Promise<void> {
   if (r.seats === 0) throw new Error('за столом нет мест')
   console.log(`  мест ${r.seats}: самое крупное — ${r.w} × ${r.h} % слоя мест; панель ${r.dock}`)
   if (r.hits.length > 0) throw new Error(`места под панелью хода: ${r.hits.join(', ')}`)
+}
+
+// Ряды кнопок выбора (#238): .amounts и строки (.row, .dock-row) с кнопками выбора (aria-pressed). У каждой видимой
+// кнопки надпись внутри (scrollWidth <= clientWidth) и не за краем окна, высота — от 44 px, кнопки ряда — одной
+// высоты. На телефоне — ещё на 320, 360 и 768 px (окно на время замера), на широком — на своей ширине.
+// Иначе сбой — с текстом кнопки и шириной окна
+const CHOICE_WIDTHS = [320, 360, 390, 768]
+
+async function choicesFit(d: Device, where: string): Promise<void> {
+  const widths = d.size.width < 600 ? CHOICE_WIDTHS : [d.size.width]
+  const bad: string[] = []
+  let checked = 0
+  for (const width of widths) {
+    if (width !== d.size.width) await d.setWidth(width)
+    const r = await d.eval<{ buttons: number; bad: string[] }>(`(() => {
+      const rows = [...document.querySelectorAll('.amounts, .row, .dock-row')].filter(
+        (row) => row.classList.contains('amounts') || row.querySelector(':scope > button[aria-pressed]'),
+      )
+      const bad = []
+      let buttons = 0
+      for (const row of rows) {
+        const all = [...row.children].filter((b) => b.tagName === 'BUTTON' && b.offsetParent !== null)
+        const heights = []
+        for (const b of all) {
+          buttons++
+          const label = b.innerText.trim().replace(/\\s+/g, ' ')
+          const box = b.getBoundingClientRect()
+          heights.push(Math.round(box.height))
+          if (b.scrollWidth > b.clientWidth) bad.push('«' + label + '» вылезает: ' + b.scrollWidth + ' из ' + b.clientWidth + ' px')
+          if (box.right > innerWidth + 0.5 || box.left < -0.5) bad.push('«' + label + '» за краем окна')
+          if (box.height < 44) bad.push('«' + label + '» ниже 44 px: ' + Math.round(box.height))
+        }
+        if (heights.length > 1 && Math.max(...heights) - Math.min(...heights) > 1) {
+          bad.push('ряд «' + all.map((b) => b.innerText.trim()).join(' / ') + '» разной высоты: ' + heights.join(', ') + ' px')
+        }
+      }
+      return { buttons, bad }
+    })()`)
+    checked += r.buttons
+    bad.push(...r.bad.map((line) => `${width} px: ${line}`))
+  }
+  if (widths[widths.length - 1] !== d.size.width) await d.setWidth()
+  console.log(`  кнопки выбора, ${where}: ${checked} замеров на ${widths.join(', ')} px`)
+  if (bad.length > 0) throw new Error(`кнопки выбора не по содержимому (${where}):\n${bad.join('\n')}`)
 }
 
 // Шаг сценария: сбой — с названием экрана и размером
@@ -761,6 +813,7 @@ async function scenario(cdp: Cdp, size: Size, theme: Theme, uchet: boolean): Pro
     await d.click('Выбрать вид стола')
     await d.waitText('Колода')
     if (size.width >= 1024) await d.waitText('Размер стола')
+    await choicesFit(d, 'Вид стола')
     await d.shot('08-vid-stola')
   })
 
@@ -774,11 +827,10 @@ async function pokerSteps(d: Device): Promise<void> {
   await playStep(d)
   await trainerStep(d)
 
+  await roomFormStep(d)
+
   await screen('Против ботов', size, async () => {
-    await d.click('Сесть за стол')
-    await d.waitText('Карты ботов открыты')
-    await d.waitText('После паса — сразу доигрывать')
-    await d.shot('03a-protiv-botov-forma')
+    await botsFormStep(d)
     await d.click('Начать')
     await d.waitText('Стол с ботами')
     await myTurn(d)
@@ -821,6 +873,55 @@ async function pokerSteps(d: Device): Promise<void> {
     await sleep(500)
     await d.tableShot('09b-stol-na-telefone-pererejz')
   })
+}
+
+// Форма «Новая комната» без сервера (#238): карты на телефонах, омаха и «Микс» — видны все ряды кнопок выбора;
+// с «Играть» и обратно на него
+async function roomFormStep(d: Device): Promise<void> {
+  await screen('Новая комната', d.size, async () => {
+    await d.click('Настроить…')
+    await d.waitText('Новая комната')
+    await d.click('На телефонах')
+    await d.click('Омаха')
+    await d.waitText('Пот-лимит')
+    await d.click('Батон предлагает игру перед раздачей')
+    await d.waitText('двух третей')
+    await choicesFit(d, 'Новая комната')
+    await d.shot('03g-novaya-komnata')
+    await d.click('Отмена')
+    await d.waitText('Сесть за стол')
+  })
+}
+
+// Форма «Против ботов» с «Играть»: замер кнопок выбора (#238) и снимок; форма остаётся открытой
+async function botsFormStep(d: Device): Promise<void> {
+  await d.click('Сесть за стол')
+  await d.waitText('Карты ботов открыты')
+  await d.waitText('После паса — сразу доигрывать')
+  await choicesFit(d, 'Против ботов')
+  await d.shot('03a-protiv-botov-forma')
+}
+
+// npm run shots -- vybor (#238): только ряды кнопок выбора — «Вид стола», «Новая комната» и «Против ботов»,
+// на телефоне и ноутбуке, с замером
+async function choicesOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES.slice(0, 2)) {
+    console.log(`Кнопки выбора, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await themeOnly(d)
+    await screen('Вид стола', size, async () => {
+      await d.goto('#/settings')
+      await d.waitText('Выбрать вид стола')
+      await d.fontsLoaded()
+      await d.click('Выбрать вид стола')
+      await d.waitText('Колода')
+      await choicesFit(d, 'Вид стола')
+      await d.shot('08-vid-stola')
+    })
+    await playStep(d)
+    await roomFormStep(d)
+    await screen('Против ботов', size, () => botsFormStep(d))
+  }
 }
 
 // Казино (на телефоне — ещё на шестерых) и справка — в конце сценария
@@ -1135,10 +1236,12 @@ async function main(): Promise<void> {
     const onlyTable = process.argv.includes('table') // npm run shots -- table: только места и панель (#210)
     const uchet = process.argv.includes('uchet') // npm run shots -- uchet: без столов покера (#211)
     const onlyTrainer = process.argv.includes('trainer') // npm run shots -- trainer: «Играть» и «Тренажёр» (#213)
+    const onlyChoices = process.argv.includes('vybor') // npm run shots -- vybor: ряды кнопок выбора (#238)
     const onlyHistory = process.argv.includes('history') // npm run shots -- history: история раздач (#239)
+    const part = onlyTrainer || onlyChoices || onlyHistory
     if (onlyTrainer) await trainerOnly(cdp)
+    if (onlyChoices) await choicesOnly(cdp)
     if (onlyHistory) await historyOnly(cdp)
-    const part = onlyTrainer || onlyHistory
     if (!onlyTable && !part) for (const size of SIZES) await scenario(cdp, size, theme, uchet)
     if (!uchet && !part) for (const size of SIZES) await wideTableStep(cdp, size)
     if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !part) {
