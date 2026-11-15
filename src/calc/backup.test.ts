@@ -13,6 +13,7 @@ import {
   POKER_PREFS_NONE,
   type Backup,
 } from './backup'
+import type { OwnChart } from './ownCharts'
 import { QUICK_ROOM_DEFAULT } from './quickRoom'
 
 const NOW = '2026-10-14T19:00:00.000Z'
@@ -71,7 +72,7 @@ describe('файл-копия: сохранение (Р-11)', () => {
     const real = game('g1')
     const backup = backupOf([real, game('demo1', { demo: true }), game('g2')])
     expect(backup.app).toBe('magic_fishki')
-    expect(backup.format).toBe(6)
+    expect(backup.format).toBe(7)
     expect(backup.savedAt).toBe(NOW)
     expect(backup.hands).toEqual([])
     expect(backup.notes).toEqual({})
@@ -133,7 +134,7 @@ describe('файл-копия: разбор', () => {
   })
 
   it('копия из более новой версии — ошибка', () => {
-    const text = JSON.stringify({ ...backupOf([]), format: 7 })
+    const text = JSON.stringify({ ...backupOf([]), format: 8 })
     expect(parse(text)).toEqual({ ok: false, error: 'Копия из более новой версии «Фишек» — обновите приложение' })
   })
 
@@ -164,7 +165,7 @@ describe('файл-копия: разбор', () => {
     const casinoOnly = game('g1', { entries: [], mode: 'casino' })
     const mixed = game('g2', { mode: 'mixed' })
     const parsed = parse(backupText(backupOf([casinoOnly, mixed, game('g3')])))
-    expect(parsed.ok && parsed.backup.format).toBe(6)
+    expect(parsed.ok && parsed.backup.format).toBe(7)
     expect(parsed.ok && parsed.backup.games.map((g) => g.mode)).toEqual(['casino', 'mixed', undefined])
     const bad = { ...game('g4'), mode: 'bingo' }
     expect(parse(JSON.stringify({ ...backupOf([]), games: [bad] })).ok).toBe(false)
@@ -195,7 +196,7 @@ describe('файл-копия прежней версии (формат 1): иг
     const g = game('g1', { players: [...game('g1').players, { id: 'g1-c', name: 'Ира' }] })
     const parsed = parse(oldText([g], ['Боря', ' Аня ', '', 'Боря']))
     if (!parsed.ok) throw new Error(parsed.error)
-    expect(parsed.backup.format).toBe(6)
+    expect(parsed.backup.format).toBe(7)
     expect(parsed.backup.hands).toEqual([])
     expect(parsed.backup.notes).toEqual({})
     expect(parsed.backup.settings.players).toEqual([
@@ -264,7 +265,7 @@ describe('файл-копия: восстановление ничего не п
 
   it('копия с нулём игр ничего не меняет', () => {
     const backup = backupOf([], settingsWithDefaults())
-    expect(planRestore(['g1'], [ANYA], backup)).toEqual({ added: [], existing: 0, players: [ANYA], hands: [] })
+    expect(planRestore(['g1'], [ANYA], backup)).toEqual({ added: [], existing: 0, players: [ANYA], hands: [], charts: [] })
   })
 })
 
@@ -370,7 +371,7 @@ describe('файл-копия формата 5: вид стола', () => {
     const color = makeBackup([], SETTINGS, NOW, [], {}, {}, { ...LOOK, face: 'color' })
     const text = backupText(color)
     expect(JSON.parse(text).look.face).toBe('color')
-    expect(JSON.parse(text).format).toBe(6)
+    expect(JSON.parse(text).format).toBe(7)
     expect(parse(text)).toEqual({ ok: true, backup: color })
     const { face: _f, ...before } = LOOK
     const old = parse(JSON.stringify({ ...backupOf([]), look: before }))
@@ -384,7 +385,7 @@ describe('файл-копия формата 5: вид стола', () => {
     const two = makeBackup([], SETTINGS, NOW, [], {}, {}, { felt: null, cardBack: null, deck: 'two' })
     const parsed = parse(backupText(two))
     expect(parsed.ok && parsed.backup.look.deck).toBe('two')
-    expect(parsed.ok && parsed.backup.format).toBe(6)
+    expect(parsed.ok && parsed.backup.format).toBe(7)
   })
 })
 
@@ -467,7 +468,7 @@ describe('файл-копия формата 6: покер-рум', () => {
     const { theme: _g, ...before } = POKER
     const parsed = parse(JSON.stringify({ ...backupOf([]), poker: before }))
     expect(parsed.ok && parsed.backup.poker).toEqual({ ...before, theme: null })
-    expect(parsed.ok && parsed.backup.format).toBe(6)
+    expect(parsed.ok && parsed.backup.format).toBe(7)
   })
 
   it('гамма — в копии и обратно, формат прежний', () => {
@@ -475,9 +476,53 @@ describe('файл-копия формата 6: покер-рум', () => {
       const backup = makeBackup([], SETTINGS, NOW, [], {}, {}, undefined, { ...POKER_PREFS_NONE, theme })
       const text = backupText(backup)
       expect(JSON.parse(text).poker.theme).toBe(theme)
-      expect(JSON.parse(text).format).toBe(6)
+      expect(JSON.parse(text).format).toBe(7)
       expect(parse(text)).toEqual({ ok: true, backup })
     }
+  })
+})
+
+// Свои чарты тренажёра в копии (Р-77)
+describe('файл-копия формата 7: свои чарты', () => {
+  const chart = (id: string, name = 'Мой BTN'): OwnChart => ({
+    id,
+    name,
+    base: 'BTN|',
+    actions: ['fold', 'raise 2.5bb'],
+    cells: { AA: [0, 1], '72o': [1, 0], AKs: [0.25, 0.75] },
+    updatedAt: NOW,
+  })
+
+  it('чарты — в копии и читаются обратно без потерь', () => {
+    const backup = makeBackup([], SETTINGS, NOW, [], {}, {}, undefined, undefined, [chart('c1'), chart('c2', 'С нуля')])
+    const text = backupText(backup)
+    expect(JSON.parse(text).format).toBe(7)
+    expect(JSON.parse(text).charts).toHaveLength(2)
+    expect(parse(text)).toEqual({ ok: true, backup })
+  })
+
+  it('копия формата 6 и старше (без чартов) читается как раньше — чартов нет', () => {
+    const { charts: _c, ...old } = makeBackup([game('g1')], SETTINGS, NOW)
+    const parsed = parse(JSON.stringify({ ...old, format: 6 }))
+    expect(parsed).toEqual({ ok: true, backup: backupOf([game('g1')]) })
+    expect(parsed.ok && parsed.backup.charts).toEqual([])
+  })
+
+  it('битый чарт или нет списка — копия не читается, с номером чарта', () => {
+    const bad = { ...chart('c2'), cells: { AA: [0.5, 0.25] } }
+    expect(parse(JSON.stringify({ ...backupOf([]), charts: [chart('c1'), bad] }))).toEqual({
+      ok: false,
+      error: 'Копия повреждена: чарт № 2 не читается',
+    })
+    const { charts: _c, ...noCharts } = backupOf([])
+    expect(parse(JSON.stringify(noCharts))).toEqual({ ok: false, error: 'Копия повреждена: нет списка чартов' })
+  })
+
+  it('восстановление добавляет чарты, которых нет по id; свои, даже изменённые в копии, не трогает', () => {
+    const backup = makeBackup([], SETTINGS, NOW, [], {}, {}, undefined, undefined, [chart('c1', 'Из копии'), chart('c2'), chart('c2')])
+    const plan = planRestore([], [], backup, [], ['c1'])
+    expect(plan.charts.map((c) => c.id)).toEqual(['c2'])
+    expect(planRestore([], [], backupOf([])).charts).toEqual([])
   })
 })
 
