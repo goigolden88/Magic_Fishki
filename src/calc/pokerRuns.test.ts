@@ -78,9 +78,21 @@ describe('два борда: стол, прошлая раздача, истор
       ['P0', 1000],
       ['P1', 1000],
     ])
-    expect(historyList([hand])).toEqual([{ number: 1, board: BOARD_1, wins: [{ name: 'P1', amount: 1000 }, { name: 'P0', amount: 1000 }], more: [BOARD_2] }])
-    expect(historyHandView(hand).runs?.map((r) => r.winners)).toEqual(['P1 — Пара, тузы', 'P0 — Каре, короли'])
-    expect(historyHandView(hand).pots).toEqual([{ label: 'Банк', amount: 2000, winners: ['P0', 'P1'] }])
+    const saved = savedHands(roomEvening('KQ7MZP', done, 'p0'), [hand])[0]
+    expect(historyList([saved])).toEqual([
+      {
+        number: 1,
+        board: BOARD_1,
+        wins: [{ name: 'P1', amount: 1000 }, { name: 'P0', amount: 1000 }],
+        more: [BOARD_2],
+        mine: { cards: ['Ks', 'Kh'], position: 'BTN/SB', net: 0, bb: 10 },
+      },
+    ])
+    const view = historyHandView(saved)
+    expect(view.runs?.map((r) => r.winners)).toEqual(['P1 — Пара, тузы', 'P0 — Каре, короли'])
+    expect(view.pots).toEqual([{ label: 'Банк', amount: 2000, winners: ['P0', 'P1'] }])
+    // Борды разные с первой карты — у улиц общих карт нет, только префлоп
+    expect(view.streets).toEqual([{ label: 'Префлоп', board: [], pot: 15, moves: ['P0: олл-ин до 1 000', 'P1: колл до 1 000, олл-ин'] }])
   })
 
   it('выгрузка — каждый борд своими улицами и вскрытием', () => {
