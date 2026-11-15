@@ -2,7 +2,8 @@
 // Собирает сайт (vite build), поднимает vite preview (порт 4173) и ведёт Chrome без окна по экранам:
 // «Настройки» → демо-игры, «Игры», «Игроки», «Вид стола» в «Настройках», «Играть», «Тренажёр» (#213; с «Чартами» —
 // #214; только он — npm run shots -- trainer), «Стол на этом телефоне»
-// (10 гостей, панель хода), «Против ботов» (мой ход, панель хода), «Казино» (столы идут; на телефоне — ещё
+// (10 гостей, панель хода), «Против ботов» (мой ход, панель хода; после паса — «История раздач» за столом
+// и в «Прошлых вечерах», #239; только она — npm run shots -- history), «Казино» (столы идут; на телефоне — ещё
 // на шестерых), «Справка».
 // Сервер комнат не нужен — всё без сети; комнаты на снимках нет. Демо-игры и гости — выдуманные (src/calc/demo.ts).
 // Chrome — по DevTools-протоколу (обычный --screenshot не умеет нажимать кнопки), без сторонних библиотек.
@@ -805,6 +806,7 @@ async function pokerSteps(d: Device): Promise<void> {
     await waitGone(d, 'Докупить всех до')
     await d.tableShot('03f-protiv-botov-dokupleny')
   })
+  await historyStep(d)
 
   await playContinueStep(d)
 
@@ -919,6 +921,54 @@ async function localTable(d: Device): Promise<void> {
   await d.click('Начать раздачу')
   await d.waitFor('.dock.actions')
   await sleep(1500) // раздача долетела
+}
+
+// История раздач (#239): стол с ботами на «Перерыве» после раздачи, где я сбросил, — список за столом
+// (строка: мои карты, позиция, итог, борд), затем тот же вечер в «Прошлых вечерах»: список, раздача, где я сбросил
+// (сверху — последняя), и она же «Текстом»
+async function historyStep(d: Device): Promise<void> {
+  await screen('История раздач', d.size, async () => {
+    await d.click('История раздач')
+    await d.waitFor('.history-hand .history-pos')
+    await d.shot('03g-istoriya-razdach', false)
+  })
+  await screen('Прошлые вечера: раздача', d.size, async () => {
+    await d.goto('#/poker')
+    await d.waitText('Прошлые вечера')
+    const opened = await d.eval<boolean>(`(() => {
+      const el = [...document.querySelectorAll('button.history-item')].find((b) => b.innerText.includes('Против ботов'))
+      if (!el) return false
+      el.click()
+      return true
+    })()`)
+    if (!opened) throw new Error('нет вечера «Против ботов» в «Прошлых вечерах»')
+    await d.waitFor('.history-hand .history-pos')
+    await d.shot('03h-proshlye-vechera-spisok')
+    await d.eval(`document.querySelector('.history-hand').click()`)
+    await d.waitText('Вам сдано')
+    await d.waitText('Ваш итог за раздачу')
+    await d.shot('03i-razdacha-pas')
+    await d.click('Текстом')
+    await d.waitText('*** HOLE CARDS ***')
+    await d.shot('03j-razdacha-tekstom')
+  })
+}
+
+// npm run shots -- history: только история раздач (#239) — стол с ботами до паса и «Доиграть сразу», на телефоне и ноутбуке
+async function historyOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES.slice(0, 2)) {
+    console.log(`История раздач, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await screen('Против ботов', size, async () => {
+      await botsTable(d, 3)
+      await foldUntilPlayOn(d)
+      await d.click('Доиграть сразу')
+      await d.waitText('Новая раздача через')
+      await d.click('Перерыв')
+      await d.waitText('Продолжить')
+    })
+    await historyStep(d)
+  }
 }
 
 // Против ботов с bots ботами (1…5) — с чистого хранилища: форма, «Начать», мой ход
@@ -1085,10 +1135,13 @@ async function main(): Promise<void> {
     const onlyTable = process.argv.includes('table') // npm run shots -- table: только места и панель (#210)
     const uchet = process.argv.includes('uchet') // npm run shots -- uchet: без столов покера (#211)
     const onlyTrainer = process.argv.includes('trainer') // npm run shots -- trainer: «Играть» и «Тренажёр» (#213)
+    const onlyHistory = process.argv.includes('history') // npm run shots -- history: история раздач (#239)
     if (onlyTrainer) await trainerOnly(cdp)
-    if (!onlyTable && !onlyTrainer) for (const size of SIZES) await scenario(cdp, size, theme, uchet)
-    if (!uchet && !onlyTrainer) for (const size of SIZES) await wideTableStep(cdp, size)
-    if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !onlyTrainer) {
+    if (onlyHistory) await historyOnly(cdp)
+    const part = onlyTrainer || onlyHistory
+    if (!onlyTable && !part) for (const size of SIZES) await scenario(cdp, size, theme, uchet)
+    if (!uchet && !part) for (const size of SIZES) await wideTableStep(cdp, size)
+    if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !part) {
       for (const other of ['club', 'day'] as const) for (const size of SIZES) await themeScenario(cdp, size, other)
     }
     console.log('Готово: снимки в', OUT)

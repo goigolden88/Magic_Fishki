@@ -830,10 +830,7 @@ function HistoryBody({ view: v }: { view: HistoryHandView }) {
         {v.players.map((p, i) => (
           <li key={i} className={i === v.meIndex ? 'row history-me' : 'row'}>
             <span className="history-pos">{v.positions[i]}</span>
-            <span className="grow">
-              {p.name}
-              {i === v.meIndex && <span className="muted"> · вы</span>}
-            </span>
+            <span className="grow">{p.name}</span>
             <span className="num muted">{formatNumber(v.chips[i])}</span>
           </li>
         ))}
@@ -949,7 +946,7 @@ export function HandHistory(props: {
                       {item.board.length > 0 && <CardRow cards={item.board} size="small" />}
                       {item.more?.map((board, k) => <CardRow key={k} cards={board} size="small" />)}
                     </span>
-                    <span className="history-wins muted">{item.wins.map((w) => `${w.name} +${formatNumber(w.amount)}`).join(', ')}</span>
+                    <span className="history-wins">{item.wins.map((w) => `${w.name} +${formatNumber(w.amount)}`).join(', ')}</span>
                   </button>
                 </li>
               ))}
