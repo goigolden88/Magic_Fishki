@@ -9,6 +9,7 @@ import { AUTO_START_MS, createTable, gameFor, handle, onTime, viewFor, type Auto
 import type { RandomBytes } from '../poker/tokens'
 import { BOT_LEVELS, BOT_STYLES, botMove, pickStyles, seededRandom, styleLabel, type BotLevel, type BotStyle, type Random } from './bot'
 import { actFor, hostDo, parseLocalTable, rebuyNow, seatPlayer, toActId } from './localTable'
+import { readLabel } from './botHud'
 import { hudView, tableView, type TableView } from './pokerView'
 import type { QuickBets } from './quickBets'
 
@@ -271,10 +272,14 @@ function rebuyBots(table: TableState, meId: string, now: number): TableState {
 // Вид стола мне: как у игрока комнаты — свои карты, у ботов рубашки. «Карты ботов открыты» — у ботов
 // в раздаче карты лицом; только для глаз, в ход бота это не идёт. Под именем бота — его стиль (tag): «ЛАГ»;
 // «Стиль ботов виден» снят — подписи нет (#145). «HUD у всех мест» (#196) — у ботов строка HUD из того же
-// state.hud, что читают боты; снят — HUD только у моего места. bets — быстрые ставки этого телефона (Р-62)
+// state.hud, что читают боты; снят — HUD только у моего места. У каждого HUD — read (#240): как его читают
+// сильные боты, по тем же раздачам и подписи, что в readRival. bets — быстрые ставки этого телефона (Р-62)
 export function botTableView(bt: BotTable, now: number, bets?: QuickBets): TableView {
   const base = tableView(viewFor(bt.table, bt.meId), bt.meId, now, bets)
-  const withHud = bt.hudAll ? { ...base, seats: base.seats.map((s) => (s.isMe ? s : { ...s, hud: hudView(bt.table, s.id) })) } : base
+  const shown = bt.hudAll ? { ...base, seats: base.seats.map((s) => (s.isMe ? s : { ...s, hud: hudView(bt.table, s.id) })) } : base
+  const read = (s: TableView['seats'][number]) =>
+    s.hud ? { ...s, hud: { ...s.hud, read: readLabel(s.hud.hands, bt.styles[s.id] !== undefined) } } : s
+  const withHud = { ...shown, seats: shown.seats.map(read) }
   const tagged = (s: TableView['seats'][number]) => (s.isMe ? s : { ...s, tag: styleLabel(botStyleOf(bt, s.id)) })
   const v = bt.showStyles ? { ...withHud, seats: withHud.seats.map(tagged) } : withHud
   const cards = bt.table.hand?.cards
