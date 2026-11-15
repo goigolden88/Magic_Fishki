@@ -284,6 +284,17 @@ a {
   min-width: 0;
 }
 
+/* Ряды кнопок выбора строкой (#238): кнопки делят строку поровну, но не уже своего самого длинного слова;
+   не входят — ряд переносится на следующую строку, а не выдавливает надпись за край */
+:is(.row, .dock-row):has(> button[aria-pressed]) {
+  flex-wrap: wrap;
+}
+
+:is(.row, .dock-row) > button.grow[aria-pressed] {
+  min-width: auto;
+  line-height: 1.2;
+}
+
 .wide {
   width: 100%;
   margin: 12px 0;
@@ -425,12 +436,24 @@ button.icon {
   accent-color: var(--accent);
 }
 
-/* Быстрые суммы у «Закуп», «Докуп», «Выход» */
+/* Ряды кнопок выбора и быстрых сумм (#238): раскладка по содержимому. Кнопка — по своей надписи целиком
+   (flex-basis: auto), не уже 6 rem, остаток строки делят поровну; не входит — меньше кнопок в строке. Надпись
+   шире всей строки — кнопка сжимается до строки (min-width ниже ширины надписи) и переносит её по слову */
 .amounts {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 10px;
+}
+
+.amounts > * {
+  flex: 1 1 auto;
+  min-width: min(100%, 6rem);
+}
+
+.amounts > button.big {
+  padding: 0.3rem 0.75rem;
+  line-height: 1.2;
 }
 
 .player .pick-title {
@@ -1848,11 +1871,6 @@ textarea.note-input {
 .look-back {
   margin-right: 6px;
   vertical-align: middle;
-}
-
-/* «Лицо карт» (#219): «Классическое» — длинное слово, ячейка шире обычной, чтобы оно вошло в кнопку целиком */
-.amounts.face-pick {
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 9rem), 1fr));
 }
 
 /* Образец колоды в «Виде стола» (Р-61): по карте каждой масти */
