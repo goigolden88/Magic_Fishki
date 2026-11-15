@@ -1062,12 +1062,14 @@ a.button-link.primary {
 
 .chart-positions {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 3.2rem), 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 0.3rem;
 }
 
+/* Шесть в ряд и на 320 px */
 .chart-positions button {
   padding: 0;
+  font-size: clamp(0.85rem, 3.6vw, 1.1rem);
 }
 
 .chart-situations {
