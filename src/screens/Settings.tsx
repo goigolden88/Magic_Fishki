@@ -31,7 +31,20 @@ import { formatNumber, formatRate, parseChips, parseRate } from '../calc/format'
 import { today } from '../dates'
 import { MAX_WINDOW, MIN_WINDOW, moveItem, type Game, type Regular, type Settings } from '../model'
 import type { SavedHand } from '../calc/evenings'
-import { allHands, deleteDemoGames, getSettings, handKeys, listGames, restoreGames, restoreHands, saveSettings } from '../store/db'
+import type { OwnChart } from '../calc/ownCharts'
+import {
+  allHands,
+  chartIds,
+  deleteDemoGames,
+  getSettings,
+  handKeys,
+  listCharts,
+  listGames,
+  restoreCharts,
+  restoreGames,
+  restoreHands,
+  saveSettings,
+} from '../store/db'
 import { ulid } from '../ulid'
 import { download } from './download'
 import { loadLastBackup, saveLastBackup } from './lastBackup'
@@ -422,15 +435,17 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
   const { settings, onPlayers, onLook } = props
   const [games, setGames] = useState<Game[] | null>(null)
   const [hands, setHands] = useState<SavedHand[]>([])
+  const [charts, setCharts] = useState<OwnChart[]>([])
   const [note, setNote] = useState<Note | null>(null)
   const [last, setLast] = useState(loadLastBackup)
   const fileInput = useRef<HTMLInputElement>(null)
   const shareFiles = canShareFiles()
 
-  // Игры и раздачи читаются заранее: Safari открывает «Поделиться» только сразу после касания, без ожидания базы
+  // Игры, раздачи и свои чарты читаются заранее: Safari открывает «Поделиться» только сразу после касания, без ожидания базы
   useEffect(() => {
     void listGames().then(setGames)
     allHands().then(setHands, () => setHands([]))
+    listCharts().then(setCharts, () => setCharts([]))
   }, [])
 
   // Отдана — запоминаем момент копии: игры, изменённые позже, — «после неё»
@@ -443,7 +458,7 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
   // Заметки об игроках и подписи цветов (Р-56) — из памяти телефона, читаются сразу, без ожидания
   function backupNow(now: string) {
     const { notes, labels } = loadNotes()
-    return makeBackup(games ?? [], settings, now, hands, notes, labels, loadMyLook(), localPokerPrefs())
+    return makeBackup(games ?? [], settings, now, hands, notes, labels, loadMyLook(), localPokerPrefs(), charts)
   }
 
   // Сохранил ли браузер файл, приложению не узнать (на iPhone — не всегда): обещать нельзя
@@ -495,15 +510,27 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
         return
       }
     }
+    // Свои чарты (Р-77) — так же: в копии их нет — их хранилище не читаем
+    let ownIds: string[] = []
+    if (parsed.backup.charts.length > 0) {
+      try {
+        ownIds = await chartIds()
+      } catch {
+        setNote({ ok: false, text: 'Не удалось прочитать чарты на этом телефоне — попробуйте ещё раз' })
+        return
+      }
+    }
     const plan = planRestore(
       (await listGames()).map((g) => g.id),
       current.players,
       parsed.backup,
       keys,
+      ownIds,
     )
     try {
       await restoreGames(plan.added)
       await restoreHands(plan.hands)
+      await restoreCharts(plan.charts)
       if (plan.players.length !== current.players.length) await saveSettings({ ...current, players: plan.players })
     } catch {
       setNote({ ok: false, text: 'Не удалось записать игры — попробуйте ещё раз' })
@@ -531,9 +558,11 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
     onPlayers(plan.players)
     setGames(await listGames())
     if (plan.hands.length > 0) allHands().then(setHands, () => undefined)
+    if (plan.charts.length > 0) listCharts().then(setCharts, () => undefined)
     const handsNote = plan.hands.length > 0 ? `; раздач покера добавлено ${plan.hands.length}` : ''
     const notesNote = merged.added > 0 ? `; заметок об игроках добавлено ${merged.added}` : ''
-    setNote({ ok: true, text: `Добавлено ${plan.added.length}, уже были ${plan.existing}${handsNote}${notesNote}` })
+    const chartsNote = plan.charts.length > 0 ? `; чартов добавлено ${plan.charts.length}` : ''
+    setNote({ ok: true, text: `Добавлено ${plan.added.length}, уже были ${plan.existing}${handsNote}${notesNote}${chartsNote}` })
   }
 
   return (
@@ -541,7 +570,7 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
       <p className="muted">
         Игры хранятся только в этом браузере: очистка данных сайта или новый телефон их сотрут. Копия — файл со всеми
         играми, настройками, раздачами прошлых вечеров покера, заметками об игроках, видом и размером стола, быстрой
-        комнатой, быстрыми ставками, шагом колеса ставки и оформлением; восстановление добавляет недостающее и ничего не перезаписывает.
+        комнатой, быстрыми ставками, шагом колеса ставки, оформлением и своими чартами тренажёра; восстановление добавляет недостающее и ничего не перезаписывает.
       </p>
       {games !== null && <p>{lastBackupText(last, games, today())}</p>}
       <button type="button" className="big primary wide" disabled={games === null} onClick={save}>

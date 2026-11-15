@@ -1193,6 +1193,93 @@ a.button-link.primary {
   text-align: right;
 }
 
+/* Свои чарты (#215): «Встроенные» | «Мои чарты» — в ряд над чартами */
+.chart-modes {
+  margin: 0 0 0.75rem;
+}
+
+/* Правка клетки: строка действия — имя, «−», доля, «+» */
+.chart-cell-edit {
+  margin: 0.25rem 0 0.75rem;
+}
+
+.chart-share-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 3.5rem 4.5rem 3.5rem;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0;
+}
+
+.chart-share-row strong {
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.15rem;
+}
+
+.chart-share-row button {
+  padding: 0;
+  font-size: 1.4rem;
+}
+
+/* Выбор действия: для «Загрузить текстом» и действий нового чарта */
+.chart-actions-pick {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 8rem), 1fr));
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.chart-actions-pick button {
+  padding: 0.4rem 0.6rem;
+  font-size: 1rem;
+}
+
+textarea.chart-paste {
+  min-height: 6rem;
+}
+
+.chart-edit .field {
+  margin-top: 0.75rem;
+}
+
+.chart-new {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--line);
+}
+
+/* «Мои чарты»: имя, откуда чарт, кнопки — в ряд, на узком — переносятся */
+.chart-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chart-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.chart-list-name {
+  font-size: 1.1rem;
+  overflow-wrap: anywhere;
+}
+
+.chart-list-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
+}
+
+.chart-list-buttons button {
+  padding: 0.3rem 0.2rem;
+  font-size: clamp(0.8rem, 3.4vw, 1rem);
+}
+
 .table-info {
   margin: 0 0 0.25rem;
   font-size: 0.8rem;
