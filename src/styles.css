@@ -834,6 +834,199 @@ a.button-link.primary {
   }
 }
 
+/* «Тренажёр» (#213): борд, строка счёта, стороны; на широком окне стороны — по две в ряд (сами, по ширине) */
+.trainer-status {
+  min-height: 1.4em;
+  margin: 0.5rem 0;
+}
+
+.trainer-sides {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 24rem), 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.trainer-sides > .card {
+  margin: 0;
+}
+
+.side-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.side-head h2 {
+  margin: 0;
+}
+
+.side-result {
+  margin: 0.25rem 0 0.5rem;
+}
+
+.side-result p {
+  margin: 0;
+}
+
+.side-result.counting {
+  opacity: 0.5;
+}
+
+.side-share {
+  font-family: 'Geologica', 'Golos Text', sans-serif;
+  font-size: 2.2rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.side-wintie {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.trainer-cards {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+/* Места под карты — одна кнопка: касание открывает и закрывает колоду */
+.card-slots {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 3.5rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--muted);
+}
+
+.card-slots .slots {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.slot-empty {
+  display: inline-block;
+  width: 2rem;
+  height: 2.75rem;
+  border: 2px dashed var(--muted);
+  border-radius: 0.3rem;
+}
+
+.slots-hint {
+  color: var(--gold);
+  font-weight: 600;
+}
+
+/* Колода: 13 столбцов по рангу, ряд на масть; карта — ранг над мастью */
+.deck {
+  display: grid;
+  grid-template-columns: repeat(13, minmax(0, 1fr));
+  gap: 0.2rem;
+  margin-top: 0.75rem;
+}
+
+.playing-card.deck-card {
+  flex-direction: column;
+  width: auto;
+  height: auto;
+  min-height: 2.9rem;
+  padding: 0;
+  border: none;
+  font-size: clamp(0.7rem, 3.4vw, 1.05rem);
+  line-height: 1.1;
+}
+
+.playing-card.deck-card:disabled {
+  opacity: 0.2;
+}
+
+.playing-card.deck-card[aria-pressed='true'] {
+  box-shadow:
+    0 0 0 2px var(--card),
+    0 0 0 4px var(--accent);
+}
+
+/* Вес касания — пять кнопок в ряд */
+.weights {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.3rem;
+  margin: 0.75rem 0 0.5rem;
+}
+
+.weights button {
+  min-height: 2.75rem;
+  padding: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* Сетка 13 × 13: клетка закрашена снизу на долю веса; палец по сетке не листает страницу */
+.range-grid {
+  display: grid;
+  grid-template-columns: repeat(13, minmax(0, 1fr));
+  gap: 2px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.range-cell {
+  --base: var(--bg);
+  aspect-ratio: 1;
+  min-width: 0;
+  padding: 0;
+  border-radius: 0.2rem;
+  font-size: clamp(0.45rem, 2.3vw, 0.8rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--muted);
+  background: var(--base);
+}
+
+.range-cell.pair {
+  --base: var(--line);
+  color: var(--text);
+}
+
+/* Часть веса: заливка до доли, надпись — на подложке цвета пустой клетки, читается при любой доле */
+.range-cell.part {
+  background: linear-gradient(to top, var(--accent) calc(var(--w) * 100%), var(--base) 0);
+}
+
+.range-cell.part span {
+  padding: 0 0.1em;
+  border-radius: 0.15em;
+  color: var(--text);
+  background: var(--base);
+}
+
+.range-cell.on {
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+.range-size {
+  margin: 0.5rem 0;
+  font-weight: 600;
+}
+
+.range-editor .field {
+  margin-bottom: 0.5rem;
+}
+
+.range-text {
+  font-size: 1rem;
+}
+
 .table-info {
   margin: 0 0 0.25rem;
   font-size: 0.8rem;
@@ -2677,7 +2870,12 @@ input.bet-amount {
   }
 
   .poker-home .modes {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  /* «Тренажёр» (#213) — шире колонки учёта: стороны по две в ряд */
+  .trainer {
+    max-width: var(--content-max);
   }
 
   .poker-home > :not(.bar, h1, .continue-strip, .lead, .modes) {

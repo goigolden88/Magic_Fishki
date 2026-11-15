@@ -1,6 +1,7 @@
 // Снимки экранов для отчёта PR (Ш-202 Штаба, #182): npm run shots.
 // Собирает сайт (vite build), поднимает vite preview (порт 4173) и ведёт Chrome без окна по экранам:
-// «Настройки» → демо-игры, «Игры», «Игроки», «Вид стола» в «Настройках», «Играть», «Стол на этом телефоне»
+// «Настройки» → демо-игры, «Игры», «Игроки», «Вид стола» в «Настройках», «Играть», «Тренажёр» (#213; только он —
+// npm run shots -- trainer), «Стол на этом телефоне»
 // (10 гостей, панель хода), «Против ботов» (мой ход, панель хода), «Казино» (столы идут; на телефоне — ещё
 // на шестерых), «Справка».
 // Сервер комнат не нужен — всё без сети; комнаты на снимках нет. Демо-игры и гости — выдуманные (src/calc/demo.ts).
@@ -626,6 +627,60 @@ async function playStep(d: Device): Promise<void> {
   })
 }
 
+// «Тренажёр» (#213): с «Играть» — диапазон текстом против руки на флопе, итог посчитан
+async function trainerStep(d: Device): Promise<void> {
+  await screen('Тренажёр', d.size, async () => {
+    await d.goto('#/poker')
+    await d.waitText('Открыть тренажёр')
+    await d.click('Открыть тренажёр')
+    await d.waitText('Добавить сторону')
+    await d.click('Диапазон') // первая — у стороны 1
+    await d.waitFor('.range-text')
+    await d.type('.range-text', '77+, A9s+, KQs, AJo+, AKs:0.5, JTs:0.75, 65s:0.25')
+    await d.waitText('% рук')
+    await d.click('Выбрать карты') // сторона 2 — рука
+    await pickCards(d, ['Jd', 'Td'])
+    await d.click('Выбрать борд')
+    await pickCards(d, ['Qs', '9h', '2c'])
+    await d.eval("document.querySelector('.trainer-board .card-slots').click()") // закрыть колоду борда
+    await d.waitText('победа')
+    await waitGone(d, 'Считаем…')
+    await d.shot('02c-trenazher')
+    // Колода руки стороны 2: её карты отмечены, карты борда приглушены
+    await d.eval("document.querySelectorAll('.trainer-side .card-slots')[0].click()")
+    await d.waitFor('.deck')
+    await d.shot('02d-trenazher-koloda')
+    await d.goto('#/poker') // дальше сценарий идёт с «Играть»
+    await d.waitText('Сесть за стол')
+  })
+}
+
+// npm run shots -- trainer: только «Играть» и «Тренажёр», на телефоне и ноутбуке; «Тренажёр» — ещё в «Клубе» и «Дне»
+async function trainerOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES.slice(0, 2)) {
+    console.log(`Тренажёр, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await playStep(d)
+    await trainerStep(d)
+    for (const other of ['club', 'day'] as const) {
+      const t = await Device.open(cdp, size, `${other}-`)
+      await t.goto('#/settings')
+      await t.waitText('Добавить демо-данные')
+      await pickTheme(t, other)
+      await trainerStep(t)
+    }
+  }
+}
+
+// Касания карт открытой колоды тренажёра
+async function pickCards(d: Device, cards: string[]): Promise<void> {
+  for (const card of cards) {
+    await d.waitFor(`.deck [data-card="${card}"]`)
+    await d.eval(`document.querySelector('.deck [data-card="${card}"]').click()`)
+    await sleep(100)
+  }
+}
+
 // «Играть» с полосой «Продолжить» (#209): после стола против ботов он — последняя игра
 async function playContinueStep(d: Device): Promise<void> {
   await screen('Играть: продолжить', d.size, async () => {
@@ -688,6 +743,7 @@ async function scenario(cdp: Cdp, size: Size, theme: Theme, uchet: boolean): Pro
 async function pokerSteps(d: Device): Promise<void> {
   const size = d.size
   await playStep(d)
+  await trainerStep(d)
 
   await screen('Против ботов', size, async () => {
     await d.click('Сесть за стол')
@@ -1000,9 +1056,11 @@ async function main(): Promise<void> {
     cdp = await Cdp.connect(launched.url)
     const onlyTable = process.argv.includes('table') // npm run shots -- table: только места и панель (#210)
     const uchet = process.argv.includes('uchet') // npm run shots -- uchet: без столов покера (#211)
-    if (!onlyTable) for (const size of SIZES) await scenario(cdp, size, theme, uchet)
-    if (!uchet) for (const size of SIZES) await wideTableStep(cdp, size)
-    if (!process.env.SHOTS_THEME && !onlyTable && !uchet) {
+    const onlyTrainer = process.argv.includes('trainer') // npm run shots -- trainer: «Играть» и «Тренажёр» (#213)
+    if (onlyTrainer) await trainerOnly(cdp)
+    if (!onlyTable && !onlyTrainer) for (const size of SIZES) await scenario(cdp, size, theme, uchet)
+    if (!uchet && !onlyTrainer) for (const size of SIZES) await wideTableStep(cdp, size)
+    if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !onlyTrainer) {
       for (const other of ['club', 'day'] as const) for (const size of SIZES) await themeScenario(cdp, size, other)
     }
     console.log('Готово: снимки в', OUT)

@@ -54,6 +54,11 @@ const PLACEHOLDERS: HelpValues = {
   betSteps: '‹шаг колеса›',
   betShareBB: '‹доля банка в ББ›',
   betShareChips: '‹доля банка в фишках›',
+  trainerSidesMin: '‹сторон от›',
+  trainerSidesMax: '‹сторон до›',
+  trainerWeights: '‹веса касания›',
+  trainerSamples: '‹досдач в выборке›',
+  trainerExample: '‹диапазон текстом›',
 }
 
 // Код приложения и сервера комнат текстом — без тестов и без самой справки
@@ -115,6 +120,7 @@ describe('справка', () => {
       'Играть',
       'Стол на этом телефоне',
       'Против ботов',
+      'Тренажёр',
       'Комната покера',
       'Стол покера',
       'История раздач и выгрузка',
@@ -226,6 +232,11 @@ describe('справка', () => {
       betSteps: `«${formatBB(10, 10)}» (сначала) или «${formatBB(5, 10)}»`,
       betShareBB: `«66 % банка · ${formatBB(1200, 100)}»`,
       betShareChips: `«66 % банка · ${formatNumber(1200)}»`,
+      trainerSidesMin: '2',
+      trainerSidesMax: '6',
+      trainerWeights: '«100 %» (сначала), «75 %», «50 %», «25 %» или «0 %»',
+      trainerSamples: formatNumber(20_000),
+      trainerExample: '«77+, A9s+, AJo+, AKs:0.5»',
       bbExample: '42,5 ББ',
     })
   })
