@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { deckFor, HOLDEM_GAME } from '../poker/game'
 import type { HandLogEntry, Street } from '../poker/hand'
 import { finishedHand, keepHand, type HistoryHand } from '../poker/history'
-import { HUD_FEW_HANDS, type HudCounts } from '../poker/hud'
+import { EMPTY_HUD, HUD_FEW_HANDS, type HudCounts } from '../poker/hud'
 import { createTable, type HandRecord, type HandResult, type Settings, type TableState } from '../poker/table'
 import { award, call, check, fold, play, raise, start, type Step } from '../poker/testing'
 import { localEvening, roomEvening, savedHands, type EveningTable, type SavedHand } from './evenings'
@@ -42,11 +42,11 @@ function finish(run: Run): Run {
 
 const checkDown = (ids: string[], streets: number): Step[] => Array.from({ length: streets }, () => ids.map(check)).flat()
 
-const ZERO: HudCounts = { hands: 0, vpip: 0, pfr: 0, stealChances: 0, steals: 0, cbChances: 0, cbs: 0, raises: 0, calls: 0 }
+const ZERO = { ...EMPTY_HUD }
 
 function sum(...list: (HudCounts | undefined)[]): HudCounts {
   const out = { ...ZERO }
-  for (const c of list) if (c) for (const k of Object.keys(out) as (keyof HudCounts)[]) out[k] += c[k]
+  for (const c of list) if (c) for (const k of Object.keys(out) as (keyof HudCounts)[]) out[k] += c[k] ?? 0
   return out
 }
 
@@ -257,7 +257,8 @@ const H3 = saved(
   { p: 300, v: 400 },
 )
 
-// 4. Живые карты — записи нет: в новые числа не входит, хотя p взял банк
+// 4. Живые карты — записи нет: в лучшие и худшие не входит, в HUD (и bb/100, #241) — входит.
+//    p открылся 30, k и v пас: 20 вернулись p, банк 25 его. Итог: p +15, k −5, v −10
 const H4: SavedHand = {
   evening: PHONE.id,
   code: null,
@@ -293,14 +294,25 @@ describe('покер за всё время: 3-бет, вскрытия, bb/100 
     expect(net(H5)).toEqual({ p: 0, k: -5, v: 5 })
   })
 
-  it('Петя: 3-бет 1 из 2, WTSD 2 из 3, W$SD 1 из 2, bb/100 по четырём раздачам с записью', () => {
+  // С #241 3-бет, WTSD, W$SD и bb/100 считает HUD (allTimeHud) — и по живой раздаче 4: там итог —
+  // по выплатам и банкам, блайнды — стола вечера. Сотые ББ: H1 −9, H2 +5,4, H3 +20, H4 +1,5 (p 25 − 10), H5 0
+  it('Петя: 3-бет 1 из 2, фолд на 3-бет 0 из 1, WTSD 2 из 3, W$SD 1 из 2, bb/100 по пяти раздачам', () => {
+    const hud = allTimeHud(PETYA, HANDS)
+    expect(hud).toMatchObject({
+      hands: 5,
+      threeBetChances: 2, // 2 — колл, 3 — олл-ин; в 1 сам открывал
+      threeBets: 1,
+      foldTo3BetChances: 1, // в 1 открыл, получил 3-бет и уравнял
+      foldsTo3Bet: 0,
+      flops: 3, // флоп в 1, 2, 3; вскрытие в 1 и 3
+      showdowns: 2,
+      showdownWins: 1, // основной банк в 3
+      netHands: 5,
+      net: -900 + 540 + 2000 + 150 + 0,
+    })
+    expect(countsView(hud)).toMatchObject({ threeBet: 50, foldTo3Bet: 0, wtsd: 67, wsd: 50, bb100: '+358,0' })
     const more = allTimeMore(PETYA, HANDS)
-    expect(more.hands).toBe(4) // живая раздача не в счёт
-    expect(allTimeHud(PETYA, HANDS).hands).toBe(5) // а в HUD — в счёт, как раньше
-    expect(more.threeBet).toEqual({ made: 1, of: 2 }) // 2 — колл, 3 — олл-ин; в 1 сам открывал
-    expect(more.wtsd).toEqual({ made: 2, of: 3 }) // флоп в 1, 2, 3; вскрытие в 1 и 3
-    expect(more.wsd).toEqual({ made: 1, of: 2 }) // основной банк в 3
-    expect(more.bb).toBeCloseTo(-9 + 5.4 + 20 + 0)
+    expect(more.hands).toBe(4) // лучшие и худшие — без живой раздачи
     expect(more.best.map((o) => [o.number, o.chips])).toEqual([
       [3, 200],
       [2, 54],
@@ -308,13 +320,14 @@ describe('покер за всё время: 3-бет, вскрытия, bb/100 
     expect(more.worst.map((o) => [o.number, o.chips])).toEqual([[1, -90]])
   })
 
-  it('Коля: 3-бет 1 из 1, без вскрытия после паса на флопе; худшие — три', () => {
+  it('Коля: 3-бет 1 из 2 (в живой 4 — пас), без вскрытия после паса на флопе; худшие — три', () => {
+    const hud = allTimeHud(KOLYA, HANDS)
+    // В 3 перед ним два рейза — не случай; в 2 открыл, 3-бета не было — не случай фолда
+    expect(hud).toMatchObject({ threeBetChances: 2, threeBets: 1, foldTo3BetChances: 0, flops: 3, showdowns: 2, showdownWins: 1 })
+    expect(hud).toMatchObject({ netHands: 5, net: 1000 - 270 - 3000 - 50 - 50 })
+    expect(countsView(hud)).toMatchObject({ threeBet: 50, foldTo3Bet: null, bb100: `${MINUS}474,0` })
     const more = allTimeMore(KOLYA, HANDS)
     expect(more.hands).toBe(4)
-    expect(more.threeBet).toEqual({ made: 1, of: 1 }) // в 3 перед ним два рейза — не случай
-    expect(more.wtsd).toEqual({ made: 2, of: 3 }) // в 5 пас до флопа
-    expect(more.wsd).toEqual({ made: 1, of: 2 })
-    expect(more.bb).toBeCloseTo(10 - 2.7 - 30 - 0.5)
     expect(more.best.map((o) => o.number)).toEqual([1])
     expect(more.worst.map((o) => [o.evening, o.number])).toEqual([
       [ROOM.id, 3],
@@ -323,31 +336,32 @@ describe('покер за всё время: 3-бет, вскрытия, bb/100 
     ])
   })
 
-  it('Вася: побочный банк — выигрыш на вскрытии; большой блайнд без хода — в плюсе', () => {
+  it('Вася: побочный банк — выигрыш на вскрытии; открыл и получил 4-бет — не фолд на 3-бет', () => {
+    const hud = allTimeHud(VASYA, HANDS)
+    expect(hud).toMatchObject({ threeBetChances: 2, threeBets: 0, foldTo3BetChances: 0, flops: 2, showdowns: 1, showdownWins: 1 })
+    expect(hud).toMatchObject({ netHands: 5, net: -100 - 270 + 1000 - 100 + 50 })
+    expect(countsView(hud)).toMatchObject({ threeBet: 0, wtsd: 50, wsd: 100, bb100: '+116,0' })
     const more = allTimeMore(VASYA, HANDS)
-    expect(more.threeBet).toEqual({ made: 0, of: 1 })
-    expect(more.wtsd).toEqual({ made: 1, of: 2 })
-    expect(more.wsd).toEqual({ made: 1, of: 1 })
-    expect(more.bb).toBeCloseTo(-1 - 2.7 + 10 + 0.5)
     expect(more.best.map((o) => o.number)).toEqual([3, 2])
     expect(more.worst.map((o) => o.number)).toEqual([2, 1])
   })
 
-  it('показ: проценты, из скольких, мало раздач, bb/100 и строки раздач', () => {
+  it('турнир на живых картах: блайнды раздачи неизвестны — в bb/100 не идёт, в остальное — идёт', () => {
+    const tournament = { ...H4, table: { ...TABLE, tournament: true } }
+    expect(allTimeHud(PETYA, [tournament])).toMatchObject({ hands: 1, netHands: 0, net: 0 })
+    expect(countsView(allTimeHud(PETYA, [tournament]))?.bb100).toBeNull()
+    expect(allTimeHud(KOLYA, [tournament])).toMatchObject({ threeBetChances: 1, threeBets: 0 })
+  })
+
+  it('показ лучших и худших: строки раздач', () => {
     const view = moreView(allTimeMore(PETYA, HANDS))
     expect(view).toEqual({
-      hands: 4,
-      threeBet: { pct: 50, of: 2, few: true },
-      wtsd: { pct: 67, of: 3, few: true },
-      wsd: { pct: 50, of: 2, few: true },
-      bb100: { text: '+410,0', few: true, sign: 1 },
       best: [
         { evening: ROOM.id, number: 3, day: '2026-10-09', table: 'Стол KQ7MZP', result: `+20${NBSP}ББ` },
         { evening: ROOM.id, number: 2, day: '2026-10-09', table: 'Стол KQ7MZP', result: `+5,4${NBSP}ББ` },
       ],
       worst: [{ evening: ROOM.id, number: 1, day: '2026-10-09', table: 'Стол KQ7MZP', result: `${MINUS}9${NBSP}ББ` }],
     })
-    expect(moreView(allTimeMore(KOLYA, HANDS))?.bb100).toEqual({ text: `${MINUS}580,0`, few: true, sign: -1 })
     expect(moreView(allTimeMore(KOLYA, HANDS))?.worst[2]).toMatchObject({
       day: '2026-10-16',
       table: 'Стол на телефоне',
@@ -355,29 +369,23 @@ describe('покер за всё время: 3-бет, вскрытия, bb/100 
     })
   })
 
-  it('нет раздач с записью — нет и чисел: ни нулей, ни деления на ноль', () => {
+  it('нет раздач с записью — нет и лучших с худшими; HUD по живым — есть', () => {
     const none = allTimeMore(PETYA, [H4])
-    expect(none).toEqual({ hands: 0, threeBet: { made: 0, of: 0 }, wtsd: { made: 0, of: 0 }, wsd: { made: 0, of: 0 }, bb: 0, best: [], worst: [] })
+    expect(none).toEqual({ hands: 0, best: [], worst: [] })
     expect(moreView(none)).toBeNull()
     expect(moreView(allTimeMore(PETYA, []))).toBeNull()
-    // Живые карты стола на телефоне — HUD есть, новых чисел нет
     expect(moreView(allTimeMore(PETYA, eveningB().saved))).toBeNull()
+    expect(countsView(allTimeHud(PETYA, eveningB().saved))).toMatchObject({ hands: 2, wtsd: 50 })
   })
 
   it('случаев не меньше порога — не приглушено; при равном итоге выше позднее', () => {
     const many = Array.from({ length: HUD_FEW_HANDS }, (_, i) => ({ ...H3, number: i + 1, hand: { ...H3.hand, number: i + 1 } }))
+    expect(countsView(allTimeHud(PETYA, many))).toMatchObject({ few: false, threeBet: 100, wtsd: 100, wsd: 100, bb100: '+2000,0' })
     const view = moreView(allTimeMore(PETYA, many))
-    expect(view).toMatchObject({
-      hands: HUD_FEW_HANDS,
-      threeBet: { pct: 100, of: HUD_FEW_HANDS, few: false },
-      wtsd: { pct: 100, few: false },
-      wsd: { pct: 100, few: false },
-      bb100: { text: '+2000,0', few: false },
-    })
     expect(view?.best.map((o) => o.number)).toEqual([HUD_FEW_HANDS, HUD_FEW_HANDS - 1, HUD_FEW_HANDS - 2])
     expect(view?.worst).toEqual([])
     // Ни одного случая — «—», а не ноль
-    expect(moreView(allTimeMore(PETYA, [H5]))).toMatchObject({ threeBet: { pct: null, of: 0 }, wtsd: { pct: null, of: 0 }, wsd: { pct: null } })
+    expect(countsView(allTimeHud(PETYA, [H5]))).toMatchObject({ threeBet: null, foldTo3Bet: null, wtsd: null, wsd: null, bb100: '0,0' })
   })
 
   it('по раздачам живого стола: итоги раздач сходятся в ноль и складываются в стеки стола', () => {

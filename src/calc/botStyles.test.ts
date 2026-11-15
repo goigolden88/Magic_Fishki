@@ -58,7 +58,7 @@ function air(cards: string[]): boolean {
 }
 
 const sumHud = (a: HudCounts | undefined, b: HudCounts): HudCounts =>
-  a ? (Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v + a[k as keyof HudCounts]])) as HudCounts) : { ...b }
+  a ? (Object.fromEntries(Object.entries(b).map(([k, v]) => [k, v + (a[k as keyof HudCounts] ?? 0)])) as HudCounts) : { ...b }
 
 // Колоды — своим случаем от seed: при тех же seed и числе раздач колоды те же, как бы ни ходили боты.
 // Омаха (#147) — пот-лимит, как у стола ботов
