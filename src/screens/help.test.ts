@@ -59,6 +59,8 @@ const PLACEHOLDERS: HelpValues = {
   trainerWeights: '‹веса касания›',
   trainerSamples: '‹досдач в выборке›',
   trainerExample: '‹диапазон текстом›',
+  chartsGame: '‹игра чартов›',
+  chartsRounding: '‹округление чартов›',
 }
 
 // Код приложения и сервера комнат текстом — без тестов и без самой справки
@@ -237,6 +239,8 @@ describe('справка', () => {
       trainerWeights: '«100 %» (сначала), «75 %», «50 %», «25 %» или «0 %»',
       trainerSamples: formatNumber(20_000),
       trainerExample: '«77+, A9s+, AJo+, AKs:0.5»',
+      chartsGame: '6-макс, 100 ББ',
+      chartsRounding: 'доли округлены до 25 % (у пар — до 1/6)',
       bbExample: '42,5 ББ',
     })
   })

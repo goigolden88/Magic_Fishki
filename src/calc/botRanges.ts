@@ -33,7 +33,7 @@ export function handClass(a: Card, b: Card): string {
   return hi[0] + lo[0] + (hi[1] === lo[1] ? 's' : 'o')
 }
 
-const combosOf = (cls: string) => (cls.length === 2 ? 6 : cls[2] === 's' ? 4 : 12)
+export const combosOf = (cls: string) => (cls.length === 2 ? 6 : cls[2] === 's' ? 4 : 12)
 
 // Верхняя доля класса — середина его сочетаний в общем ряду
 const TOP = new Map<string, number>()

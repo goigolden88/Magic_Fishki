@@ -1,7 +1,7 @@
 // Снимки экранов для отчёта PR (Ш-202 Штаба, #182): npm run shots.
 // Собирает сайт (vite build), поднимает vite preview (порт 4173) и ведёт Chrome без окна по экранам:
-// «Настройки» → демо-игры, «Игры», «Игроки», «Вид стола» в «Настройках», «Играть», «Тренажёр» (#213; только он —
-// npm run shots -- trainer), «Стол на этом телефоне»
+// «Настройки» → демо-игры, «Игры», «Игроки», «Вид стола» в «Настройках», «Играть», «Тренажёр» (#213; с «Чартами» —
+// #214; только он — npm run shots -- trainer), «Стол на этом телефоне»
 // (10 гостей, панель хода), «Против ботов» (мой ход, панель хода), «Казино» (столы идут; на телефоне — ещё
 // на шестерых), «Справка».
 // Сервер комнат не нужен — всё без сети; комнаты на снимках нет. Демо-игры и гости — выдуманные (src/calc/demo.ts).
@@ -702,6 +702,15 @@ async function trainerStep(d: Device): Promise<void> {
     await d.eval("document.querySelectorAll('.trainer-side .card-slots')[0].click()")
     await d.waitFor('.deck')
     await d.shot('02d-trenazher-koloda')
+    // «Чарты» (#214): BTN против 3-бета BB, касание AKs — доли руки строкой
+    await d.click('Чарты')
+    await d.waitText('Моя позиция')
+    await d.click('BTN')
+    await d.click('Я открылся, 3-бет от BB')
+    await d.waitText('Доходит до ситуации')
+    await d.eval(`document.querySelector('.chart-cell[aria-label^="AKs:"]').click()`)
+    await d.waitText('AKs: ')
+    await d.shot('02e-trenazher-charty')
     await d.goto('#/poker') // дальше сценарий идёт с «Играть»
     await d.waitText('Сесть за стол')
   })
