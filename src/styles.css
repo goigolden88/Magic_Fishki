@@ -57,6 +57,12 @@
   --rim: 0 0 0 0.4rem #1c212b, 0 0 0 calc(0.4rem + 2px) #a5c9ff;
   --seat-line: #3a4152;
   --seat-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+  /* Чарты «Тренажёра» (#214): действия — пас, колл, рейз, олл-ин (темнее рейза); пустая клетка */
+  --act-fold: #4b5568;
+  --act-call: #2f9e5f;
+  --act-raise: #e0604f;
+  --act-allin: #8f2419;
+  --chart-empty: var(--bg);
   color-scheme: dark;
   font-family: 'Golos Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-size: 18px;
@@ -99,6 +105,11 @@
   --rim: none;
   --seat-line: var(--line);
   --seat-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  --act-fold: #4d6257;
+  --act-call: #2e9e5b;
+  --act-raise: #e0604f;
+  --act-allin: #8f2419;
+  --chart-empty: var(--bg);
   color-scheme: dark;
 }
 
@@ -135,6 +146,11 @@
   --rim: 0 0 0 0.5rem #ffffff, 0 0 0 calc(0.5rem + 1px) #d3d9e0;
   --seat-line: transparent;
   --seat-shadow: 0 2px 10px rgba(23, 33, 43, 0.18);
+  --act-fold: #aab4bf;
+  --act-call: #3a9d63;
+  --act-raise: #e46a58;
+  --act-allin: #9e2619;
+  --chart-empty: var(--bg);
   color-scheme: light;
 }
 
@@ -1025,6 +1041,156 @@ a.button-link.primary {
 
 .range-text {
   font-size: 1rem;
+}
+
+/* Вкладки «Тренажёра» (#214): «Калькулятор» и «Чарты» — в ряд */
+.trainer-tabs {
+  margin: 0.5rem 0 0.25rem;
+}
+
+/* «Чарты»: выбор и чарт — колонкой; на широком окне — рядом (сами, по ширине) */
+.charts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.charts > .card {
+  margin: 0;
+}
+
+.chart-positions {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
+/* Шесть в ряд и на 320 px */
+.chart-positions button {
+  padding: 0;
+  font-size: clamp(0.85rem, 3.6vw, 1.1rem);
+}
+
+.chart-situations {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+  gap: 0.4rem;
+}
+
+.chart-situations button {
+  padding: 0.4rem 0.9rem;
+  font-size: 1rem;
+  text-align: left;
+}
+
+.chart-note {
+  margin: 0.6rem 0 0;
+  font-size: 0.85rem;
+}
+
+.chart-source {
+  overflow-wrap: anywhere;
+}
+
+.chart-view h2 {
+  margin-top: 0;
+}
+
+/* Сетка 13 × 13 чарта: полосы действий — фоном клетки (cellStyle в TrainerCharts.tsx); палец листает страницу */
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(13, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.chart-cell {
+  aspect-ratio: 1;
+  min-width: 0;
+  padding: 0;
+  border-radius: 0.2rem;
+  font-size: clamp(0.45rem, 2.3vw, 0.8rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  color: var(--text);
+  background: var(--chart-empty);
+}
+
+/* Подпись — на подложке пустой клетки: читается на любой полосе */
+.chart-cell span {
+  padding: 0 0.1em;
+  border-radius: 0.15em;
+  background: var(--chart-empty);
+}
+
+.chart-cell.empty {
+  color: var(--muted);
+}
+
+.chart-cell[aria-pressed='true'] {
+  box-shadow:
+    0 0 0 2px var(--card),
+    0 0 0 4px var(--text);
+  position: relative;
+  z-index: 1;
+}
+
+.chart-hand {
+  min-height: 1.4em;
+  margin: 0.6rem 0 0.25rem;
+  font-weight: 600;
+}
+
+.chart-reached {
+  margin: 0.25rem 0;
+  font-size: 0.9rem;
+}
+
+.chart-legend {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+}
+
+.chart-legend li {
+  display: grid;
+  grid-template-columns: 1.4rem minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.chart-swatch {
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 0.3rem;
+}
+
+.chart-swatch.act-fold {
+  background: var(--act-fold);
+}
+
+.chart-swatch.act-call {
+  background: var(--act-call);
+}
+
+.chart-swatch.act-raise {
+  background: var(--act-raise);
+}
+
+.chart-swatch.act-allin {
+  background: var(--act-allin);
+}
+
+.chart-share {
+  font-weight: 700;
+}
+
+.chart-combos {
+  color: var(--muted);
+  font-size: 0.9rem;
+  text-align: right;
 }
 
 .table-info {
