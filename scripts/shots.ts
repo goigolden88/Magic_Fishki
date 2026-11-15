@@ -1072,7 +1072,8 @@ async function historyOnly(cdp: Cdp): Promise<void> {
   }
 }
 
-// npm run shots -- hud: карточка HUD за столом с ботами — «Боты читают: …» (#240), на телефоне и ноутбуке.
+// npm run shots -- hud: карточка HUD за столом с ботами — «Боты читают: …» (#240) и десять чисел (#241),
+// на телефоне и ноутбуке.
 // После первой раздачи у всех одна раздача: бот — «как подписан», я — «как среднего игрока»; затем в памяти
 // стола у первого бота раздач 45 («первое чтение»), у второго — 120 («твёрдое»), страница перезагружается
 async function hudOnly(cdp: Cdp): Promise<void> {
@@ -1109,7 +1110,11 @@ async function hudOnly(cdp: Cdp): Promise<void> {
         const bt = JSON.parse(localStorage.getItem('fishki.poker.bots'))
         const bots = bt.table.players.filter((p) => p.id !== bt.meId)
         bt.table.hud[bots[0].id].hands = 45
-        bt.table.hud[bots[1].id].hands = 120
+        // Второму — и числа #241: 3-бет 10 %, фолд на 3-бет 60 %, WTSD 28 %, W$SD 57 %, bb/100 +12,5
+        Object.assign(bt.table.hud[bots[1].id], {
+          hands: 120, threeBetChances: 40, threeBets: 4, foldTo3BetChances: 10, foldsTo3Bet: 6,
+          flops: 50, showdowns: 14, showdownWins: 8, netHands: 120, net: 1500,
+        })
         localStorage.setItem('fishki.poker.bots', JSON.stringify(bt))
         return true
       })()`)

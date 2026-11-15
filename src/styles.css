@@ -1864,7 +1864,7 @@ textarea.note-input {
   top: 50%;
   z-index: 5;
   transform: translate(-50%, -50%);
-  width: min(92%, 20rem);
+  width: min(94%, 24rem);
   max-height: 96%;
   overflow-y: auto;
   display: flex;
