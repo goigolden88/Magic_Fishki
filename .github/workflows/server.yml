@@ -27,9 +27,8 @@ jobs:
   deploy:
     name: Тесты и выкатка
     runs-on: ubuntu-latest
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    # Ключи Cloudflare — только шагам, которым нужны (Ш-224 Штаба): `npm ci` и
+    # тесты запускают код зависимостей, ключ им не нужен.
     steps:
       - uses: actions/checkout@v4
 
@@ -44,8 +43,20 @@ jobs:
 
       - run: npm run server:check
 
-      - if: env.CLOUDFLARE_API_TOKEN == '' || env.CLOUDFLARE_ACCOUNT_ID == ''
-        run: echo "::notice::Нет секретов Cloudflare — выкатка пропущена"
+      # Есть ли ключи — шаг без кода проекта; сами ключи дальше не идут.
+      - id: keys
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$TOKEN" ] && [ -n "$ACCOUNT" ]; then
+            echo "ok=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Нет секретов Cloudflare — выкатка пропущена"
+          fi
 
-      - if: env.CLOUDFLARE_API_TOKEN != '' && env.CLOUDFLARE_ACCOUNT_ID != ''
+      - if: steps.keys.outputs.ok == 'yes'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npm run server:deploy
