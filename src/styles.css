@@ -1239,6 +1239,13 @@ textarea.chart-paste {
   min-height: 6rem;
 }
 
+/* Правка — одна карточка: на широком окне не во всю ширину, сетка остаётся обозримой */
+.charts > .chart-edit {
+  width: 100%;
+  max-width: 40rem;
+  justify-self: center;
+}
+
 .chart-edit .field {
   margin-top: 0.75rem;
 }
@@ -1269,15 +1276,21 @@ textarea.chart-paste {
   overflow-wrap: anywhere;
 }
 
+/* Узко — «Переименовать» не влезает в треть: кнопки переносятся */
 .chart-list-buttons {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 8.5rem), 1fr));
   gap: 0.4rem;
 }
 
 .chart-list-buttons button {
-  padding: 0.3rem 0.2rem;
-  font-size: clamp(0.8rem, 3.4vw, 1rem);
+  padding: 0.3rem 0.5rem;
+  font-size: 1rem;
+}
+
+/* Поле выбора файла — за кнопкой «Загрузить файл»: правило input выше перебивает атрибут hidden */
+.chart-mine input[type='file'] {
+  display: none;
 }
 
 .table-info {
