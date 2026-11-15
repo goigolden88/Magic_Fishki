@@ -43,6 +43,8 @@ import { LookFields } from './LookFields'
 import { CasinoPickCard } from './CasinoPick'
 import { BOTS_HASH, FINISH_BOTS } from './PokerBots'
 import { LOCAL_HASH, NO_STORAGE } from './PokerLocal'
+import { TRAINER_HASH } from './Trainer'
+import { TRAINER_SIDES_MAX } from '../calc/trainerView'
 import { HandHistory } from './PokerRoom'
 import {
   clearBotTable,
@@ -176,7 +178,7 @@ export function PokerHomeScreen() {
         </section>
       )}
 
-      <p className="muted lead">Комната по ссылке для всех телефонов, стол на одном телефоне, игра против ботов или казино.</p>
+      <p className="muted lead">Комната по ссылке для всех телефонов, стол на одном телефоне, игра против ботов, казино или тренажёр.</p>
 
       {creating === 'room' ? (
         <NewRoomCard first={firstTime} onCancel={() => setCreating(null)} />
@@ -187,7 +189,7 @@ export function PokerHomeScreen() {
       ) : creating === 'casino' ? (
         <CasinoPickCard onCancel={() => setCreating(null)} />
       ) : (
-        // Режимы карточками (#209): телефон — колонкой, от 600 px — по два, от 1024 px — в ряд
+        // Режимы карточками (#209): телефон — колонкой, от 600 px — по два, от 1024 px — в ряд (с «Тренажёром» — пять)
         <div className="modes">
           <ModeCard suit="♠" title="Комната по ссылке" text="У каждого карты на своём телефоне">
             {quick && <p className="mode-note">{quickRoomLine(quickRoomSettings(quick.buyin, quick.room))}</p>}
@@ -251,6 +253,16 @@ export function PokerHomeScreen() {
               <button type="button" className="big primary" onClick={() => setCreating('casino')}>
                 В казино
               </button>
+            </div>
+          </ModeCard>
+
+          {/* #213: калькулятор эквити, без сети; за игровыми столами его нет (Р-73) */}
+          <ModeCard suit="≈" title="Тренажёр" text="Сколько банка берёт рука или диапазон">
+            <p className="mode-note">До {TRAINER_SIDES_MAX} сторон, сетка 13 × 13</p>
+            <div className="mode-buttons">
+              <a className="big primary button-link" href={TRAINER_HASH}>
+                Открыть тренажёр
+              </a>
             </div>
           </ModeCard>
         </div>

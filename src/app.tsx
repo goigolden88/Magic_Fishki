@@ -11,6 +11,7 @@ import { PokerHomeScreen } from './screens/PokerHome'
 import { PokerBadLinkScreen, PokerRoomScreen } from './screens/PokerRoom'
 import { PokerLocalScreen } from './screens/PokerLocal'
 import { PokerBotsScreen } from './screens/PokerBots'
+import { TrainerScreen } from './screens/Trainer'
 import { parseRoomLink, roomHash, type RoomTarget } from './calc/pokerLink'
 import { saveSeat } from './screens/pokerStorage'
 
@@ -18,7 +19,8 @@ import { saveSeat } from './screens/pokerStorage'
 // #/players/:id — карточка постоянного игрока, #/help — справка, #/poker — покер онлайн,
 // #/poker/:код — стол, #/poker/:код/:игрок/:токен — стол с местом («пересадить»); у обоих в конце может быть
 // ?server=адрес — комната на своём сервере (#83), кривой адрес — экран «ссылка не открывается»,
-// #/poker/local — стол на этом телефоне, #/poker/bots — против ботов (оба под код из 6 знаков не подходят)
+// #/poker/local — стол на этом телефоне, #/poker/bots — против ботов, #/poker/trainer — тренажёр
+// (все три под код из 6 знаков не подходят)
 type Route =
   | { screen: 'games' }
   | { screen: 'game'; id: string }
@@ -33,11 +35,13 @@ type Route =
   | { screen: 'pokerBadLink'; error: string }
   | { screen: 'pokerLocal' }
   | { screen: 'pokerBots' }
+  | { screen: 'trainer' }
 
 function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, '')
   if (path === '/poker/local') return { screen: 'pokerLocal' }
   if (path === '/poker/bots') return { screen: 'pokerBots' }
+  if (path === '/poker/trainer') return { screen: 'trainer' }
   const game = path.match(/^\/game\/([^/]+)$/)
   if (game) return { screen: 'game', id: decodeURIComponent(game[1]) }
   const deal = path.match(/^\/game\/([^/]+)\/deal$/)
@@ -102,6 +106,8 @@ export function App() {
       return <PokerLocalScreen />
     case 'pokerBots':
       return <PokerBotsScreen />
+    case 'trainer':
+      return <TrainerScreen />
     default:
       return <GamesScreen />
   }
