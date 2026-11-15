@@ -36,6 +36,10 @@ function twelfths(x: number, where: string): number {
 const isPosition = (s: string): s is ChartPosition => (CHART_POSITIONS as readonly string[]).includes(s)
 
 const ACTION = /^(?:fold|call|allin|raise \d+(?:\.\d+)?bb)$/
+// Действие набора: «fold», «call», «allin», «raise 7.5bb» — так же и у своих чартов (#215)
+export const isChartAction = (a: string): boolean => ACTION.test(a)
+// Ключ встроенной ситуации: «CO|UTG raise 2bb» — им свой чарт помнит, из какой ситуации сделан (#215, base)
+export const situationKey = (node: { actor: string; line: string }): string => `${node.actor}|${node.line}`
 const STEP = /^(UTG|HJ|CO|BTN|SB|BB) (?:raise (\d+(?:\.\d+)?)bb|allin)$/
 
 // Ход до ситуации: кто и до скольких ББ повысил; bb — null у олл-ина
@@ -57,11 +61,11 @@ export function packCharts(nodes: LeakproofNode[]): ChartPack {
   return nodes.map((node) => {
     const where = `${node.actor} после «${node.line}»`
     if (!isPosition(node.actor)) throw new Error(`${where}: позиция не из шести`)
-    const key = `${node.actor}|${node.line}`
+    const key = situationKey(node)
     if (seen.has(key)) throw new Error(`${where}: ситуация дважды`)
     seen.add(key)
     lineSteps(node.line)
-    for (const a of node.actions) if (!ACTION.test(a)) throw new Error(`${where}: действие «${a}» не разобрано`)
+    for (const a of node.actions) if (!isChartAction(a)) throw new Error(`${where}: действие «${a}» не разобрано`)
     for (const cls of Object.keys(node.classes)) if (!HAND_ORDER.includes(cls)) throw new Error(`${where}: класс «${cls}»`)
     const cells = HAND_ORDER.map((cls) => {
       const c = node.classes[cls]
@@ -92,9 +96,12 @@ export function chartsModuleText(pack: ChartPack): string {
 }
 
 // Класс руки в ситуации: доходит reach двенадцатых сочетаний, доли действий — двенадцатые
+// (у своих чартов, #215, — доля × 12, может быть дробной; reach у них всегда 12)
 export type ChartHand = { reach: number; strategy: number[] }
 // Решение для экрана: hands — по клеткам сетки CLASSES; null — руки в ситуации нет
 export type Chart = { actor: ChartPosition; line: string; actions: string[]; hands: (ChartHand | null)[] }
+// Что нужно сетке и легенде — у встроенного и у своего чарта
+export type ChartGrid = Pick<Chart, 'actions' | 'hands'>
 
 export function unpackNode(node: PackedNode): Chart {
   const width = 1 + node.actions.length
@@ -188,7 +195,7 @@ export function handStripes(hand: ChartHand, actions: string[]): { kind: ActionK
 export type LegendRow = { kind: ActionKind; label: string; combos: number; share: number }
 
 // Легенда: сочетаний, дошедших до ситуации (класс × reach), и по действию — сочетаний и доля от дошедших
-export function chartLegend(chart: Chart): { reached: number; rows: LegendRow[] } {
+export function chartLegend(chart: ChartGrid):{ reached: number; rows: LegendRow[] } {
   let reached = 0
   const combos = chart.actions.map(() => 0)
   chart.hands.forEach((hand, k) => {
