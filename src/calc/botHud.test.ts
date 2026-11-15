@@ -24,12 +24,12 @@ describe('чтение соперника по HUD: две точки', () => {
   // Маньяк за 100 раздач: входит в две трети раздач, повышает почти половину, давит
   const MANIAC = hudOf({ vpip: 66, pfr: 46, steals: 20, cbs: 8, raises: 60, calls: 22 })
   const signs: [BotStyle | undefined][] = [...BOT_STYLES.map(([s]) => [s] as [BotStyle]), [undefined]]
+  const signed = (sign: BotStyle | undefined): Record<string, BotStyle> => (sign ? { x: sign } : {})
 
   it(`маньяк на ${HUD_FIRM_HANDS} раздачах читается маньяком при любой подписи — и без подписи`, () => {
     for (const omaha of [false, true]) {
       for (const [sign] of signs) {
-        const styles = sign ? { x: sign } : {}
-        expect(readRival('x', styles, { x: MANIAC }, omaha).who, `${sign ?? 'без подписи'}${omaha ? ', омаха' : ''}`).toBe('maniac')
+        expect(readRival('x', signed(sign), { x: MANIAC }, omaha).who, `${sign ?? 'без подписи'}${omaha ? ', омаха' : ''}`).toBe('maniac')
       }
     }
   })
@@ -43,7 +43,7 @@ describe('чтение соперника по HUD: две точки', () => {
   it(`с ${HUD_FIRM_HANDS} раздач — только по счётчикам: у маньяка и спокойного игрока подпись чтения не меняет`, () => {
     const CALM = hudOf({ vpip: 22, pfr: 15, steals: 8, cbs: 6, raises: 30, calls: 15 })
     for (const hud of [MANIAC, CALM]) {
-      const reads = signs.map(([sign]) => readRival('x', sign ? { x: sign } : {}, { x: hud }, false))
+      const reads = signs.map(([sign]) => readRival('x', signed(sign), { x: hud }, false))
       for (const r of reads) expect(r).toEqual(reads[0])
     }
   })
