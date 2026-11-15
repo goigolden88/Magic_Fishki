@@ -15,7 +15,6 @@ import {
   TRAINER_SIDES_MAX,
   TRAINER_SIDES_MIN,
   TRAINER_WEIGHTS,
-  CHARTS_GAME,
   trainerInput,
   weightLabel,
   winTieText,
@@ -109,9 +108,6 @@ export function TrainerScreen() {
       </div>
 
       <div hidden={tab !== 'charts'}>
-        <p className="muted lead">
-          Префлоп {CHARTS_GAME}: как часто рука пасует, коллирует, рейзит и идёт олл-ин — по вашей позиции и тому, что было до вас.
-        </p>
         {charts === 'loading' && <p className="muted">Загружаем чарты…</p>}
         {charts === 'failed' && (
           <p className="warn" role="alert">

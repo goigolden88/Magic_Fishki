@@ -15,7 +15,7 @@ import {
 } from '../calc/charts'
 import { LEAKPROOF } from '../calc/chartsData'
 import { CLASSES } from '../calc/rangeText'
-import { CHARTS_ROUNDING } from '../calc/trainerView'
+import { CHARTS_GAME, CHARTS_ROUNDING } from '../calc/trainerView'
 
 // Строка об источнике — дословно, как требует CC BY 4.0 (решение в #214); на экране рядом с чартами
 export const CHARTS_SOURCE =
@@ -48,6 +48,10 @@ export function TrainerCharts() {
   }
 
   return (
+    <>
+    <p className="muted lead">
+      Префлоп {CHARTS_GAME}: как часто рука пасует, коллирует, рейзит и идёт олл-ин — по вашей позиции и тому, что было до вас.
+    </p>
     <div className="charts">
       <section className="card chart-pick">
         <h2>Моя позиция</h2>
@@ -117,5 +121,6 @@ export function TrainerCharts() {
         </p>
       </section>
     </div>
+    </>
   )
 }
