@@ -286,13 +286,13 @@ function RangeEditor({ side, onChange }: { side: Side; onChange: (make: (s: Side
               key={cls}
               type="button"
               data-cell={k}
-              className={`range-cell ${kind}${w >= 0.5 ? ' on' : ''}`}
+              className={`range-cell ${kind}${w >= 1 ? ' on' : w > 0 ? ' part' : ''}`}
               style={{ '--w': w } as CSSProperties}
               aria-label={`${cls}, ${weightLabel(w)}`}
               // Касание и проведение — в down/move; Enter и пробел с клавиатуры (detail 0) — здесь
               onClick={(e) => e.detail === 0 && paint(k)}
             >
-              {cls}
+              <span>{cls}</span>
             </button>
           )
         })}

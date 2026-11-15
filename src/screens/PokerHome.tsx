@@ -258,7 +258,7 @@ export function PokerHomeScreen() {
 
           {/* #213: калькулятор эквити, без сети; за игровыми столами его нет (Р-73) */}
           <ModeCard suit="≈" title="Тренажёр" text="Сколько банка берёт рука или диапазон">
-            <p className="mode-note">До {TRAINER_SIDES_MAX} сторон, сетка 13 × 13</p>
+            <p className="mode-note">До {TRAINER_SIDES_MAX} сторон, сетка 13{' '}×{' '}13</p>
             <div className="mode-buttons">
               <a className="big primary button-link" href={TRAINER_HASH}>
                 Открыть тренажёр

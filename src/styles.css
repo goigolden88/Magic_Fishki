@@ -903,7 +903,7 @@ a.button-link.primary {
   min-height: 3.5rem;
   padding: 0.4rem 0.75rem;
   background: var(--bg);
-  border: 1px solid var(--line);
+  border: 1px solid var(--muted);
 }
 
 .card-slots .slots {
@@ -989,7 +989,7 @@ a.button-link.primary {
   font-weight: 600;
   letter-spacing: -0.03em;
   color: var(--muted);
-  background: linear-gradient(to top, var(--accent) calc(var(--w) * 100%), var(--base) 0);
+  background: var(--base);
 }
 
 .range-cell.pair {
@@ -997,8 +997,21 @@ a.button-link.primary {
   color: var(--text);
 }
 
+/* Часть веса: заливка до доли, надпись — на подложке цвета пустой клетки, читается при любой доле */
+.range-cell.part {
+  background: linear-gradient(to top, var(--accent) calc(var(--w) * 100%), var(--base) 0);
+}
+
+.range-cell.part span {
+  padding: 0 0.1em;
+  border-radius: 0.15em;
+  color: var(--text);
+  background: var(--base);
+}
+
 .range-cell.on {
   color: var(--on-accent);
+  background: var(--accent);
 }
 
 .range-size {
