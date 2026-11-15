@@ -158,15 +158,16 @@ describe('стол против ботов', () => {
     const [me, a, b, c] = all.table.players
     const v = botTableView(all, 0)
     const hudOf = (view: ReturnType<typeof botTableView>, id: string) => view.seats.find((s) => s.id === id)!.hud
-    expect(hudOf(v, me.id)).toEqual(hudView(all.table, me.id))
-    expect(hudOf(v, a.id)).toEqual(hudView(all.table, a.id))
+    // HUD — из state.hud, и к нему — как читают боты (#240)
+    expect(hudOf(v, me.id)).toEqual({ ...hudView(all.table, me.id), read: 'первое чтение' })
+    expect(hudOf(v, a.id)).toEqual({ ...hudView(all.table, a.id), read: 'первое чтение' })
     expect(hudOf(v, a.id)!.few).toBe(false)
     expect(hudOf(v, b.id)!.few).toBe(true)
     // У бота раздач ещё не было — строки нет
     expect(hudOf(v, c.id)).toBeNull()
     const mine = withHud({ hudAll: false })
     const w = botTableView(mine, 0)
-    expect(hudOf(w, me.id)).toEqual(hudView(mine.table, me.id))
+    expect(hudOf(w, me.id)).toEqual({ ...hudView(mine.table, me.id), read: 'первое чтение' })
     expect([a, b, c].map((p) => hudOf(w, p.id))).toEqual([null, null, null])
     // Остальное у мест — как было
     const strip = (view: ReturnType<typeof botTableView>) => view.seats.map(({ hud: _, ...s }) => s)
@@ -176,6 +177,18 @@ describe('стол против ботов', () => {
     const dealtMine = ok(dealBotHand(mine, 0, bytesOf(seededRandom(3))))
     expect(botToAct(dealtAll)).not.toBeNull()
     expect(ok(botStep(dealtMine, 0, seededRandom(9))).table).toEqual(ok(botStep(dealtAll, 0, seededRandom(9))).table)
+  })
+
+  it('«Боты читают» (#240): меньше 30 раздач — бот «как подписан», я — «как среднего игрока»; 30–99 — «первое чтение»; с 100 — «твёрдое»', () => {
+    const counts = (hands: number) => ({ hands, vpip: 10, pfr: 8, stealChances: 12, steals: 4, cbChances: 6, cbs: 4, raises: 20, calls: 10 })
+    const bt = start({ bots: 3 })
+    const [me, a, b, c] = bt.table.players
+    const reads = (hands: number[]) => {
+      const hud = Object.fromEntries([me, a, b, c].map((p, i) => [p.id, counts(hands[i])]))
+      return botTableView({ ...bt, table: { ...bt.table, hud } }, 0).seats.map((s) => s.hud?.read)
+    }
+    expect(reads([29, 29, 30, 99])).toEqual(['как среднего игрока', 'как подписан', 'первое чтение', 'первое чтение'])
+    expect(reads([100, 100, 250, 1])).toEqual(['твёрдое', 'твёрдое', 'твёрдое', 'как подписан'])
   })
 
   it('«HUD у всех мест» — в памяти устройства; стол, сохранённый до этого флажка, — HUD только у моего места', () => {

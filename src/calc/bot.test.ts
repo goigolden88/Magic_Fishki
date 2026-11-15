@@ -328,11 +328,13 @@ describe('сильный бот читает соперников по HUD ве�
   const hudOf = (c: Partial<HudCounts>): HudCounts => ({
     hands: 100, vpip: 0, pfr: 0, stealChances: 30, steals: 0, cbChances: 10, cbs: 0, raises: 0, calls: 0, ...c,
   })
-  // Типажи за 100 раздач: всё уравнивает; играет очень узко; много давит; тот же, но спокойный
+  // Типажи за 100 раздач: всё уравнивает; играет очень узко; много давит; тот же, но спокойный.
+  // Давящий и спокойный — по рукам ТАГ (26/20): с 100 раздач чтение только по игре (#240), и 30/22 — уже ЛАГ,
+  // против которого блефы ловятся широко и без поправки «давит»
   const STATION = hudOf({ vpip: 55, pfr: 2, steals: 1, raises: 5, calls: 120 })
   const NIT = hudOf({ vpip: 11, pfr: 8, steals: 3, cbs: 6, raises: 20, calls: 6 })
-  const PUSHY = hudOf({ vpip: 30, pfr: 22, steals: 15, cbs: 9, raises: 90, calls: 15 })
-  const CALM = hudOf({ vpip: 30, pfr: 22, steals: 15, cbs: 9, raises: 20, calls: 40 })
+  const PUSHY = hudOf({ vpip: 26, pfr: 20, steals: 15, cbs: 9, raises: 90, calls: 15 })
+  const CALM = hudOf({ vpip: 26, pfr: 20, steals: 15, cbs: 9, raises: 20, calls: 40 })
 
   it(`меньше ${HUD_FEW_HANDS} раздач — соперник средний (ABC): ходы те же, что против подписанного ABC`, () => {
     for (let seed = 1; seed <= 25; seed++) {

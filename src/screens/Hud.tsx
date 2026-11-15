@@ -42,7 +42,7 @@ export function HudRows({ hud }: { hud: HudView }) {
   )
 }
 
-// Подробно — поверх стола, «Закрыть» или касание карточки
+// Подробно — поверх стола, «Закрыть» или касание карточки; за столом с ботами — «Боты читают: …» (#240)
 export function HudCard({ name, hud, onClose }: { name: string; hud: HudView; onClose: () => void }) {
   return (
     <div className="hud-pop" role="dialog" aria-label={`Статистика: ${name}`} onClick={onClose}>
@@ -52,6 +52,7 @@ export function HudCard({ name, hud, onClose }: { name: string; hud: HudView; on
         {hud.few && <span className="hud-few"> · мало раздач</span>}
       </span>
       <HudRows hud={hud} />
+      {hud.read && <span className="muted">Боты читают: {hud.read}</span>}
       <button type="button" className="big wide" onClick={onClose}>
         Закрыть
       </button>

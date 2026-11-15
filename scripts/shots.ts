@@ -1072,6 +1072,63 @@ async function historyOnly(cdp: Cdp): Promise<void> {
   }
 }
 
+// npm run shots -- hud: карточка HUD за столом с ботами — «Боты читают: …» (#240), на телефоне и ноутбуке.
+// После первой раздачи у всех одна раздача: бот — «как подписан», я — «как среднего игрока»; затем в памяти
+// стола у первого бота раздач 45 («первое чтение»), у второго — 120 («твёрдое»), страница перезагружается
+async function hudOnly(cdp: Cdp): Promise<void> {
+  // Строка HUD места seat; hands — у кого столько раздач («… · 45»)
+  const openHud = async (d: Device, seat: string, hands?: number) => {
+    const done = await d.eval<boolean>(`(() => {
+      const all = [...document.querySelectorAll(${JSON.stringify(`${seat} button.seat-hud`)})]
+      const el = ${hands === undefined ? 'all[0]' : `all.find((b) => b.innerText.trim().endsWith(' ${hands}'))`}
+      if (!el) return false
+      el.click()
+      return true
+    })()`)
+    if (!done) throw new Error(`нет строки HUD у места ${seat}${hands === undefined ? '' : ` с ${hands} раздачами`}`)
+    await d.waitText('Боты читают')
+  }
+  const closeHud = (d: Device) => d.eval(`(document.querySelector('.hud-pop button')?.click(), true)`)
+  for (const size of SIZES.slice(0, 2)) {
+    console.log(`HUD за столом с ботами, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await screen('Против ботов, HUD', size, async () => {
+      await botsTable(d, 3)
+      await foldUntilPlayOn(d)
+      await d.click('Доиграть сразу')
+      await d.waitText('Новая раздача через')
+      await d.click('Перерыв')
+      await d.waitText('Продолжить')
+      await openHud(d, '.seat:not(.me)')
+      await d.shot('11a-hud-bot-kak-podpisan')
+      await closeHud(d)
+      await openHud(d, '.seat.me')
+      await d.shot('11b-hud-ya-kak-srednego')
+      await closeHud(d)
+      await d.eval(`(() => {
+        const bt = JSON.parse(localStorage.getItem('fishki.poker.bots'))
+        const bots = bt.table.players.filter((p) => p.id !== bt.meId)
+        bt.table.hud[bots[0].id].hands = 45
+        bt.table.hud[bots[1].id].hands = 120
+        localStorage.setItem('fishki.poker.bots', JSON.stringify(bt))
+        return true
+      })()`)
+      await d.reload()
+      await d.waitText('Продолжить')
+      await sleep(1500)
+      for (const [hands, label, file] of [
+        [45, 'первое чтение', '11c-hud-pervoe-chtenie'],
+        [120, 'твёрдое', '11d-hud-tvyordoe'],
+      ] as const) {
+        await openHud(d, '.seat:not(.me)', hands)
+        await d.waitText(`Боты читают: ${label}`)
+        await d.shot(file)
+        await closeHud(d)
+      }
+    })
+  }
+}
+
 // Против ботов с bots ботами (1…5) — с чистого хранилища: форма, «Начать», мой ход
 async function botsTable(d: Device, bots: number): Promise<void> {
   await themeOnly(d)
@@ -1238,7 +1295,9 @@ async function main(): Promise<void> {
     const onlyTrainer = process.argv.includes('trainer') // npm run shots -- trainer: «Играть» и «Тренажёр» (#213)
     const onlyChoices = process.argv.includes('vybor') // npm run shots -- vybor: ряды кнопок выбора (#238)
     const onlyHistory = process.argv.includes('history') // npm run shots -- history: история раздач (#239)
-    const part = onlyTrainer || onlyChoices || onlyHistory
+    const onlyHud = process.argv.includes('hud') // npm run shots -- hud: «Боты читают» в карточке HUD (#240)
+    const part = onlyTrainer || onlyChoices || onlyHistory || onlyHud
+    if (onlyHud) await hudOnly(cdp)
     if (onlyTrainer) await trainerOnly(cdp)
     if (onlyChoices) await choicesOnly(cdp)
     if (onlyHistory) await historyOnly(cdp)

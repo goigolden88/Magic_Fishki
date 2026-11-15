@@ -1,13 +1,37 @@
 // Чтение соперника за вечер (#146, Р-47): сильные боты (ТАГ, ЛАГ) читают каждого за столом по его HUD —
 // счётчикам по ходам (VPIP, PFR, AF, ATS, CB, src/poker/hud.ts), которые любой за столом мог бы набрать сам.
 // Карт HUD не содержит. Пока раздач меньше HUD_FEW_HANDS — соперник такой, как подписан (бот), а без подписи
-// (человек) — средний игрок ABC. С HUD_FEW_HANDS раздач — по счётчикам: они смешиваются с ожиданием от
-// подписи (или ABC) с весом PRIOR_HANDS раздач, так что к ~100 раздачам чтение почти целиком по игре
+// (человек) — средний игрок ABC. Две точки (#240, Р-80): с HUD_FEW_HANDS раздач — первое чтение, доли по
+// счётчикам смешиваются с ожиданием от подписи (или ABC) весом readWeight: половина по игре, дальше ровно
+// больше; с HUD_FIRM_HANDS — твёрдое, только по счётчикам
 import { HUD_FEW_HANDS, type Hud, type HudCounts } from '../poker/hud'
 import type { BotStyle, Who } from './botRanges'
 
-// Вес ожидания от подписи в раздачах: при 30 раздачах счётчики весят 0,6, при 100 — 0,83
-const PRIOR_HANDS = 20
+// С стольких раздач чтение твёрдое: весь вес — по игре
+export const HUD_FIRM_HANDS = 100
+// Вес по игре на первой точке (HUD_FEW_HANDS раздач)
+const FIRST_WEIGHT = 0.5
+
+// Вес чтения по игре: до HUD_FEW_HANDS — 0, на HUD_FEW_HANDS — FIRST_WEIGHT, дальше ровно до 1 к HUD_FIRM_HANDS
+export function readWeight(hands: number): number {
+  if (hands < HUD_FEW_HANDS) return 0
+  if (hands >= HUD_FIRM_HANDS) return 1
+  return FIRST_WEIGHT + ((1 - FIRST_WEIGHT) * (hands - HUD_FEW_HANDS)) / (HUD_FIRM_HANDS - HUD_FEW_HANDS)
+}
+
+// Как сильные боты читают игрока: как подписан или средним (prior), первое чтение (first), твёрдое (firm)
+export type ReadStage = 'prior' | 'first' | 'firm'
+export function readStage(hands: number): ReadStage {
+  return hands < HUD_FEW_HANDS ? 'prior' : hands < HUD_FIRM_HANDS ? 'first' : 'firm'
+}
+
+// Подпись в карточке HUD после «Боты читают:»; signed — у игрока есть подпись стиля (бот)
+export function readLabel(hands: number, signed: boolean): string {
+  const stage = readStage(hands)
+  if (stage === 'firm') return 'твёрдое'
+  if (stage === 'first') return 'первое чтение'
+  return signed ? 'как подписан' : 'как среднего игрока'
+}
 // ATS и CB — с этого числа возможностей
 const FEW_CHANCES = 10
 
@@ -73,9 +97,10 @@ export function readRival(id: string, styles: Record<string, BotStyle>, hud: Hud
   const c = hud?.[id]
   if (!c || c.hands < HUD_FEW_HANDS) return { who: prior, profile: PROFILES[prior], ats: null, cb: null }
   const e = EXPECT[prior]
-  const vpip = mix(c.vpip, c.hands, e.vpip + (omaha ? OMAHA_VPIP : 0))
-  const pfr = mix(c.pfr, c.hands, e.pfr)
-  const af = afOf(c, e.af)
+  const w = readWeight(c.hands)
+  const vpip = mix(w, c.vpip / c.hands, e.vpip + (omaha ? OMAHA_VPIP : 0))
+  const pfr = mix(w, c.pfr / c.hands, e.pfr)
+  const af = afOf(w, c, e.af)
   const who = typeOf(vpip, pfr, af, omaha)
   const base = PROFILES[who]
   // Много давит (AF > PUSHY_AF) — блефует часто: защита банка шире, на ставки сдаётся реже. Кроме нита: он
@@ -94,12 +119,14 @@ export function readRival(id: string, styles: Record<string, BotStyle>, hud: Hud
   }
 }
 
-// Доля по счётчику, смешанная с ожиданием весом PRIOR_HANDS раздач
-const mix = (count: number, hands: number, expected: number) => (count + PRIOR_HANDS * expected) / (hands + PRIOR_HANDS)
+// Доля по игре, смешанная с ожиданием: w — по игре, остальное — ожидание
+const mix = (w: number, seen: number, expected: number) => w * seen + (1 - w) * expected
 
-// AF, смешанный с ожиданием весом PRIOR_HANDS ходов
-function afOf(c: HudCounts, expected: number): number {
-  const raises = c.raises + (PRIOR_HANDS * expected) / (1 + expected)
-  const calls = c.calls + PRIOR_HANDS / (1 + expected)
-  return raises / calls
+// AF через долю рейзов в ходах (рейзы / (рейзы + коллы)): доля смешивается с ожидаемой весом w и
+// обращается назад в AF. Ходов не было — ожидание; при w = 1 без коллов — ∞, как в HUD
+function afOf(w: number, c: HudCounts, expected: number): number {
+  const moves = c.raises + c.calls
+  if (moves === 0) return expected
+  const share = mix(w, c.raises / moves, expected / (1 + expected))
+  return share / (1 - share)
 }
