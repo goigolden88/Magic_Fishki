@@ -1,14 +1,16 @@
 // Единственный вход в IndexedDB. База magic_fishki: хранилища games (ключ id), settings (одна запись)
-// и hands — раздачи прошлых вечеров покера (ключ [evening, number], #114).
+// и hands — раздачи прошлых вечеров покера (ключ [evening, number], #114), charts — свои чарты тренажёра (ключ id, #215).
 import { byNewest, type EveningSummary, type SavedHand } from '../calc/evenings'
+import { byName, type OwnChart } from '../calc/ownCharts'
 import { linkRegulars, regularsFromNames, settingsWithDefaults, type Game, type Regular, type Settings } from '../model'
 import type { HistoryHand } from '../poker/history'
 import { ulid } from '../ulid'
 
 const DB_NAME = 'magic_fishki'
-const DB_VERSION = 3
+const DB_VERSION = 4
 const SETTINGS_KEY = 'settings'
 const HANDS = 'hands'
+const CHARTS = 'charts'
 const BY_EVENING = 'evening'
 
 let opening: Promise<IDBDatabase> | null = null
@@ -25,6 +27,8 @@ function migrate(db: IDBDatabase, tx: IDBTransaction, oldVersion: number): void 
     const hands = db.createObjectStore(HANDS, { keyPath: ['evening', 'number'] })
     hands.createIndex(BY_EVENING, 'evening')
   }
+  // Версия 4 (Р-77): только новое хранилище своих чартов; прежние записи не трогаются
+  if (oldVersion < 4) db.createObjectStore(CHARTS, { keyPath: 'id' })
 }
 
 // Версия 2 (Р-12): постоянные игроки — из строк в { id, name } с новыми id в прежнем порядке;
@@ -74,7 +78,7 @@ function open(): Promise<IDBDatabase> {
 }
 
 async function run<T>(
-  storeName: 'games' | 'settings' | typeof HANDS,
+  storeName: 'games' | 'settings' | typeof HANDS | typeof CHARTS,
   mode: IDBTransactionMode,
   fn: (store: IDBObjectStore) => IDBRequest<T>,
 ): Promise<T> {
@@ -240,6 +244,42 @@ export async function listEvenings(): Promise<EveningSummary[]> {
 // Раздачи вечера по номерам
 export async function eveningHands(id: string): Promise<HistoryHand[]> {
   return (await eveningRecords(id)).map((h) => h.hand)
+}
+
+// «Мои чарты» (#215, Р-77) — по имени
+export async function listCharts(): Promise<OwnChart[]> {
+  return byName(await run<OwnChart[]>(CHARTS, 'readonly', (s) => s.getAll()))
+}
+
+// Свой чарт: тот же id — заменяет запись (правка, переименование); время правки ставится само
+export async function saveChart(chart: OwnChart): Promise<OwnChart> {
+  const saved = { ...chart, updatedAt: new Date().toISOString() }
+  await run(CHARTS, 'readwrite', (s) => s.put(saved))
+  return saved
+}
+
+// Окончательно, как удаление игры
+export async function deleteChart(id: string): Promise<void> {
+  await run(CHARTS, 'readwrite', (s) => s.delete(id))
+}
+
+// id своих чартов — восстановлению из копии: что уже есть
+export async function chartIds(): Promise<string[]> {
+  return run<IDBValidKey[]>(CHARTS, 'readonly', (s) => s.getAllKeys()) as Promise<string[]>
+}
+
+// Восстановление чартов из копии (Р-77): записи как есть, одной транзакцией. Чарты с тем же id отсеяны (planRestore)
+export async function restoreCharts(charts: OwnChart[]): Promise<void> {
+  if (charts.length === 0) return
+  const db = await open()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(CHARTS, 'readwrite')
+    const store = tx.objectStore(CHARTS)
+    for (const chart of charts) store.put(chart)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error)
+  })
 }
 
 // «Удалить» у вечера: все его раздачи одной транзакцией. Окончательно, как удаление игры

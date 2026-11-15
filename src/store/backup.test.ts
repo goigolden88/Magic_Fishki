@@ -5,18 +5,24 @@ import { playerTotals } from '../calc/totals'
 import { transfers } from '../calc/transfers'
 import { linkRegulars, type Game, type Regular } from '../model'
 import { savedHands, type Evening } from '../calc/evenings'
+import type { OwnChart } from '../calc/ownCharts'
 import type { HistoryHand } from '../poker/history'
 import {
   allHands,
+  chartIds,
+  deleteChart,
   deleteEvening,
   deleteGame,
   eveningRecords,
   getSettings,
   handKeys,
+  listCharts,
   listEvenings,
   listGames,
+  restoreCharts,
   restoreGames,
   restoreHands,
+  saveChart,
   saveGame,
   saveHands,
   saveSettings,
@@ -49,9 +55,11 @@ async function restore(text: string) {
     settings.players,
     parsed.backup,
     await handKeys(),
+    await chartIds(),
   )
   await restoreGames(plan.added)
   await restoreHands(plan.hands)
+  await restoreCharts(plan.charts)
   await saveSettings({ ...settings, players: plan.players })
   return plan
 }
@@ -148,7 +156,7 @@ describe('файл-копия через базу (Р-11)', () => {
     const kept = await saveGame(game('03A', '2026-10-09', ['Аня'], [[1000, 1000]]))
 
     const plan = await restore(empty)
-    expect(plan).toEqual({ added: [], existing: 0, players: [], hands: [] })
+    expect(plan).toEqual({ added: [], existing: 0, players: [], hands: [], charts: [] })
     expect(await listGames()).toEqual([kept])
   })
 
@@ -181,5 +189,33 @@ describe('файл-копия через базу (Р-11)', () => {
     const again = await restore(text)
     expect(again.hands).toEqual([])
     expect((await eveningRecords(bots.id))[0].hand.payouts).toEqual({ p0: 500 })
+  })
+
+  // Р-77: свои чарты — в копии; после удаления — на месте, свой с тем же id не перезаписывается
+  it('свои чарты: после удаления — те же; свой с тем же id остаётся своим, «чартов добавлено N»', async () => {
+    await clearAll()
+    const chart = (id: string, name: string): OwnChart => ({
+      id,
+      name,
+      base: null,
+      actions: ['fold', 'call', 'raise 3bb'],
+      cells: { AA: [0, 0, 1], KK: [0, 0.5, 0.5] },
+      updatedAt: '2026-11-14T10:00:00.000Z',
+    })
+    const mine = await saveChart(chart('c1', 'Мой'))
+    await saveChart(chart('c2', 'Второй'))
+    const before = await listCharts()
+    const text = backupText(makeBackup([], await getSettings(), '2026-11-14T19:00:00.000Z', [], {}, {}, undefined, undefined, before))
+
+    await deleteChart('c2')
+    await saveChart({ ...mine, name: 'Мой, переименован' })
+    const plan = await restore(text)
+    expect(plan.charts.map((c) => c.id)).toEqual(['c2'])
+    const after = await listCharts()
+    expect(after.map((c) => [c.id, c.name])).toEqual([
+      ['c2', 'Второй'],
+      ['c1', 'Мой, переименован'],
+    ])
+    expect(after.find((c) => c.id === 'c2')).toEqual(before.find((c) => c.id === 'c2'))
   })
 })

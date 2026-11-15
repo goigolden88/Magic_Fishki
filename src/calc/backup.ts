@@ -12,6 +12,7 @@ import {
   type Settings,
 } from '../model'
 import type { SavedHand } from './evenings'
+import { isOwnChart, type OwnChart } from './ownCharts'
 import { daysAgoText } from './format'
 import { parseLabels, parseNotes, type NoteLabels, type PlayerNotes } from './playerNotes'
 import { parseBetStep, type BetStep } from './pokerLayout'
@@ -30,9 +31,10 @@ import { parseTheme, type Theme } from './theme'
 // С Р-63 в нём же — размер стола и панели ставок на широком окне, с Р-69 — шаг колеса и «−»/«+», с Р-70 — гамма
 // приложения; формат прежний: поля необязательные.
 // С #192 колода вида может быть null — не выбрана (четыре цвета); старое приложение читает её как «две масти».
-// С #219 в look — ещё лицо карт (face), формат прежний: поле необязательное, старое приложение его не прочтёт
+// С #219 в look — ещё лицо карт (face), формат прежний: поле необязательное, старое приложение его не прочтёт.
+// Формат 7 (Р-77): ещё свои чарты тренажёра — записи хранилища charts как есть; у 1–6 их нет — пусто
 export const BACKUP_APP = 'magic_fishki'
-export const BACKUP_FORMAT = 6
+export const BACKUP_FORMAT = 7
 
 export type Backup = {
   app: typeof BACKUP_APP
@@ -45,6 +47,7 @@ export type Backup = {
   noteLabels: NoteLabels
   look: MyLook
   poker: PokerPrefs
+  charts: OwnChart[]
 }
 
 // Покер-рум телефона (Р-62): null — не задано, начальные значения.
@@ -105,6 +108,7 @@ export type RestorePlan = {
   existing: number // игры с тем же id уже есть — не трогаются
   players: Regular[] // постоянные игроки после восстановления
   hands: SavedHand[] // раздач нет по «вечер + номер» — записать как есть; записанные не трогаются
+  charts: OwnChart[] // своих чартов нет по id — записать как есть; свои не трогаются (Р-77)
 }
 
 // Демо-игры в копию не идут (Р-04)
@@ -117,6 +121,7 @@ export function makeBackup(
   noteLabels: NoteLabels = {},
   look: MyLook = MY_LOOK_DEFAULT,
   poker: PokerPrefs = POKER_PREFS_NONE,
+  charts: OwnChart[] = [],
 ): Backup {
   return {
     app: BACKUP_APP,
@@ -129,6 +134,7 @@ export function makeBackup(
     noteLabels,
     look,
     poker,
+    charts,
   }
 }
 
@@ -304,6 +310,14 @@ export function parseBackup(text: string, makeId: () => string): ParsedBackup {
   const look = data.format >= 5 ? parseMyLook(data.look) : MY_LOOK_DEFAULT
   // Покер-рум (Р-62): у копий 1–5 его нет — не задан
   const poker = data.format >= 6 ? parsePokerPrefs(data.poker) : POKER_PREFS_NONE
+  // Свои чарты (Р-77): у копий 1–6 их нет — пусто
+  let charts: OwnChart[] = []
+  if (data.format >= 7) {
+    if (!Array.isArray(data.charts)) return { ok: false, error: 'Копия повреждена: нет списка чартов' }
+    const badChart = data.charts.findIndex((c) => !isOwnChart(c))
+    if (badChart >= 0) return { ok: false, error: `Копия повреждена: чарт № ${badChart + 1} не читается` }
+    charts = data.charts as OwnChart[]
+  }
   let games = data.games as Game[]
   let players = settings.players as Regular[]
   if (oldFormat) {
@@ -328,6 +342,7 @@ export function parseBackup(text: string, makeId: () => string): ParsedBackup {
       noteLabels,
       look,
       poker,
+      charts,
     },
   }
 }
@@ -335,12 +350,14 @@ export function parseBackup(text: string, makeId: () => string): ParsedBackup {
 // Восстановление ничего не перезаписывает: игры, которых нет по id, добавляются; с тем же id — как были.
 // Постоянные игроки из копии: тот же id — уже есть, остаётся свой; то же имя — один человек, связи
 // в добавленных играх переводятся на здешний id; иначе дописываются в конец со своим id.
-// Прочие настройки не применяются. Раздачи (Р-54): те, что уже есть по «вечер + номер», не трогаются
+// Прочие настройки не применяются. Раздачи (Р-54): те, что уже есть по «вечер + номер», не трогаются.
+// Свои чарты (Р-77): те, что уже есть по id, не трогаются — и тогда, когда в копии они изменены
 export function planRestore(
   existingIds: Iterable<string>,
   regulars: Regular[],
   backup: Backup,
   existingHands: Iterable<[string, number]> = [],
+  existingCharts: Iterable<string> = [],
 ): RestorePlan {
   const players = [...regulars]
   const ids = new Set(players.map((r) => r.id))
@@ -387,5 +404,12 @@ export function planRestore(
     known.add(key)
     hands.push(h)
   }
-  return { added, existing, players, hands }
+  const chartSeen = new Set(existingCharts)
+  const charts: OwnChart[] = []
+  for (const c of backup.charts) {
+    if (chartSeen.has(c.id)) continue
+    chartSeen.add(c.id)
+    charts.push(c)
+  }
+  return { added, existing, players, hands, charts }
 }
