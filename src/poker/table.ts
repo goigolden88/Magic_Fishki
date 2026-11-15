@@ -774,7 +774,10 @@ function finishHand(
   state.hand = null
   // HUD вечера (#79) — по ходам раздачи; ушедших за время раздачи — не считать
   const seated = new Set(state.players.map((p) => p.id))
-  const hud = addHand(state.hud ?? {}, hand)
+  // Итог раздачи для HUD (#241): выплата минус вложенное (вернувшаяся непокрытая ставка уже вычтена)
+  const won = hand.seats.filter((s) => winners.some((w) => w.includes(s.id))).map((s) => s.id)
+  const net = Object.fromEntries(hand.seats.map((s) => [s.id, (payouts[s.id] ?? 0) - s.committed]))
+  const hud = addHand(state.hud ?? {}, hand, { won, net })
   for (const id of Object.keys(hud)) if (!seated.has(id)) delete hud[id]
   state.hud = hud
   // Докупы, одобренные во время раздачи, — в стек сейчас, между раздачами

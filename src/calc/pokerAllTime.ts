@@ -2,31 +2,41 @@
 // телефоне (хранилище hands, Р-37, Р-54), — тем же подсчётом, что HUD вечера за столом (addHand).
 // Игрок за столом — по имени постоянного; гость с тем же именем не в счёт: с Р-55 запись помнит
 // постоянных стола (EveningTable.regulars), у записей до неё — только имя.
-// Ещё (#197): 3-бет, WTSD, W$SD, bb/100 и лучшие и худшие раздачи — только по раздачам с записью
-// (record, карты на телефонах): HUD стола (addHand) их не считает, а живым картам не хватает итога
+// 3-бет, фолд на 3-бет, WTSD, W$SD и bb/100 (#241) — тоже addHand: итог раздачи — по её выплатам и банкам
+// (handNet из handResult.ts); у живых карт блайнды — стола вечера, в турнире их нет — раздача в bb/100 не идёт.
+// Лучшие и худшие раздачи (#197) — только по раздачам с записью (record, карты на телефонах)
 import type { Regular } from '../model'
 import type { Street } from '../poker/hand'
-import { addHand, HUD_FEW_HANDS, type HudCounts, type HudHand } from '../poker/hud'
-import type { HandRecord, HandResult } from '../poker/table'
+import { addHand, EMPTY_HUD, type HudCounts, type HudHand } from '../poker/hud'
+import type { HandRecord } from '../poker/table'
 import { eveningDay, eveningName, type Evening, type SavedHand } from './evenings'
-import { formatBB, formatTenths } from './format'
+import { formatBB } from './format'
+import { handNet as netOf } from './handResult'
 
-const EMPTY: HudCounts = { hands: 0, vpip: 0, pfr: 0, stealChances: 0, steals: 0, cbChances: 0, cbs: 0, raises: 0, calls: 0 }
-
-const KEYS = Object.keys(EMPTY) as (keyof HudCounts)[]
+const KEYS = Object.keys(EMPTY_HUD) as (keyof HudCounts)[]
 
 // Счётчики постоянного за все сохранённые раздачи; не играл — hands: 0
-export function allTimeHud(regular: Regular, saved: SavedHand[]): HudCounts {
-  const total = { ...EMPTY }
+export function allTimeHud(regular: Regular, saved: SavedHand[]): Required<HudCounts> {
+  const total = { ...EMPTY_HUD }
   for (const s of saved) {
     const hand = hudHand(s)
     if (!hand) continue
     const id = seatOf(regular, s, hand.seats)
     if (id === null) continue
-    const c = addHand({}, hand)[id]
-    if (c) for (const k of KEYS) total[k] += c[k]
+    const c = addHand({}, hand, handEnd(s, id))[id]
+    if (c) for (const k of KEYS) total[k] += c[k] ?? 0
   }
   return total
+}
+
+// Итог раздачи для addHand: взявшие банк — по банкам записи; итог — только у постоянного, и если блайнды известны.
+// Запись с другого телефона и старых версий — без доверия к полям
+function handEnd(s: SavedHand, id: string): { won: string[]; net: Record<string, number> } {
+  const pots = Array.isArray(s.hand.pots) ? s.hand.pots : []
+  const won = pots.flatMap((p) => (Array.isArray(p.winners) ? p.winners : []))
+  const blinds = s.table && !s.table.tournament ? { sb: s.table.sb, bb: s.table.bb } : null
+  const net = s.hand.payouts && typeof s.hand.payouts === 'object' ? netOf({ ...s.hand, pots }, id, blinds) : null
+  return { won, net: net === null ? {} : { [id]: net } }
 }
 
 // Место постоянного в раздаче: имя совпало и это не гость. Записи до Р-55 гостя не помнят —
@@ -58,19 +68,13 @@ function hudHand(s: SavedHand): (HudHand & { seats: { id: string; name: string }
   return null
 }
 
-// Доля: сколько раз случилось (made) из скольких случаев (of)
-export type Share = { made: number; of: number }
-
 // Итог постоянного в одной раздаче: вечер и номер — открыть её в истории; chips — выплаты минус
 // вложенное (с блайндами и анте), bb — большой блайнд этой раздачи
 export type HandOutcome = { evening: string; code: string | null; startedAt: number; number: number; chips: number; bb: number }
 
+// 3-бет, WTSD, W$SD и bb/100 этой сводки (#197) с #241 считает HUD (allTimeHud) — здесь только раздачи
 export type AllTimeMore = {
   hands: number // раздач с записью (record), где он сидел
-  threeBet: Share // перерейз до флопа из случаев: до него ровно один рейз чужой, и стека хватает на больше колла
-  wtsd: Share // дошёл до вскрытия из раздач, где увидел флоп
-  wsd: Share // взял хоть один банк из дошедших до вскрытия
-  bb: number // сумма итогов в больших блайндах раздач; bb/100 — bb / hands × 100
   best: HandOutcome[] // до трёх раздач в плюсе, лучшая первой
   worst: HandOutcome[] // до трёх раздач в минусе, худшая первой
 }
@@ -79,15 +83,7 @@ const TOP = 3
 
 // По раздачам с записью; живые карты (без record) — не в счёт. Место постоянного — как у allTimeHud
 export function allTimeMore(regular: Regular, saved: SavedHand[]): AllTimeMore {
-  const out: AllTimeMore = {
-    hands: 0,
-    threeBet: { made: 0, of: 0 },
-    wtsd: { made: 0, of: 0 },
-    wsd: { made: 0, of: 0 },
-    bb: 0,
-    best: [],
-    worst: [],
-  }
+  const out: AllTimeMore = { hands: 0, best: [], worst: [] }
   const outcomes: HandOutcome[] = []
   for (const s of saved) {
     const record = s.hand.record
@@ -96,22 +92,8 @@ export function allTimeMore(regular: Regular, saved: SavedHand[]): AllTimeMore {
     if (id === null) continue
     // Запись с другого телефона и старых версий — без доверия к полям
     const payouts: Record<string, number> | undefined = s.hand.payouts
-    const h = handStats(record, Array.isArray(s.hand.pots) ? s.hand.pots : [], id)
     const chips = handNet(record, payouts ?? {})[id] ?? 0
     out.hands++
-    if (h.threeBetChance) {
-      out.threeBet.of++
-      if (h.threeBet) out.threeBet.made++
-    }
-    if (h.sawFlop) {
-      out.wtsd.of++
-      if (h.showdown) {
-        out.wtsd.made++
-        out.wsd.of++
-        if (h.wonPot) out.wsd.made++
-      }
-    }
-    out.bb += chips / record.bb
     outcomes.push({ evening: s.evening, code: s.code, startedAt: s.startedAt, number: s.number, chips, bb: record.bb })
   }
   // При равном итоге — позднее выше
@@ -178,85 +160,18 @@ function invested(record: HandRecord): Map<string, number> {
   return total
 }
 
-type HandStats = { threeBetChance: boolean; threeBet: boolean; sawFlop: boolean; showdown: boolean; wonPot: boolean }
-
-// 3-бет, флоп, вскрытие и банк у места id. «До флопа» и «флоп» — первый и второй круги торгов игры,
-// рейз — как у HUD: рейз или олл-ин выше ставки круга
-function handStats(record: HandRecord, pots: HandResult['pots'], id: string): HandStats {
-  const rounds = record.game?.rounds
-  const streets: Street[] = Array.isArray(rounds) ? rounds.map((r) => r.street) : ['preflop', 'flop', 'turn', 'river']
-  const first = streets[0]
-  const stack = record.seats.find((s) => s.id === id)?.chips ?? 0
-  let ante = 0
-  let toBeat = record.bb
-  let raises = 0
-  let raiser: string | null = null
-  let threeBetChance = false
-  let threeBet = false
-  const foldedFirst = new Set<string>()
-  const folded = new Set<string>()
-  for (const e of record.log) {
-    if (e.type === 'ante') {
-      if (e.playerId === id) ante += e.bet
-      continue
-    }
-    if (e.type === 'fold') {
-      folded.add(e.playerId)
-      if (e.street === first) foldedFirst.add(e.playerId)
-    }
-    if (e.street !== first) continue
-    const isRaise = e.type === 'raise' || (e.type === 'allin' && e.bet > toBeat)
-    // Случай 3-бета — раз за раздачу: первый ход против ровно одного чужого рейза
-    if (e.playerId === id && !threeBetChance && raises === 1 && raiser !== id && stack - ante > toBeat) {
-      threeBetChance = true
-      threeBet = isRaise
-    }
-    toBeat = Math.max(toBeat, e.bet)
-    if (isRaise) {
-      raises++
-      raiser = e.playerId
-    }
-  }
-  const inFlop = record.seats.filter((s) => !foldedFirst.has(s.id)).length
-  const inEnd = record.seats.filter((s) => !folded.has(s.id)).length
-  // Вдвоём и больше после первого круга — флоп открыт (и при олл-ине — досдан)
-  const sawFlop = streets.length > 1 && !foldedFirst.has(id) && inFlop >= 2
-  const showdown = sawFlop && !folded.has(id) && inEnd >= 2
-  const wonPot = showdown && pots.some((p) => Array.isArray(p.winners) && p.winners.includes(id))
-  return { threeBetChance, threeBet, sawFlop, showdown, wonPot }
-}
-
-// Доля на экране: проценты — целые, случаев не было — null; мало случаев — few, как у HUD
-export type ShareView = { pct: number | null; of: number; few: boolean }
-
 // Раздача в «лучших» и «худших»: day — YYYY-MM-DD вечера, table — «Стол KQ7MZP», result — «+42,5 ББ»
 export type OutcomeView = { evening: string; number: number; day: string; table: string; result: string }
 
 export type MoreView = {
-  hands: number // «по N раздачам с ходами»
-  threeBet: ShareView
-  wtsd: ShareView
-  wsd: ShareView
-  bb100: { text: string; few: boolean; sign: number } // «+12,5»; sign — знак для цвета
   best: OutcomeView[]
   worst: OutcomeView[]
 }
 
-// Показ; раздач с записью нет — null: ни нулей, ни деления на ноль
+// Показ; раздач с записью нет — null
 export function moreView(m: AllTimeMore): MoreView | null {
   if (m.hands === 0) return null
-  const share = (s: Share): ShareView => ({
-    pct: s.of > 0 ? Math.round((s.made / s.of) * 100) : null,
-    of: s.of,
-    few: s.of < HUD_FEW_HANDS,
-  })
-  const per100 = Math.round((m.bb / m.hands) * 1000) / 10
   return {
-    hands: m.hands,
-    threeBet: share(m.threeBet),
-    wtsd: share(m.wtsd),
-    wsd: share(m.wsd),
-    bb100: { text: formatTenths(per100, true), few: m.hands < HUD_FEW_HANDS, sign: Math.sign(per100) },
     best: m.best.map(outcomeView),
     worst: m.worst.map(outcomeView),
   }

@@ -69,6 +69,12 @@ export type HudView = {
   af: string
   ats: number | null
   cb: number | null
+  // #241: null — случаев не было (и у HUD от старого сервера, без этих счётчиков) — «—»
+  threeBet: number | null
+  foldTo3Bet: number | null
+  wtsd: number | null
+  wsd: number | null
+  bb100: string | null // «+12,5», «−3,0»; раздач с итогом не было — null
   read?: string // стол с ботами (#240): как сильные боты читают этого игрока — «первое чтение»; у остальных столов поля нет
 }
 
@@ -327,6 +333,12 @@ export function countsView(c: HudCounts): HudView | null {
     af: c.calls > 0 ? formatTenths(c.raises / c.calls) : c.raises > 0 ? '∞' : '—',
     ats: pct(c.steals, c.stealChances),
     cb: pct(c.cbs, c.cbChances),
+    threeBet: pct(c.threeBets ?? 0, c.threeBetChances ?? 0),
+    foldTo3Bet: pct(c.foldsTo3Bet ?? 0, c.foldTo3BetChances ?? 0),
+    wtsd: pct(c.showdowns ?? 0, c.flops ?? 0),
+    wsd: pct(c.showdownWins ?? 0, c.showdowns ?? 0),
+    // Итог — в сотых ББ: на 100 раздач — итог / раздачи
+    bb100: c.netHands ? formatTenths((c.net ?? 0) / c.netHands, true) : null,
   }
 }
 

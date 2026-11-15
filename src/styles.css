@@ -1886,17 +1886,21 @@ textarea.note-input {
   color: var(--gold);
 }
 
+/* Подписи — одной колонкой по самой длинной («Фолд на 3-бет», #241), но не шире трети строки */
 .hud-rows {
   display: grid;
-  gap: 0.25rem;
+  grid-template-columns: minmax(3.2rem, max-content) 1fr;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
   margin: 0;
 }
 
 .hud-rows div {
-  display: grid;
-  grid-template-columns: 3.2rem 1fr;
-  align-items: baseline;
-  gap: 0.5rem;
+  display: contents;
+}
+
+.hud-rows dt {
+  max-width: 33vw;
 }
 
 .hud-rows dt {
@@ -1920,15 +1924,6 @@ textarea.note-input {
 }
 
 .poker-all.few .hud-rows {
-  color: var(--muted);
-}
-
-/* Ещё числа (#197): подписи длиннее HUD («bb/100», «W$SD»); мало случаев — строка приглушена сама по себе */
-.hud-rows.more-rows div {
-  grid-template-columns: 4.2rem 1fr;
-}
-
-.more-rows .few {
   color: var(--muted);
 }
 

@@ -3,23 +3,22 @@ import type { HudView } from '../calc/pokerView'
 // HUD вечера (#79): строка у места, подробно — по касанию строки (не по картам: свои карты
 // подсматривают пальцем), выбор ведущего «HUD видят»
 
-// Короткая строка у места: VPIP/PFR и раздачи; мало раздач — приглушена
-export function HudLine({ hud, onOpen }: { hud: HudView; onOpen: () => void }) {
+// Строка у места: VPIP/PFR и раздачи; подробно (detailed, #241) — ещё 3-бет: «VPIP/PFR/3B · N», случаев
+// 3-бета не было — «—». Мало раздач — приглушена
+export function HudLine({ hud, onOpen, detailed = false }: { hud: HudView; onOpen: () => void; detailed?: boolean }) {
+  const threeBet = hud.threeBet === null ? '—' : String(hud.threeBet)
+  const label = `Статистика: VPIP ${hud.vpip}%, PFR ${hud.pfr}%${detailed ? `, 3-бет ${pct(hud.threeBet)}` : ''}, раздач ${hud.hands} — подробно`
   return (
-    <button
-      type="button"
-      className={hud.few ? 'seat-hud few' : 'seat-hud'}
-      aria-label={`Статистика: VPIP ${hud.vpip}%, PFR ${hud.pfr}%, раздач ${hud.hands} — подробно`}
-      onClick={onOpen}
-    >
-      {hud.vpip}/{hud.pfr} · {hud.hands}
+    <button type="button" className={hud.few ? 'seat-hud few' : 'seat-hud'} aria-label={label} onClick={onOpen}>
+      {hud.vpip}/{hud.pfr}
+      {detailed && `/${threeBet}`} · {hud.hands}
     </button>
   )
 }
 
 const pct = (n: number | null) => (n === null ? '—' : `${n}%`)
 
-// Пять чисел с пояснениями — в карточке у стола и в «Покер за всё время» карточки игрока (#164)
+// Числа с пояснениями — в карточке у стола и в «Покер за всё время» карточки игрока (#164, #241)
 export function HudRows({ hud }: { hud: HudView }) {
   const rows: [string, string, string][] = [
     ['VPIP', pct(hud.vpip), 'входит в раздачу'],
@@ -27,6 +26,11 @@ export function HudRows({ hud }: { hud: HudView }) {
     ['AF', hud.af, 'агрессия: рейзы к коллам'],
     ['ATS', pct(hud.ats), 'крадёт блайнды'],
     ['CB', pct(hud.cb), 'ставка на флопе после рейза'],
+    ['3-бет', pct(hud.threeBet), 'перерейз до флопа'],
+    ['Фолд на 3-бет', pct(hud.foldTo3Bet), 'сбрасывает на перерейз'],
+    ['WTSD', pct(hud.wtsd), 'до вскрытия после флопа'],
+    ['W$SD', pct(hud.wsd), 'выигрывает на вскрытии'],
+    ['bb/100', hud.bb100 ?? '—', 'ББ на сто раздач'],
   ]
   return (
     <dl className="hud-rows">

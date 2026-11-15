@@ -16,7 +16,7 @@ import {
   type Trend,
 } from '../calc/trend'
 import type { SavedHand } from '../calc/evenings'
-import { allTimeHud, allTimeMore, moreView, type MoreView, type OutcomeView, type ShareView } from '../calc/pokerAllTime'
+import { allTimeHud, allTimeMore, moreView, type MoreView, type OutcomeView } from '../calc/pokerAllTime'
 import { countsView, type HudView } from '../calc/pokerView'
 import { formatDate, formatDayMonth } from '../dates'
 import { allHands, getSettings, listGames } from '../store/db'
@@ -138,36 +138,6 @@ function SpansCard({ spans, size }: { spans: Spans; size: number }) {
   )
 }
 
-const sharePct = (s: ShareView) => (s.pct === null ? '—' : `${s.pct}%`)
-
-// Ещё числа (#197) — по раздачам с записью ходов: у каждого «из N»; случаев меньше порога HUD — приглушено
-function MoreRows({ more }: { more: MoreView }) {
-  const rows: { label: string; value: ReactNode; of: number; few: boolean; hint: string }[] = [
-    { label: '3-бет', value: sharePct(more.threeBet), of: more.threeBet.of, few: more.threeBet.few, hint: 'перерейз до флопа' },
-    { label: 'WTSD', value: sharePct(more.wtsd), of: more.wtsd.of, few: more.wtsd.few, hint: 'до вскрытия после флопа' },
-    { label: 'W$SD', value: sharePct(more.wsd), of: more.wsd.of, few: more.wsd.few, hint: 'выиграл на вскрытии' },
-    {
-      label: 'bb/100',
-      value: <span className={sign(more.bb100.sign)}>{more.bb100.text}</span>,
-      of: more.hands,
-      few: more.bb100.few,
-      hint: 'ББ на сто раздач',
-    },
-  ]
-  return (
-    <dl className="hud-rows more-rows">
-      {rows.map((r) => (
-        <div key={r.label} className={r.few ? 'few' : undefined}>
-          <dt>{r.label}</dt>
-          <dd>
-            <strong>{r.value}</strong> <span className="muted">{`${r.hint} · из ${formatNumber(r.of)}`}</span>
-          </dd>
-        </div>
-      ))}
-    </dl>
-  )
-}
-
 // Лучшие и худшие раздачи: итог в ББ, дата и стол вечера, номер; касание — раздача в истории вечера
 function Outcomes({ title, list, onOpen }: { title: string; list: OutcomeView[]; onOpen: (o: OutcomeView) => void }) {
   if (list.length === 0) return null
@@ -188,8 +158,8 @@ function Outcomes({ title, list, onOpen }: { title: string; list: OutcomeView[];
   )
 }
 
-// Покер за всё время (#164, Р-55): HUD по раздачам всех вечеров на этом телефоне; мало раздач — приглушён.
-// Ниже (#197) — 3-бет, WTSD, W$SD, bb/100 и лучшие и худшие раздачи; раздач с записью нет — строкой
+// Покер за всё время (#164, Р-55): HUD по раздачам всех вечеров на этом телефоне — с #241 и 3-бет, фолд на 3-бет,
+// WTSD, W$SD, bb/100; мало раздач — приглушён. Ниже (#197) — лучшие и худшие раздачи, по раздачам с записью
 function PokerAllCard({ hud, more, onOpen }: { hud: HudView; more: MoreView | null; onOpen: (o: OutcomeView) => void }) {
   return (
     <section className={hud.few ? 'card poker-all few' : 'card poker-all'} aria-label="Покер за всё время">
@@ -199,24 +169,14 @@ function PokerAllCard({ hud, more, onOpen }: { hud: HudView; more: MoreView | nu
         {hud.few && <span className="hud-few"> · мало раздач</span>}
       </span>
       <HudRows hud={hud} />
-      {more ? (
+      {more && (
         <>
-          <span className="muted">{`по ${formatNumber(more.hands)} ${handsDative(more.hands)} с ходами`}</span>
-          <MoreRows more={more} />
           <Outcomes title="Лучшие раздачи" list={more.best} onOpen={onOpen} />
           <Outcomes title="Худшие раздачи" list={more.worst} onOpen={onOpen} />
         </>
-      ) : (
-        <span className="muted">3-бет, WTSD, W$SD и bb/100 — по раздачам с картами на телефонах; таких пока нет</span>
       )}
     </section>
   )
-}
-
-// «по 1 раздаче», «по 5 раздачам», «по 21 раздаче»
-function handsDative(n: number): string {
-  const abs = Math.abs(n) % 100
-  return abs % 10 === 1 && abs !== 11 ? 'раздаче' : 'раздачам'
 }
 
 // poker — null: в покер не играл (или раздачи не прочитались) — блока нет; more — null: раздач с записью нет.
