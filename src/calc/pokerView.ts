@@ -3,12 +3,16 @@
 // скажет сервер. Время — параметром now, как у стола
 import { bestHand, type Card } from '../poker/cards'
 import { publicCards } from '../poker/game'
-import { potLimit, type HandLogEntry, type Stage } from '../poker/hand'
+import { formatDate } from '../dates'
+import { potLimit, type HandLogEntry, type Stage, type Street } from '../poker/hand'
 import { HUD_FEW_HANDS, type HudCounts } from '../poker/hud'
 import { buildPots } from '../poker/pots'
-import type { HistoryHand } from '../poker/history'
+import { handFor, type HistoryHand } from '../poker/history'
 import { blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type HandRecord, type HandResult, type TableState } from '../poker/table'
 import { allInOdds } from './allInOdds'
+import type { SavedHand } from './evenings'
+import { handMoney, handNet, handPositions, positionLabels } from './handResult'
+import { handText } from './handText'
 import { runBoards, type RunBoardView } from './pokerRuns'
 import {
   buildLevels,
@@ -349,12 +353,7 @@ export function secondsLeft(deadline: number, now: number): number {
 // Подписи позиций по числу сданных, от кнопки по ходу: «BTN», «SB», «BB», затем «UTG», а поздние —
 // с конца: «CO» перед кнопкой, перед ним «HJ», «LJ», «MP». Блайнды — как при сдаче (hand.ts):
 // хедз-ап — кнопка ставит малый
-export function positionLabels(n: number): string[] {
-  if (n < 2) return n === 1 ? ['BTN'] : []
-  if (n === 2) return ['BTN/SB', 'BB']
-  const late = ['CO', 'HJ', 'LJ', 'MP', 'UTG+1', 'UTG+2', 'UTG+3'].slice(0, Math.max(0, n - 4)).reverse()
-  return ['BTN', 'SB', 'BB', ...(n > 3 ? ['UTG'] : []), ...late]
-}
+export { positionLabels }
 
 // После торгов — банки раздачи как есть. Во время торгов побочные видны, только когда
 // кто-то олл-ин; верхний слой одного игрока — ставка, которую ещё не уравняли, не банк
@@ -543,31 +542,99 @@ function roundsOf(log: HandLogEntry[], seats: { id: string; name: string }[]): L
   return rounds
 }
 
-// Строка списка «История раздач» (#113): номер, кто сколько взял, стол (общие карты);
-// прогнали несколько раз (#167) — в more остальные борды, по порядку (у раздач с одним бордом поля нет)
-export type HistoryItem = { number: number; board: Card[]; wins: { name: string; amount: number }[]; more?: Card[][] }
+// Я в раздаче (#239): мои карты — и после паса (телефон их не видел — null), позиция, итог фишками
+// (handNet; блайнды неизвестны — null) и большой блайнд раздачи — показать итог в ББ (Р-62; неизвестен — null)
+export type MyHandView = { cards: Card[] | null; position: string; net: number | null; bb: number | null }
 
-// Раздача из истории целиком — как прошлая, и ещё стеки в начале (chips — по местам, как players)
-// и банки с именами взявших. Живые карты — без карт: места, ходы, банки
-export type HistoryHandView = LastHandView & { chips: number[]; pots: { label: string; amount: number; winners: string[] }[] }
+// Строка списка «История раздач» (#113, #239): номер, я в раздаче (меня не было или телефон общий — null),
+// стол (общие карты), кто сколько взял; прогнали несколько раз (#167) — в more остальные борды, по порядку
+// (у раздач с одним бордом поля нет)
+export type HistoryItem = {
+  number: number
+  board: Card[]
+  wins: { name: string; amount: number }[]
+  more?: Card[][]
+  mine: MyHandView | null
+}
+
+// Улица раздачи из истории: её карты (общие к ней, с прошлых улиц), банк на начало (блайнды неизвестны — null), ходы
+export type HistoryStreet = { label: string; board: Card[]; pot: number | null; moves: string[] }
+
+// Раздача из истории целиком (#239, как в покер-румах) — как прошлая, и ещё: шапка (игра, лимит, блайнды),
+// время — начало стола (своего времени у раздачи нет), стеки в начале и позиции (по местам, как players),
+// моё место и я в раздаче, улицы с картами и банком, банки с именами взявших, текст файла выгрузки.
+// Живые карты — без карт: места, ходы, банки
+export type HistoryHandView = LastHandView & {
+  head: string
+  time: string
+  chips: number[]
+  positions: string[]
+  meIndex: number | null
+  mine: MyHandView | null
+  streets: HistoryStreet[]
+  pots: { label: string; amount: number; winners: string[] }[]
+  text: string
+}
+
+const STREETS: Street[] = ['preflop', 'flop', 'turn', 'river']
+const BOARD_AT: Record<Street, number> = { preflop: 0, flop: 3, turn: 4, river: 5 } // карт на столе к улице
+const GAME_LABELS: Record<string, string> = { holdem: 'Холдем', omaha: 'Омаха', shortdeck: 'Шорт-дек' }
+
+// Чей телефон: игрок стола (стол на одном телефоне — никто); у записей до Р-54 стола нет —
+// взявший банк без вскрытия (чужим эти карты не приходят), как в выгрузке
+function heroOf(s: SavedHand): string | null {
+  return s.table ? s.table.me : (s.hand.record?.hidden?.playerId ?? null)
+}
+
+// Свои карты — как в выгрузке: что видел телефон в раздаче, иначе из записи (взял без вскрытия или вскрылся)
+function heroCards(s: SavedHand, hero: string): Card[] | null {
+  if (s.mine && s.mine.length > 0) return s.mine
+  const record = s.hand.record
+  if (record?.hidden?.playerId === hero) return record.hidden.cards
+  const shown = record?.shown[hero]
+  return shown && shown.length > 0 && shown.every((c) => c !== null) ? (shown as Card[]) : null
+}
+
+// Блайнды живых карт (записи нет) — стола, если не турнир: там они растут
+function tableBlinds(s: SavedHand): { sb: number; bb: number } | null {
+  return s.table && !s.table.tournament ? { sb: s.table.sb, bb: s.table.bb } : null
+}
+
+function myHandOf(s: SavedHand): MyHandView | null {
+  const hero = heroOf(s)
+  const h = s.hand
+  const index = hero ? (h.record?.seats ?? h.live?.seats ?? []).findIndex((x) => x.id === hero) : -1
+  if (!hero || index === -1) return null
+  const blinds = tableBlinds(s)
+  return { cards: heroCards(s, hero), position: handPositions(h)[index], net: handNet(h, hero, blinds), bb: h.record?.bb ?? blinds?.bb ?? null }
+}
 
 // Список истории: новые сверху
-export function historyList(hands: HistoryHand[]): HistoryItem[] {
+export function historyList(hands: SavedHand[]): HistoryItem[] {
   return [...hands]
     .sort((a, b) => b.number - a.number)
-    .map((h) => {
+    .map((s) => {
+      const h = s.hand
       const names = namesOf(h)
       const wins = Object.entries(h.payouts)
         .filter(([, amount]) => amount > 0)
         .map(([id, amount]) => ({ name: names.get(id) ?? 'Ушёл', amount }))
       const runs = h.record?.runs
-      return { number: h.number, board: h.record?.board ?? [], wins, ...(runs && runs.length > 1 ? { more: runs.slice(1).map((r) => r.board) } : {}) }
+      return {
+        number: h.number,
+        board: h.record?.board ?? [],
+        wins,
+        ...(runs && runs.length > 1 ? { more: runs.slice(1).map((r) => r.board) } : {}),
+        mine: myHandOf(s),
+      }
     })
 }
 
-// Раздача по тапу. Взял банк без вскрытия я и не показал — мои карты видны мне (запись уже в моём виде:
-// чужим hidden не приходит, handFor)
-export function historyHandView(h: HistoryHand): HistoryHandView {
+// Раздача по тапу. Запись — в виде моего телефона (handFor): взял банк без вскрытия я и не показал — мои карты
+// видны только мне
+export function historyHandView(s: SavedHand): HistoryHandView {
+  const hero = heroOf(s)
+  const h = handFor(s.hand, hero)
   const names = namesOf(h)
   const pots = h.pots.map((p, k) => ({
     label: potLabel(k, h.pots.length),
@@ -579,22 +646,80 @@ export function historyHandView(h: HistoryHand): HistoryHandView {
   const hidden = record?.hidden ?? null
   const fives = fivesOf(h)
   const runs = runBoards(record, potLabels(h.pots.length))
+  const log = record?.log ?? h.live?.log ?? []
+  const meIndex = hero ? seats.findIndex((x) => x.id === hero) : -1
   return {
     number: h.number,
     board: record?.board ?? [],
-    players: seats.map((s) => ({
-      name: s.name,
-      cards: hidden?.playerId === s.id ? hidden.cards : (record?.shown[s.id] ?? null),
-      hand: runs ? null : (record?.hands[s.id] ?? null),
-      best: fives.get(s.id) ?? null,
-      won: h.payouts[s.id] ?? 0,
+    players: seats.map((x) => ({
+      name: x.name,
+      cards: hidden?.playerId === x.id ? hidden.cards : (record?.shown[x.id] ?? null),
+      hand: runs ? null : (record?.hands[x.id] ?? null),
+      best: fives.get(x.id) ?? null,
+      won: h.payouts[x.id] ?? 0,
     })),
-    rounds: roundsOf(record?.log ?? h.live?.log ?? [], seats),
+    rounds: roundsOf(log, seats),
     odds: record ? oddsLine(record) : null,
-    chips: seats.map((s) => s.chips),
-    pots,
     ...(runs ? { runs } : {}),
+    head: headOf(s),
+    time: timeOf(s.startedAt),
+    chips: seats.map((x) => x.chips),
+    positions: handPositions(h),
+    meIndex: meIndex === -1 ? null : meIndex,
+    mine: myHandOf(s),
+    streets: streetsOf(h, tableBlinds(s)),
+    pots,
+    text: handText(s),
   }
+}
+
+// Шапка: «Холдем, без лимита · блайнды 5/10, анте 1»; в турнире — «Турнир · …»; блайнды неизвестны
+// (живые карты в турнире) — без них
+function headOf(s: SavedHand): string {
+  const record = s.hand.record
+  const t = s.table
+  const id = record?.game.id ?? t?.game ?? 'holdem'
+  const limit = t?.limit ?? (id === 'omaha' ? 'pot' : 'nolimit')
+  const game = `${GAME_LABELS[id] ?? GAME_LABELS.holdem}, ${limit === 'pot' ? 'пот-лимит' : 'без лимита'}`
+  const blinds = record ? { sb: record.sb, bb: record.bb, ante: record.ante ?? 0 } : t && !t.tournament ? t : null
+  const blindsText = blinds
+    ? ` · блайнды ${formatNumber(blinds.sb)}/${formatNumber(blinds.bb)}${blinds.ante > 0 ? `, анте ${formatNumber(blinds.ante)}` : ''}`
+    : ''
+  return `${t?.tournament ? 'Турнир · ' : ''}${game}${blindsText}`
+}
+
+// Начало стола по часам телефона: «15 ноября 2026, 21:15»
+function timeOf(ms: number): string {
+  const d = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${formatDate(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`)}, ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+// Улицы по порядку: префлоп — всегда, дальше — с ходами или открытые (ва-банк, карты без ходов).
+// Прогнали несколько раз (#167) — у улиц только общая часть бордов, остальное — в runs
+function streetsOf(h: HistoryHand, blinds: { sb: number; bb: number } | null): HistoryStreet[] {
+  const record = h.record
+  const seats = record?.seats ?? h.live?.seats ?? []
+  const log = record?.log ?? h.live?.log ?? []
+  const names = new Map(seats.map((x) => [x.id, x.name]))
+  const runs = record?.runs && record.runs.length > 1 ? record.runs.map((r) => r.board) : null
+  const board = runs ? runs[0].slice(0, commonLength(runs)) : (record?.board ?? [])
+  const money = handMoney(h, blinds)
+  const out: HistoryStreet[] = []
+  for (const street of STREETS) {
+    const moves = log.filter((e) => e.street === street).map((e) => `${names.get(e.playerId) ?? 'Ушёл'}: ${moveText(e)}`)
+    const at = BOARD_AT[street]
+    if (street !== 'preflop' && moves.length === 0 && board.length < at) continue
+    out.push({ label: STAGE_LABELS[street], board: board.slice(0, at), pot: money?.potAt[street] ?? null, moves })
+  }
+  return out
+}
+
+// Сколько первых карт у всех бордов общие
+function commonLength(boards: Card[][]): number {
+  let n = 0
+  while (boards.every((b) => n < b.length && b[n] === boards[0][n])) n++
+  return n
 }
 
 function namesOf(h: HistoryHand): Map<string, string> {

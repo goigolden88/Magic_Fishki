@@ -57,6 +57,11 @@ export function stackText(chips: number, bb: number | null): string {
   return bb !== null && bb > 0 ? formatBB(chips, bb) : formatNumber(chips)
 }
 
+// Итог за раздачу со знаком (#239), в тех же единицах, что суммы за столом: «+1 250», «−300», «+12,5 ББ», «0»
+export function signedStackText(chips: number, bb: number | null): string {
+  return signed(chips, stackText(Math.abs(chips), bb))
+}
+
 // «из 1 фишки», «из 21 фишки», «из 5 фишек», «из 11 фишек»
 export function chipsGenitive(n: number): string {
   const abs = Math.abs(n)

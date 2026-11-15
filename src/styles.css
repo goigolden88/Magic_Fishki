@@ -2429,6 +2429,79 @@ textarea.note-input {
   overflow-wrap: anywhere;
 }
 
+/* Строка раздачи (#239), как в покер-румах: № · мои карты · позиция · итог · борд — рядом, с переносом;
+   кто взял — мельче строкой под ней */
+.history-hand {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.25rem;
+  padding-block: 0.5rem;
+}
+
+.history-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  align-items: center;
+}
+
+.history-hand .history-wins {
+  flex: none;
+  font-size: 0.85rem;
+}
+
+.history-pos {
+  min-width: 2.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Раздача из истории (#239): шапка, места с позициями (моё — выделено), улицы, итог, текст файла */
+.history-hand-head {
+  margin: 0.5rem 0;
+}
+
+.history-seats li {
+  min-height: 2.25rem;
+}
+
+.history-me {
+  font-weight: 600;
+}
+
+.history-dealt,
+.history-net {
+  margin: 0.5rem 0;
+}
+
+.history-street {
+  margin: 0.5rem 0;
+}
+
+.history-moves {
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.history-sub {
+  margin: 0.75rem 0 0.25rem;
+  font-size: 1rem;
+}
+
+.hand-text {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  padding: 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+}
+
 /* Казино-стол (#76, #129): ряды мест над и под столами — в потоке, без наезда; размеры мест, карт и
    отступов — CSS-переменные из casinoLayout (rem). На телефоне (Р-67, .phone) все места в ряд — одним
    рядом сверху, столы по два в ряд, карты мельче; 7–10 участников или 6+ столов — экран листается */

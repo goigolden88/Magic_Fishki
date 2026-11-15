@@ -11,7 +11,7 @@ import {
   startBotTable,
   type BotGame,
 } from '../calc/botTable'
-import { eveningDay, eveningLine, type EveningSummary } from '../calc/evenings'
+import { eveningDay, eveningLine, type EveningSummary, type SavedHand } from '../calc/evenings'
 import { parseChips } from '../calc/format'
 import { lastGameText } from '../calc/lastGame'
 import { LOCAL_MAX_SEATS, localStartError, startLocalTable } from '../calc/localTable'
@@ -35,8 +35,7 @@ import { PROTOCOL_VERSION, type CreateRoomRequest, type CreateRoomResponse } fro
 import { DEFAULT_SETTINGS, type AutoStart, type Felt } from '../poker/table'
 import { formatDate, today } from '../dates'
 import { handsFileName, handsText } from '../calc/handText'
-import type { HistoryHand } from '../poker/history'
-import { allHands, deleteEvening, eveningHands, eveningRecords, getSettings, listEvenings } from '../store/db'
+import { allHands, deleteEvening, eveningRecords, getSettings, listEvenings } from '../store/db'
 import { download } from './download'
 import { ulid } from '../ulid'
 import { LookFields } from './LookFields'
@@ -337,7 +336,7 @@ function continueOf(): { title: string; line: string; href: string } | null {
 // Вечеров нет или память браузера не читается — раздела нет (и «Выгрузить все» нет)
 function PastEvenings() {
   const [evenings, setEvenings] = useState<EveningSummary[]>([])
-  const [open, setOpen] = useState<{ evening: EveningSummary; hands: HistoryHand[] } | null>(null)
+  const [open, setOpen] = useState<{ evening: EveningSummary; hands: SavedHand[] } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   function reload() {
@@ -348,7 +347,7 @@ function PastEvenings() {
 
   async function show(evening: EveningSummary) {
     try {
-      setOpen({ evening, hands: await eveningHands(evening.id) })
+      setOpen({ evening, hands: await eveningRecords(evening.id) }) // со своими картами и столом вечера (#239)
       setError(null)
     } catch {
       setError('Не удалось прочитать раздачи с этого телефона')

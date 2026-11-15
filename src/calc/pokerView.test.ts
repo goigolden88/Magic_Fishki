@@ -3,6 +3,7 @@ import { SHORT_DECK } from '../poker/cards'
 import { finishedHand, handFor, keepHand, type HistoryHand } from '../poker/history'
 import { allin, award, call, check, fold, newTable, play, raise, stackedDeck, start, type Step } from '../poker/testing'
 import { HOST_TAKEOVER_MS, onTime, viewFor, type TableState } from '../poker/table'
+import type { SavedHand } from './evenings'
 import {
   cardFace,
   defaultWinners,
@@ -19,6 +20,9 @@ import {
 } from './pokerView'
 
 const three = (stacks: Record<string, number> = {}) => newTable(['p0', 'p1', 'p2'], {}, stacks)
+
+// Запись раздачи, как в копии на телефоне; без стола вечера — как записи до Р-54
+const savedOf = (hand: HistoryHand): SavedHand => ({ evening: 'e', code: null, startedAt: 0, number: hand.number, hand })
 
 describe('экран стола', () => {
   it('префлоп: кнопка, блайнды, банк, чей ход; кнопки хода — у того, чей ход', () => {
@@ -274,7 +278,7 @@ describe('экран стола: карты на телефонах', () => {
     expect(p2).toBeGreaterThan(p0) // у P2 две пары против пары тузов
     const before = play(newTable(['p0', 'p1', 'p2'], PHONES), steps.slice(0, -1), false)
     const history = keepHand([], finishedHand(before, s))
-    expect(historyHandView(handFor(history[0], 'p1')).odds).toBe(odds)
+    expect(historyHandView(savedOf(handFor(history[0], 'p1'))).odds).toBe(odds)
   })
 
   it('побочный банк: пятёрка — у победителя каждого банка, на столе — карты обеих пятёрок', () => {
@@ -432,18 +436,19 @@ describe('история раздач (#113)', () => {
     const last = lastHandRecord(viewFor(s, 'p1'))
     ;[s, history] = playKeeping(s, [start('p0', quiet), raise('p1', 30), fold('p2'), fold('p0')], history)
 
-    expect(historyList(history)).toEqual([
-      { number: 2, board: [], wins: [{ name: 'P1', amount: 25 }] },
-      { number: 1, board: ['2s', '7h', '9d', 'Jc', '3s'], wins: [{ name: 'P2', amount: 65 }] },
+    expect(historyList(history.map(savedOf))).toEqual([
+      // Запись без стола вечера (до Р-54): «я» — взявший без вскрытия
+      { number: 2, board: [], wins: [{ name: 'P1', amount: 25 }], mine: { cards: ['Kc', 'Ks'], position: 'BTN', net: 15, bb: 10 } },
+      { number: 1, board: ['2s', '7h', '9d', 'Jc', '3s'], wins: [{ name: 'P2', amount: 65 }], mine: null },
     ])
-    expect(historyHandView(handFor(history[0], 'p1'))).toEqual({
+    expect(historyHandView(savedOf(handFor(history[0], 'p1')))).toMatchObject({
       ...last,
       chips: [1000, 1000, 1000],
       pots: [{ label: 'Банк', amount: 65, winners: ['P2'] }],
     })
     // Карты сбросивших — нигде; взявший без вскрытия видит свои, остальные — нет
     expect(JSON.stringify(history)).not.toContain('"Qh"')
-    const cardsOf = (me: string) => historyHandView(handFor(history[1], me)).players.map((p) => p.cards)
+    const cardsOf = (me: string) => historyHandView(savedOf(handFor(history[1], me))).players.map((p) => p.cards)
     expect(cardsOf('p1')).toEqual([null, ['Kc', 'Ks'], null])
     expect(cardsOf('p0')).toEqual([null, null, null])
     expect(JSON.stringify(handFor(history[1], 'p0'))).not.toContain('"Kc"')
@@ -460,8 +465,8 @@ describe('история раздач (#113)', () => {
     const [s, history] = playKeeping(three({ p2: 500 }), steps, [])
     expect(history).toEqual([]) // торги закрыты, банк ведущий ещё не раздал
     const [, done] = playKeeping(s, [award('p0', [['p2']])], history)
-    expect(historyList(done)).toEqual([{ number: 1, board: [], wins: [{ name: 'P2', amount: 20 }] }])
-    expect(historyHandView(done[0])).toEqual({
+    expect(historyList(done.map(savedOf))).toEqual([{ number: 1, board: [], wins: [{ name: 'P2', amount: 20 }], mine: null }])
+    expect(historyHandView(savedOf(done[0]))).toMatchObject({
       number: 1,
       board: [],
       players: [
