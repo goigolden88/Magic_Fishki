@@ -13,14 +13,13 @@ import {
   withTable,
   type LocalTable,
 } from '../calc/localTable'
-import { localEvening, savedHands } from '../calc/evenings'
+import { localEvening, savedHands, type SavedHand } from '../calc/evenings'
 import { gameFromTable, gameFromTournament } from '../calc/pokerGame'
 import { dockOf, waitLine } from '../calc/pokerLayout'
 import { lookClass, lookOf } from '../calc/pokerLook'
 import { tournamentView, type TableView } from '../calc/pokerView'
 import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS, type Regular } from '../model'
-import type { HistoryHand } from '../poker/history'
 import { closeRebuyWait, type Result, type TableState } from '../poker/table'
 import { getSettings, saveGame, saveHands } from '../store/db'
 import { ulid } from '../ulid'
@@ -186,7 +185,7 @@ export function PokerLocalScreen() {
       ) : (
         <LocalTableCard
           table={local.table}
-          history={local.history}
+          history={savedHands(localEvening(local.id, local.table), local.history)}
           amounts={amounts}
           regulars={regulars}
           error={error}
@@ -215,7 +214,7 @@ type Apply = (make: (table: TableState, now: number) => Result) => boolean
 
 function LocalTableCard(props: {
   table: TableState
-  history: HistoryHand[]
+  history: SavedHand[] // записи вечера (#239): телефон общий — «моих» карт и итога нет
   amounts: number[]
   regulars: Regular[]
   error: string | null

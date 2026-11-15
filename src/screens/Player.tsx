@@ -264,7 +264,7 @@ export function PlayerScreen({ id }: { id: string }) {
     return (
       <main className="screen">
         <HandHistory
-          hands={data.saved.filter((s) => s.evening === open.evening).map((s) => s.hand)}
+          hands={data.saved.filter((s) => s.evening === open.evening)}
           initial={open.number}
           title={`${formatDate(open.day)} · ${open.table}`}
           back={`← ${data.stat.name}`}

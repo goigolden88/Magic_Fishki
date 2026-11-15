@@ -8,6 +8,7 @@ import { isDefaultLook, MY_LOOK_DEFAULT, parseMyLook, type MyLook } from '../cal
 import { parseQuickBets, QUICK_BETS_DEFAULT, type QuickBets } from '../calc/quickBets'
 import { parseQuickRoom, type QuickRoom } from '../calc/quickRoom'
 import { parseDockSize, parseTableSize, tableFitVars, type DockSize } from '../calc/tableFit'
+import type { Card } from '../poker/cards'
 import type { CSSProperties } from 'react'
 
 // Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги,
@@ -37,6 +38,7 @@ const TABLE_SIZE_KEY = 'fishki.poker.tableSize'
 const DOCK_SIZE_KEY = 'fishki.poker.dockSize'
 const BET_STEP_KEY = 'fishki.poker.betStep'
 const LAST_KEY = 'fishki.poker.last'
+const MINE_KEY = 'fishki.poker.mine'
 
 function read(key: string): string {
   try {
@@ -133,6 +135,52 @@ export function saveLastGame(kind: LastGameKind, code?: string, server?: string)
 
 function forgetLastGame(kind: LastGameKind, code?: string) {
   if (isLastGame(loadLastGame(), kind, code)) write(LAST_KEY, '')
+}
+
+// Свои карты комнаты, пока раздача не записана в «Прошлые вечера» (#239): перезагрузил телефон посреди раздачи,
+// а она кончилась — сервер их уже не пришлёт. Вечер (код и начало стола, `roomEvening`) → номер раздачи → карты;
+// записали раздачу — её карты отсюда стираются, вечер без карт — тоже
+type PendingMine = Record<string, Record<string, Card[]>>
+
+function loadAllMine(): PendingMine {
+  try {
+    const parsed: unknown = JSON.parse(read(MINE_KEY) || '{}')
+    const out: PendingMine = {}
+    if (!parsed || typeof parsed !== 'object') return out
+    for (const [evening, hands] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!hands || typeof hands !== 'object') continue
+      for (const [number, cards] of Object.entries(hands as Record<string, unknown>)) {
+        if (!Array.isArray(cards) || cards.length === 0 || !cards.every((c) => typeof c === 'string')) continue
+        ;(out[evening] ??= {})[number] = cards as Card[]
+      }
+    }
+    return out
+  } catch {
+    return {}
+  }
+}
+
+function writeAllMine(all: PendingMine) {
+  write(MINE_KEY, Object.keys(all).length ? JSON.stringify(all) : '')
+}
+
+export function loadPendingMine(evening: string): Map<number, Card[]> {
+  return new Map(Object.entries(loadAllMine()[evening] ?? {}).map(([n, cards]) => [Number(n), cards]))
+}
+
+export function savePendingMine(evening: string, number: number, cards: Card[]) {
+  const all = loadAllMine()
+  ;(all[evening] ??= {})[String(number)] = cards
+  writeAllMine(all)
+}
+
+export function clearPendingMine(evening: string, numbers: number[]) {
+  const all = loadAllMine()
+  const hands = all[evening]
+  if (!hands) return
+  for (const n of numbers) delete hands[String(n)]
+  if (Object.keys(hands).length === 0) delete all[evening]
+  writeAllMine(all)
 }
 
 // Итог какого стола уже записан игрой: «код/место» → id игры. Повторное «Закончить игру»

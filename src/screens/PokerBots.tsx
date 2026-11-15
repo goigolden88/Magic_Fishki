@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { BOT_LEVELS } from '../calc/bot'
-import { botsEvening } from '../calc/evenings'
+import { botsEvening, savedHands } from '../calc/evenings'
 import { NO_COPY, useHandCopy, useMyCards } from './handCopy'
 import {
   autoDealBotHand,
@@ -183,8 +183,10 @@ function BotTableCard(props: {
   // История — в моём виде: карты бота, взявшего банк без вскрытия, не видны. Каждая раздача — в «Прошлые вечера»
   // своим вечером «Против ботов» (Р-54), со своими картами; «Закончить» их не стирает
   const history = useMemo(() => bots.history.map((h) => handFor(h, bots.meId)), [bots.history, bots.meId])
-  const mine = useMyCards(table, v.myCards)
-  const copyWorks = useHandCopy(botsEvening(bots.id, table, bots.meId), history, mine)
+  // Свои карты (#239): идущая раздача — из стола (он хранится после каждого хода), записанные — из «Прошлых вечеров»
+  const evening = botsEvening(bots.id, table, bots.meId)
+  const mine = useMyCards(evening.id, table, v.myCards, false)
+  const copyWorks = useHandCopy(evening, history, mine)
   // Мои фишки кончились — вместо «Начать раздачу» карточка «Докупиться» / «Закончить»
   const broke = iAmBroke(bots)
   const dock = broke ? 'none' : dockOf(v)
@@ -238,7 +240,7 @@ function BotTableCard(props: {
 
           {/* История раздач — на этом телефоне, вместе со столом; карты бота, взявшего банк без вскрытия, не видны */}
           {showHistory ? (
-            <HandHistory hands={history} onClose={() => setShowHistory(false)} />
+            <HandHistory hands={savedHands(evening, history, mine)} onClose={() => setShowHistory(false)} />
           ) : (
             <button type="button" className="big wide" onClick={() => setShowHistory(true)}>
               История раздач

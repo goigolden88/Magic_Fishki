@@ -9,7 +9,7 @@ import {
   tableSnapshot,
   type DealSnapshot,
 } from '../calc/dealAnimation'
-import { formatChips, formatNumber, formatRub, parseChips, stackText } from '../calc/format'
+import { formatChips, formatNumber, formatRub, parseChips, signedStackText, stackText } from '../calc/format'
 import {
   betShareText,
   betSide,
@@ -42,6 +42,7 @@ import {
   type ActionsView,
   type HistoryHandView,
   type LastHandView,
+  type MyHandView,
   type SeatView,
   type TableView,
 } from '../calc/pokerView'
@@ -54,7 +55,7 @@ import {
   type PreAction,
   type PreActionMark,
 } from '../calc/preAction'
-import { roomEvening } from '../calc/evenings'
+import { roomEvening, savedHands, type SavedHand } from '../calc/evenings'
 import { mixView, type MixView } from '../calc/pokerMix'
 import { runView, type RunView } from '../calc/pokerRuns'
 import { runsText } from '../calc/quickRoom'
@@ -65,7 +66,6 @@ import { levelText, prizesOf } from '../calc/tournamentForm'
 import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS } from '../model'
 import type { Card } from '../poker/cards'
-import type { HistoryHand } from '../poker/history'
 import { FINISHED, type ClientBody } from '../poker/protocol'
 import { limitFor, type TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
@@ -361,9 +361,11 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   const v = tableView(table, me, room.serverNow(), loadQuickBets()) // свои быстрые ставки (Р-62)
   const mix = mixView(table, me, room.serverNow()) // «Микс» (#166) — между раздачами, над кнопками ведущего
   const runs = runView(table, me, room.serverNow()) // «Сколько раз прогнать» (#167) — вместо полосы «Ждём хода»
-  // Копия раздач (#114) — со своими картами каждой раздачи (Р-54): к ответу истории они уже запомнены
-  const mine = useMyCards(table, v.myCards)
-  const copyWorks = useHandCopy(roomEvening(code, table, me), room.history, mine)
+  // Копия раздач (#114) — со своими картами каждой раздачи (Р-54): к ответу истории они уже запомнены,
+  // до записи раздачи — и на устройстве (#239): перезагрузка посреди раздачи их не теряет
+  const evening = roomEvening(code, table, me)
+  const mine = useMyCards(evening.id, table, v.myCards, true)
+  const copyWorks = useHandCopy(evening, room.history, mine)
   const dock = dockOf(v)
   const host = serverHost(room.server) // не постоянный сервер (#83) — мелкой строкой под строкой стола
 
@@ -417,7 +419,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
 
           {history ? (
             <HandHistory
-              hands={room.history}
+              hands={room.history && savedHands(evening, room.history, mine)}
               note={room.online ? null : `${NO_CONNECTION} — история придёт, когда связь вернётся`}
               onClose={() => setHistory(false)}
             />
@@ -686,7 +688,7 @@ export function blindsLine(table: TableState, v: TableView): string {
 }
 
 // Суммы за столом (Р-62): «Стеки и ставки в больших блайндах» на этом телефоне — в ББ раздачи, иначе фишками.
-// Только показ: ввод суммы, история раздач и выгрузка — фишками.
+// Только показ: ввод суммы, история раздач (кроме моего итога за раздачу, #239) и выгрузка — фишками.
 // Переключить можно и за столом касанием своего места (Р-64): стол, банки и панель хода перерисовываются сразу
 export function useBigBlinds(): boolean {
   return useSyncExternalStore(subscribeBigBlinds, loadBigBlinds)
@@ -730,51 +732,55 @@ export function LastHand({ table, view: v }: { table: TableState; view: TableVie
   )
 }
 
-// Раздача целиком: стол, места с картами и комбинациями, кто сколько взял, шансы на ва-банке (#116), ходы по улицам.
-// Из истории (#113) — ещё стек каждого в начале и банки с именами взявших; ходы сразу раскрыты
-function HandBody({ view: v }: { view: LastHandView | HistoryHandView }) {
-  const full = 'chips' in v ? v : null
+// Прогнали несколько раз (#167): каждый борд и кто на нём взял
+function RunRows({ runs }: { runs: NonNullable<LastHandView['runs']> }) {
   return (
     <>
-      {v.runs ? (
-        // Прогнали несколько раз (#167): каждый борд и кто на нём взял
-        v.runs.map((run) => (
-          <div key={run.label} className="run-row">
-            <CardRow cards={run.cards} win={run.win} />
-            <span className="muted">
-              {run.label}: {run.winners}
-            </span>
-          </div>
-        ))
-      ) : (
-        v.board.length > 0 && <CardRow cards={v.board} />
-      )}
+      {runs.map((run) => (
+        <div key={run.label} className="run-row">
+          <CardRow cards={run.cards} win={run.win} />
+          <span className="muted">
+            {run.label}: {run.winners}
+          </span>
+        </div>
+      ))}
+    </>
+  )
+}
+
+// Место с картами: что у него и пятёрка победителя банка на вскрытии, карты, «+N» взявшему
+function PlayerRow({ player: p, extra }: { player: LastHandView['players'][number]; extra?: string }) {
+  return (
+    <li className="row">
+      <span className="grow">
+        {p.name}
+        {extra && <span className="muted"> · {extra}</span>}
+        {p.hand && <span className="muted"> · {p.hand}</span>}
+        {p.best && (
+          <span className="last-best">
+            <CardRow cards={p.best} size="small" />
+          </span>
+        )}
+      </span>
+      {p.cards && <CardRow cards={p.cards} size="small" />}
+      {p.won > 0 && <span className="num plus">+{formatNumber(p.won)}</span>}
+    </li>
+  )
+}
+
+// Прошлая раздача: стол, места с картами и комбинациями, кто сколько взял, шансы на ва-банке (#116), ходы по улицам
+function HandBody({ view: v }: { view: LastHandView }) {
+  return (
+    <>
+      {v.runs ? <RunRows runs={v.runs} /> : v.board.length > 0 && <CardRow cards={v.board} />}
       <ul className="list">
         {v.players.map((p, i) => (
-          <li key={i} className="row">
-            <span className="grow">
-              {p.name}
-              {full && <span className="muted"> · стек {formatNumber(full.chips[i])}</span>}
-              {p.hand && <span className="muted"> · {p.hand}</span>}
-              {p.best && (
-                <span className="last-best">
-                  <CardRow cards={p.best} size="small" />
-                </span>
-              )}
-            </span>
-            {p.cards && <CardRow cards={p.cards} size="small" />}
-            {p.won > 0 && <span className="num plus">+{formatNumber(p.won)}</span>}
-          </li>
+          <PlayerRow key={i} player={p} />
         ))}
       </ul>
       {v.odds && <p>{v.odds}</p>}
-      {full?.pots.map((pot) => (
-        <p key={pot.label} className="muted">
-          {pot.label} {formatNumber(pot.amount)} — {pot.winners.join(', ')}
-        </p>
-      ))}
       {v.rounds.length > 0 && (
-        <details open={full !== null}>
+        <details>
           <summary>Ходы</summary>
           {v.rounds.map((r) => (
             <p key={r.label}>
@@ -787,13 +793,113 @@ function HandBody({ view: v }: { view: LastHandView | HistoryHandView }) {
   )
 }
 
+// Итог за раздачу со знаком и цветом — в тех же единицах, что суммы за столом (Р-62)
+function NetText({ mine }: { mine: MyHandView }) {
+  const unit = useBbUnit(mine.bb ?? 0)
+  if (mine.net === null) return null
+  return <span className={`num ${mine.net > 0 ? 'plus' : mine.net < 0 ? 'minus' : ''}`}>{signedStackText(mine.net, unit)}</span>
+}
+
+// Раздача из истории (#239), как в покер-румах: шапка (игра, лимит, блайнды, время), места со стеками в начале
+// и позициями, «Вам сдано» — и после паса, улицы — карты, банк на начало и ходы; в конце — вскрытие, банки,
+// мой итог; «Текстом» — тот же текст, что в файле «Выгрузить», и «Скопировать»
+function HistoryBody({ view: v }: { view: HistoryHandView }) {
+  const [text, setText] = useState(false)
+  const [note, setNote] = useState<string | null>(null)
+  // Вскрытие и показанные: мои карты взятого без вскрытия — уже в «Вам сдано»
+  const shown = v.players.filter((p, i) => p.cards && (p.hand !== null || i !== v.meIndex))
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(v.text)
+      setNote('Скопировано')
+    } catch {
+      setNote('Не удалось скопировать')
+    }
+    setTimeout(() => setNote(null), 3000)
+  }
+
+  return (
+    <>
+      <p className="muted history-hand-head">
+        {v.head}
+        <br />
+        Стол открыт {v.time}
+      </p>
+      <ul className="list history-seats">
+        {v.players.map((p, i) => (
+          <li key={i} className={i === v.meIndex ? 'row history-me' : 'row'}>
+            <span className="history-pos">{v.positions[i]}</span>
+            <span className="grow">
+              {p.name}
+              {i === v.meIndex && <span className="muted"> · вы</span>}
+            </span>
+            <span className="num muted">{formatNumber(v.chips[i])}</span>
+          </li>
+        ))}
+      </ul>
+      {v.mine?.cards && (
+        <div className="run-row history-dealt">
+          <strong>Вам сдано</strong>
+          <CardRow cards={v.mine.cards} size="small" />
+        </div>
+      )}
+      {v.streets.map((s) => (
+        <div key={s.label} className="history-street">
+          <div className="run-row">
+            <strong>{s.label}</strong>
+            {s.board.length > 0 && <CardRow cards={s.board} size="small" />}
+            {s.pot !== null && <span className="muted">банк {formatNumber(s.pot)}</span>}
+          </div>
+          {s.moves.length > 0 && <p className="history-moves">{s.moves.join('; ')}</p>}
+        </div>
+      ))}
+      {v.runs && <RunRows runs={v.runs} />}
+      {shown.length > 0 && (
+        <>
+          <h3 className="history-sub">{shown.some((p) => p.hand !== null) ? 'Вскрытие' : 'Показали'}</h3>
+          <ul className="list">
+            {shown.map((p, k) => (
+              <PlayerRow key={k} player={p} />
+            ))}
+          </ul>
+        </>
+      )}
+      {v.odds && <p>{v.odds}</p>}
+      {v.pots.map((pot) => (
+        <p key={pot.label} className="muted">
+          {pot.label} {formatNumber(pot.amount)} — {pot.winners.join(', ')}
+        </p>
+      ))}
+      {v.mine && v.mine.net !== null && (
+        <p className="history-net">
+          Ваш итог за раздачу: <NetText mine={v.mine} />
+        </p>
+      )}
+      <button type="button" className="big wide" aria-expanded={text} onClick={() => setText(!text)}>
+        {text ? 'Скрыть текст' : 'Текстом'}
+      </button>
+      {text && (
+        <>
+          <pre className="hand-text">{v.text}</pre>
+          <button type="button" className="big wide" onClick={() => void copy()}>
+            Скопировать
+          </button>
+          {note && <p className="muted">{note}</p>}
+        </>
+      )}
+    </>
+  )
+}
+
 // «История раздач» вечера (#113): список — новые сверху, тап — раздача целиком, «← Все раздачи» — назад.
 // Карточкой под столом: панель хода внизу экрана не закрывает, игра идёт. hands — null: ещё не пришла;
 // note — почему не приходит (нет связи); старый список при этом остаётся.
 // Прошлый вечер (#114) — та же карточка: title — вместо «История раздач», back — вместо «Закрыть».
-// Из карточки игрока (#197) — сразу раздача initial, «← Все раздачи» — весь её вечер
+// Из карточки игрока (#197) — сразу раздача initial, «← Все раздачи» — весь её вечер.
+// hands — записи раздач вечера (#239): со столом вечера — чей телефон, и своими картами
 export function HandHistory(props: {
-  hands: HistoryHand[] | null
+  hands: SavedHand[] | null
   note?: string | null
   title?: string
   back?: string
@@ -821,7 +927,7 @@ export function HandHistory(props: {
         </button>
       </div>
       {hand ? (
-        <HandBody view={historyHandView(hand)} />
+        <HistoryBody view={historyHandView(hand)} />
       ) : (
         <>
           {note && <p className="warn">{note}</p>}
@@ -833,11 +939,17 @@ export function HandHistory(props: {
             <ul className="list history-list">
               {list.map((item) => (
                 <li key={item.number}>
-                  <button type="button" className="history-item" onClick={() => setOpen(item.number)}>
-                    <span className="history-number">№ {item.number}</span>
-                    <span className="history-wins">{item.wins.map((w) => `${w.name} +${formatNumber(w.amount)}`).join(', ')}</span>
-                    {item.board.length > 0 && <CardRow cards={item.board} size="small" />}
-                    {item.more?.map((board, k) => <CardRow key={k} cards={board} size="small" />)}
+                  {/* Строка (#239): № · мои карты · позиция · мой итог · борд, кто взял — мельче под ней */}
+                  <button type="button" className="history-item history-hand" onClick={() => setOpen(item.number)}>
+                    <span className="history-line">
+                      <span className="history-number">№ {item.number}</span>
+                      {item.mine?.cards && <CardRow cards={item.mine.cards} size="small" />}
+                      {item.mine && <span className="history-pos">{item.mine.position}</span>}
+                      {item.mine && <NetText mine={item.mine} />}
+                      {item.board.length > 0 && <CardRow cards={item.board} size="small" />}
+                      {item.more?.map((board, k) => <CardRow key={k} cards={board} size="small" />)}
+                    </span>
+                    <span className="history-wins muted">{item.wins.map((w) => `${w.name} +${formatNumber(w.amount)}`).join(', ')}</span>
                   </button>
                 </li>
               ))}
