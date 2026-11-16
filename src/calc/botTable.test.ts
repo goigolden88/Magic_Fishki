@@ -18,6 +18,8 @@ import {
   canTopUpAll,
   finishBotHand,
   resumeBotTable,
+  setBotAutoStart,
+  setBotFlag,
   botGameOf,
   botStep,
   botTableView,
@@ -30,6 +32,7 @@ import {
   parseBotTable,
   startBotTable,
   topUpAll,
+  type BotFlag,
   type BotForm,
   type BotStep,
   type BotTable,
@@ -197,6 +200,51 @@ describe('стол против ботов', () => {
     expect(parseBotTable(JSON.stringify(start()))!.hudAll).toBe(true)
     const { hudAll: _, ...old } = start()
     expect(parseBotTable(JSON.stringify(old))!.hudAll).toBe(false)
+  })
+
+  it('«⚙ Стол» (#243): галочка меняется и в раздаче, стол остальным не задет; разбор сохранённого читает новое', () => {
+    const dealt = ok(dealBotHand(start(), 0, bytesOf(seededRandom(3))))
+    const flips: [BotFlag, boolean][] = [
+      ['open', true],
+      ['showStyles', false],
+      ['hudAll', false],
+      ['autoFinish', true],
+    ]
+    for (const [flag, on] of flips) {
+      const next = setBotFlag(dealt, flag, on)
+      expect(next[flag]).toBe(on)
+      expect({ ...next, [flag]: dealt[flag] }).toEqual(dealt)
+      expect(parseBotTable(JSON.stringify(next))).toEqual(next)
+      // Уже так — тот же стол
+      expect(setBotFlag(next, flag, on)).toBe(next)
+    }
+    // Стол до #196 без hudAll — HUD только у моего места; включили здесь — у всех, и так сохранится
+    const { hudAll: _, ...old } = start()
+    const was = parseBotTable(JSON.stringify(old))!
+    expect(was.hudAll).toBe(false)
+    const on = setBotFlag(was, 'hudAll', true)
+    expect(parseBotTable(JSON.stringify(on))!.hudAll).toBe(true)
+  })
+
+  it('«⚙ Стол» (#243): «Следующая раздача сама» — между раздачами; в отсчёте — заново с новой паузой, «Выкл» — снят', () => {
+    let bt = start({ autoStart: 'fast' })
+    bt = ok(dealBotHand(bt, 0, bytesOf(seededRandom(3))))
+    // В раздаче — отказ, стол как был
+    expect(setBotAutoStart(bt, 'slow', 10)).toEqual({ ok: false, error: 'Настройки стола меняются между раздачами' })
+    while (bt.table.hand) bt = play(bt, seededRandom(9))
+    const armed = botNextHandAt(bt)
+    expect(armed).not.toBeNull()
+    const slow = ok(setBotAutoStart(bt, 'slow', 5000))
+    expect(botAutoStart(slow)).toBe('slow')
+    expect(botNextHandAt(slow)).toBe(5000 + AUTO_START_MS.slow)
+    expect({ ...slow, table: { ...slow.table, settings: bt.table.settings, nextHandAt: armed } }).toEqual(bt)
+    const off = ok(setBotAutoStart(slow, 'off', 6000))
+    expect(botAutoStart(off)).toBe('off')
+    expect(botNextHandAt(off)).toBeNull()
+    // Та же пауза — стол тот же
+    expect(ok(setBotAutoStart(slow, 'slow', 7000))).toBe(slow)
+    // И это сохраняется
+    expect(botAutoStart(parseBotTable(JSON.stringify(off))!)).toBe('off')
   })
 
   it('старый стол против ботов, сохранённый до стилей, открывается: стили — по его уровню, всякий раз те же', () => {

@@ -156,6 +156,21 @@ export function botPause(bt: BotTable, paused: boolean, now: number): BotStep {
   return after(bt, hostDo(bt.table, { type: 'pause', paused }, now), now)
 }
 
+// Галочки стола в «⚙ Стол» (#243): только для экрана человека, правил и ботов не касаются — меняются сразу,
+// и во время раздачи. Остальной стол как был
+export type BotFlag = 'open' | 'showStyles' | 'hudAll' | 'autoFinish'
+
+export function setBotFlag(bt: BotTable, flag: BotFlag, on: boolean): BotTable {
+  return bt[flag] === on ? bt : { ...bt, [flag]: on }
+}
+
+// «Следующая раздача сама» в «⚙ Стол» (#243): настройка стола ведущего (tableSettings) — между раздачами,
+// во время раздачи — отказ стола. Смена во время отсчёта — отсчёт заново с новой паузой, «Выкл» — снят
+export function setBotAutoStart(bt: BotTable, mode: AutoStart, now: number): BotStep {
+  if (botAutoStart(bt) === mode) return { ok: true, bots: bt }
+  return after(bt, hostDo(bt.table, { type: 'tableSettings', autoStart: mode }, now), now)
+}
+
 // Стол снова на экране (приложение открыли заново или вернулись к нему): ждавшая раздача «сама» не начинается
 // мгновенно — отсчёт заново с полной паузы
 export function resumeBotTable(bt: BotTable, now: number): BotTable {
