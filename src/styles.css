@@ -200,6 +200,32 @@ h3 {
   margin: 1.5rem 0 0.5rem;
 }
 
+/* Заголовок раздела — кнопка во всю ширину (#234): касание сворачивает и разворачивает раздел, ▸ / ▾ справа.
+   Шрифт и размер — заголовка; черта снизу — граница раздела, и когда он свёрнут */
+.group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.4rem 0.25rem;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Строка версии внизу «Настроек» (#234) */
+.version-line {
+  margin-top: 2rem;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
 a {
   color: inherit;
 }

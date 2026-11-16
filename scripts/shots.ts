@@ -35,6 +35,8 @@
 // имя с многоточием — сбой; npm run shots -- imena — только они.
 // Своя рубашка (#220): картинка в поле выбора файла через DevTools — «Вид стола» со «Своей» (08d) и казино до «Раздать»
 // (04f-kazino-svoya-rubashka), потом «Удалить свою рубашку»; npm run shots -- rubashka — только она.
+// Разделы «Настроек» сворачиваются (#234): «Настройки» — снимок по умолчанию (05) и с одним развёрнутым «Учётом игр»
+// (05a); шаги, которым нужны карточки свёрнутого раздела, разворачивают его касанием заголовка (openSettings).
 // Chrome — google-chrome, google-chrome-stable или chromium; свой путь — переменная CHROME
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -552,15 +554,49 @@ async function screen(name: string, size: Size, run: () => Promise<void>): Promi
 
 // ─── Сценарий ────────────────────────────────────────────────────────────────
 
-// «Настройки»: гамма — касанием в «Оформлении» («Ночь» не выбрана — как у того, кто не выбирал), снимок, демо-игры
+// Раздел «Настроек» (#234): заголовок — кнопка; свёрнут — развернуть касанием (open = false — свернуть), как человек
+async function settingsGroup(d: Device, group: string, open = true): Promise<void> {
+  const started = Date.now()
+  while (Date.now() - started < TIMEOUT) {
+    const state = await d.eval<string>(`(() => {
+      const b = [...document.querySelectorAll('button.group-toggle')]
+        .find((e) => e.textContent.replace(/[▸▾]/g, '').trim() === ${JSON.stringify(group)})
+      if (!b) return 'нет'
+      if (b.getAttribute('aria-expanded') === ${JSON.stringify(String(open))}) return 'готово'
+      b.click()
+      return 'нажато'
+    })()`).catch(() => 'нет')
+    if (state === 'готово') return
+    await sleep(200)
+  }
+  throw new Error(`раздел «${group}» не ${open ? 'развернулся' : 'свернулся'}`)
+}
+
+// Открыть «Настройки» и развернуть нужные разделы (#234): в первый раз развёрнуто только «Оформление».
+// Уже открыты — перезагрузить: тот же адрес страницу не перезагружает, и раскрытые карточки остались бы раскрытыми,
+// а кнопка заголовка прежней страницы ответила бы раньше новой
+async function openSettings(d: Device, ...groups: string[]): Promise<void> {
+  if ((await d.eval<string>('location.hash')) === '#/settings') await d.reload()
+  else await d.goto('#/settings')
+  await d.waitFor('button.group-toggle')
+  for (const group of groups) await settingsGroup(d, group)
+}
+
+// «Настройки»: гамма — касанием в «Оформлении» («Ночь» не выбрана — как у того, кто не выбирал), снимок по умолчанию
+// (развёрнуто только «Оформление») и с одним развёрнутым «Учётом игр» (#234), демо-игры
 async function settingsStep(d: Device, theme: Theme): Promise<void> {
   await screen('Настройки', d.size, async () => {
-    await d.goto('#/settings')
-    await d.waitText('Добавить демо-данные')
+    await openSettings(d)
+    await d.waitText('Демо-данные')
     await d.fontsLoaded() // первый экран каждого размера
     await pickTheme(d, theme)
     await d.shot('05-nastroyki')
+    await settingsGroup(d, 'Оформление', false)
+    await settingsGroup(d, 'Учёт игр')
+    await d.waitText('Курс новой игры')
+    await d.shot('05a-nastroyki-uchet')
     // Демо-игры (Р-04) — для «Игр» и казино
+    await settingsGroup(d, 'Демо-данные')
     await d.click('Добавить демо-данные')
     await d.waitText('Добавлено демо-игр')
   })
@@ -599,7 +635,7 @@ async function accountingStep(d: Device): Promise<void> {
 async function playerStep(cdp: Cdp, size: Size, theme: Theme): Promise<void> {
   await screen('Карточка игрока', size, async () => {
     const d = await Device.open(cdp, size)
-    await d.goto('#/settings')
+    await openSettings(d, 'Игроки')
     await d.waitText('Постоянные игроки')
     await pickTheme(d, theme)
     for (const name of ['Аня', 'Боря']) {
@@ -635,6 +671,7 @@ async function playerStep(cdp: Cdp, size: Size, theme: Theme): Promise<void> {
 // Гамма — касанием в «Оформлении» на открытых «Настройках»; «Ночь» — как у того, кто не выбирал
 async function pickTheme(d: Device, theme: Theme): Promise<void> {
   if (theme === 'night') return
+  await settingsGroup(d, 'Оформление')
   await d.click(THEME_BUTTONS[theme])
   await d.waitFor(`html[data-theme="${theme}"]`)
 }
@@ -642,8 +679,7 @@ async function pickTheme(d: Device, theme: Theme): Promise<void> {
 // Свежее хранилище — гамма сценария (SHOTS_THEME) касанием в «Настройках», без снимка (#211)
 async function themeOnly(d: Device): Promise<void> {
   if (runTheme === 'night') return
-  await d.goto('#/settings')
-  await d.waitText('Добавить демо-данные')
+  await openSettings(d)
   await pickTheme(d, runTheme)
 }
 
@@ -763,8 +799,7 @@ async function trainerOnly(cdp: Cdp): Promise<void> {
     await trainerStep(d)
     for (const other of ['club', 'day'] as const) {
       const t = await Device.open(cdp, size, `${other}-`)
-      await t.goto('#/settings')
-      await t.waitText('Добавить демо-данные')
+      await openSettings(t)
       await pickTheme(t, other)
       await trainerStep(t)
     }
@@ -826,7 +861,7 @@ async function scenario(cdp: Cdp, size: Size, theme: Theme, uchet: boolean): Pro
 
   // «Вид стола» в «Настройках»: на широком окне — ещё размер стола и панели ставок (Р-63)
   await screen('Вид стола', size, async () => {
-    await d.goto('#/settings')
+    await openSettings(d, 'Покер онлайн и стол')
     await d.waitText('Выбрать вид стола')
     await d.click('Выбрать вид стола')
     await d.waitText('Колода')
@@ -935,7 +970,7 @@ async function timeBankOnly(cdp: Cdp): Promise<void> {
     const d = await Device.open(cdp, size)
     await themeOnly(d)
     await screen('Быстрая комната', size, async () => {
-      await d.goto('#/settings')
+      await openSettings(d, 'Покер онлайн и стол')
       await d.waitText('Настроить быструю комнату')
       await d.fontsLoaded()
       await d.click('Настроить быструю комнату')
@@ -978,7 +1013,7 @@ async function choicesOnly(cdp: Cdp): Promise<void> {
     const d = await Device.open(cdp, size)
     await themeOnly(d)
     await screen('Вид стола', size, async () => {
-      await d.goto('#/settings')
+      await openSettings(d, 'Покер онлайн и стол')
       await d.waitText('Выбрать вид стола')
       await d.fontsLoaded()
       await d.click('Выбрать вид стола')
@@ -1138,7 +1173,7 @@ async function namesFit(d: Device): Promise<void> {
 async function ownBackStep(d: Device): Promise<void> {
   const size = d.size
   await screen('Своя рубашка', size, async () => {
-    await d.goto('#/settings')
+    await openSettings(d, 'Покер онлайн и стол')
     await d.waitText('Выбрать вид стола')
     await d.click('Выбрать вид стола')
     await d.waitText('Своя картинка…')
@@ -1168,7 +1203,7 @@ async function ownBackStep(d: Device): Promise<void> {
     await d.waitFor('.back-own .playing-card.back')
     await d.shot('04f-kazino-svoya-rubashka')
 
-    await d.goto('#/settings')
+    await openSettings(d, 'Покер онлайн и стол')
     await d.waitText('Выбрать вид стола')
     await d.click('Выбрать вид стола')
     await d.waitText('Удалить свою рубашку')
@@ -1188,7 +1223,7 @@ async function ownBackOnly(cdp: Cdp): Promise<void> {
 
 // «Настройки» → «Вид стола» → «Лицо карт»: выбрать касанием
 async function pickFace(d: Device, face: string): Promise<void> {
-  await d.goto('#/settings')
+  await openSettings(d, 'Покер онлайн и стол')
   await d.waitText('Выбрать вид стола')
   await d.click('Выбрать вид стола')
   await d.waitText('Лицо карт')
@@ -1264,7 +1299,7 @@ async function historyStep(d: Device): Promise<void> {
   })
   // #242: «Итог вечера» над списком раздач — в 03h; здесь — удаление пачкой в «Настройках», «Копия данных»
   await screen('Настройки: прошлые вечера', d.size, async () => {
-    await d.goto('#/settings')
+    await openSettings(d, 'Копия данных')
     await d.waitText('Удалить вечера против ботов (')
     await d.eval(`(() => {
       const b = [...document.querySelectorAll('button')].find((e) => e.innerText.startsWith('Удалить вечера против ботов'))
@@ -1362,8 +1397,7 @@ async function gearOnly(cdp: Cdp): Promise<void> {
       console.log(`«⚙ Стол», ${theme}, ${size.width} × ${size.height}`)
       const d = await Device.open(cdp, size, theme === 'night' ? '' : `${theme}-`)
       if (theme !== 'night') {
-        await d.goto('#/settings')
-        await d.waitText('Добавить демо-данные')
+        await openSettings(d)
         await pickTheme(d, theme)
       }
       await screen('Против ботов, ⚙ Стол', size, async () => {

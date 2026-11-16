@@ -29,7 +29,9 @@ import { QUICK_ROOM_DEFAULT, quickRoomError, quickRoomLine, quickRoomSettings, t
 import { RoomFields, roomChoiceOf, roomFormOf, type RoomForm } from './RoomFields'
 import { demoGames, hasDemo } from '../calc/demo'
 import { formatNumber, formatRate, parseChips, parseRate, pluralForm } from '../calc/format'
-import { today } from '../dates'
+import { formatDate, today } from '../dates'
+import { PROTOCOL_VERSION } from '../poker/protocol'
+import { loadOpenGroups, saveOpenGroups, type SettingsGroup } from './settingsGroups'
 import { MAX_WINDOW, MIN_WINDOW, moveItem, type Game, type Regular, type Settings } from '../model'
 import { eveningCounts, isBotsEvening, type EveningCounts, type EveningSummary, type SavedHand } from '../calc/evenings'
 import type { OwnChart } from '../calc/ownCharts'
@@ -96,6 +98,7 @@ export function SettingsScreen() {
   const [saved, setSaved] = useState(false)
   const [myLook, setMyLook] = useState(loadMyLook) // личный «Вид стола» (Р-61): меняется и восстановлением из копии
   const [restored, setRestored] = useState(0) // восстановили из копии — карточки покер-рума (Р-62) читаются заново
+  const [openGroups, setOpenGroups] = useState(loadOpenGroups) // развёрнутые разделы (#234), на этом устройстве
 
   useEffect(() => {
     void getSettings().then((s) => {
@@ -123,6 +126,24 @@ export function SettingsScreen() {
     setSaved(true)
   }
 
+  function toggleGroup(group: SettingsGroup) {
+    const next = { ...openGroups, [group]: !openGroups[group] }
+    setOpenGroups(next)
+    saveOpenGroups(next)
+  }
+
+  // Заголовок раздела — кнопка: свернуть и развернуть раздел целиком (#234)
+  const title = (group: SettingsGroup, text: string) => (
+    <h2 className="group-title">
+      <button type="button" className="group-toggle" aria-expanded={openGroups[group]} onClick={() => toggleGroup(group)}>
+        <span className="grow">{text}</span>
+        <span className="muted" aria-hidden="true">
+          {openGroups[group] ? '▾' : '▸'}
+        </span>
+      </button>
+    </h2>
+  )
+
   return (
     <main className="screen">
       <header className="bar">
@@ -134,88 +155,115 @@ export function SettingsScreen() {
 
       {/* Р-53: на широком окне карточки — в две колонки, каждая не шире ≈ 640 px.
           Р-59: разделы по смыслу, заголовок раздела — над его карточками; ключи хранения прежние.
-          Р-70: первый раздел — «Оформление», гамма всего приложения */}
+          Р-70: первый раздел — «Оформление», гамма всего приложения.
+          #234: заголовок раздела сворачивает его карточки; карточки — соседи заголовка в .cards (не обёрнуты),
+          иначе на широком окне сломается сетка */}
       {settings !== null && rateText !== null && (
         <div className="cards">
-          <h2 className="group-title">Оформление</h2>
-          <ThemeCard key={`theme-${restored}`} />
+          {title('look', 'Оформление')}
+          {openGroups.look && <ThemeCard key={`theme-${restored}`} />}
 
-          <h2 className="group-title">Учёт игр</h2>
-          <form className="card" onSubmit={(e) => void save(e)}>
-            <h3>Новая игра</h3>
-            <label className="field">
-              Курс новой игры, ₽ за фишку
-              <input
-                inputMode="decimal"
-                value={rateText}
-                onChange={(e) => {
-                  setRateText(e.target.value)
-                  setSaved(false)
+          {title('accounting', 'Учёт игр')}
+          {openGroups.accounting && (
+            <>
+              <form className="card" onSubmit={(e) => void save(e)}>
+                <h3>Новая игра</h3>
+                <label className="field">
+                  Курс новой игры, ₽ за фишку
+                  <input
+                    inputMode="decimal"
+                    value={rateText}
+                    onChange={(e) => {
+                      setRateText(e.target.value)
+                      setSaved(false)
+                    }}
+                  />
+                </label>
+                <p className="muted">У начатых игр курс свой — он меняется на экране игры.</p>
+                {rate === null && <p className="warn">Курс — число больше нуля, например 0,5</p>}
+                <label className="field">
+                  Закуп по умолчанию, фишек
+                  <input
+                    inputMode="numeric"
+                    pattern="[0-9 ]*"
+                    value={buyinText}
+                    onChange={(e) => {
+                      setBuyinText(e.target.value)
+                      setSaved(false)
+                    }}
+                  />
+                </label>
+                <p className="muted">
+                  При новой игре — вопрос, записать ли всем такой закуп. Он же сначала — стартовый стек в формах столов покера.
+                </p>
+                {buyin === null && <p className="warn">Закуп — целое число фишек больше нуля, например 1000</p>}
+                {saved && <p className="ok">Сохранено</p>}
+                <button className="big primary wide" disabled={rate === null || buyin === null}>
+                  Сохранить
+                </button>
+              </form>
+
+              <AmountsCard
+                amounts={settings.quickAmounts}
+                onChange={(quickAmounts) => update({ ...settings, quickAmounts })}
+              />
+            </>
+          )}
+
+          {title('players', 'Игроки')}
+          {openGroups.players && (
+            <>
+              <PlayersCard players={settings.players} onChange={(players) => update({ ...settings, players })} />
+              <WindowCard
+                size={settings.compareWindow}
+                onChange={(compareWindow) => update({ ...settings, compareWindow })}
+              />
+            </>
+          )}
+
+          {title('poker', 'Покер онлайн и стол')}
+          {openGroups.poker && (
+            <>
+              <PokerServerCard />
+              {/* Р-62: своя «Быстрая комната» и привычки покер-румов; восстановление из копии перечитывает их */}
+              <QuickRoomCard
+                key={`room-${restored}`}
+                defaultBuyin={settings.defaultBuyin}
+                players={settings.players.length}
+              />
+              <AtTableCard key={`bets-${restored}`} />
+              <MyLookCard key={`look-${restored}`} look={myLook} onChange={setMyLook} />
+            </>
+          )}
+
+          {title('notes', 'Заметки об игроках')}
+          {openGroups.notes && <NoteColorsCard />}
+
+          {title('backup', 'Копия данных')}
+          {openGroups.backup && (
+            <>
+              <BackupCard
+                settings={settings}
+                onPlayers={(players) => setSettings((s) => s && { ...s, players })}
+                onLook={() => {
+                  setMyLook(loadMyLook())
+                  setRestored((n) => n + 1)
                 }}
               />
-            </label>
-            <p className="muted">У начатых игр курс свой — он меняется на экране игры.</p>
-            {rate === null && <p className="warn">Курс — число больше нуля, например 0,5</p>}
-            <label className="field">
-              Закуп по умолчанию, фишек
-              <input
-                inputMode="numeric"
-                pattern="[0-9 ]*"
-                value={buyinText}
-                onChange={(e) => {
-                  setBuyinText(e.target.value)
-                  setSaved(false)
-                }}
-              />
-            </label>
-            <p className="muted">
-              При новой игре — вопрос, записать ли всем такой закуп. Он же сначала — стартовый стек в формах столов покера.
-            </p>
-            {buyin === null && <p className="warn">Закуп — целое число фишек больше нуля, например 1000</p>}
-            {saved && <p className="ok">Сохранено</p>}
-            <button className="big primary wide" disabled={rate === null || buyin === null}>
-              Сохранить
-            </button>
-          </form>
+              {/* #242: удалить разом вечера против ботов или все прошлые вечера; восстановление из копии перечитывает числа */}
+              <EveningsCard key={`evenings-${restored}`} />
+            </>
+          )}
 
-          <AmountsCard
-            amounts={settings.quickAmounts}
-            onChange={(quickAmounts) => update({ ...settings, quickAmounts })}
-          />
-
-          <h2 className="group-title">Игроки</h2>
-          <PlayersCard players={settings.players} onChange={(players) => update({ ...settings, players })} />
-          <WindowCard
-            size={settings.compareWindow}
-            onChange={(compareWindow) => update({ ...settings, compareWindow })}
-          />
-
-          <h2 className="group-title">Покер онлайн и стол</h2>
-          <PokerServerCard />
-          {/* Р-62: своя «Быстрая комната» и привычки покер-румов; восстановление из копии перечитывает их */}
-          <QuickRoomCard key={`room-${restored}`} defaultBuyin={settings.defaultBuyin} players={settings.players.length} />
-          <AtTableCard key={`bets-${restored}`} />
-          <MyLookCard key={`look-${restored}`} look={myLook} onChange={setMyLook} />
-
-          <h2 className="group-title">Заметки об игроках</h2>
-          <NoteColorsCard />
-
-          <h2 className="group-title">Копия данных</h2>
-          <BackupCard
-            settings={settings}
-            onPlayers={(players) => setSettings((s) => s && { ...s, players })}
-            onLook={() => {
-              setMyLook(loadMyLook())
-              setRestored((n) => n + 1)
-            }}
-          />
-          {/* #242: удалить разом вечера против ботов или все прошлые вечера; восстановление из копии перечитывает числа */}
-          <EveningsCard key={`evenings-${restored}`} />
-
-          <h2 className="group-title">Демо-данные</h2>
-          <DemoCard />
+          {title('demo', 'Демо-данные')}
+          {openGroups.demo && <DemoCard />}
         </div>
       )}
+
+      {/* #234: какая сборка и какой протокол покера — сверить за столом, у всех ли новое; из сборки, без сети */}
+      <p className="muted version-line">
+        Версия: {formatDate(__BUILD_DATE__)} · {__BUILD_COMMIT__} · протокол&nbsp;{PROTOCOL_VERSION}
+      </p>
     </main>
   )
 }
