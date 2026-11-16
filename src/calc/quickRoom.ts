@@ -10,7 +10,7 @@ import { tournamentError, type TournamentSettings } from '../poker/tournament'
 import { formatNumber } from './format'
 import { lookOf, type Look } from './pokerLook'
 import { AUTO_START_LABELS } from './pokerTimer'
-import { formSettings, tournamentForm } from './tournamentForm'
+import { formSettings, tournamentForm, type FormatSettings } from './tournamentForm'
 
 // «Покер» — игра и лимит стола (#80): холдем и шорт-дек (#81) — без лимита; у омахи — пот-лимит (по умолчанию) или без лимита.
 // Своя игра (#224) — её id, лимит — из её описания
@@ -41,7 +41,7 @@ export type RoomChoice = {
   timeBank?: number | null
   autoStart: AutoStart
   look: Look
-  format: Pick<Settings, 'format' | 'ante' | 'tournament'>
+  format: FormatSettings // кэш — с анте и страддлом (#222), турнир — со структурой
   publicHud: boolean
   // «Микс» (#166): доля «против», при которой смена игры ещё проходит; нет или null — выкл.
   // Только с картами на телефонах: при живых не уходит
@@ -171,7 +171,9 @@ export function parseQuickRoom(raw: unknown): QuickRoom | null {
   let f: QuickRoom['format']
   if (format.format === 'cash') {
     if (!Number.isSafeInteger(format.ante) || (format.ante as number) < 0) return null
-    f = { format: 'cash', ante: format.ante as number }
+    // Страддл (#222): у выбора до него поля нет — без страддла
+    if (format.straddle !== undefined && typeof format.straddle !== 'boolean') return null
+    f = { format: 'cash', ante: format.ante as number, ...(format.straddle === true ? { straddle: true } : {}) }
   } else if (format.format === 'tournament') {
     if (tournamentError(format.tournament) !== null) return null
     f = { format: 'tournament', tournament: format.tournament as TournamentSettings }

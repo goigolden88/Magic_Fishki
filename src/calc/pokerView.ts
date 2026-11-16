@@ -160,6 +160,8 @@ export type TableView = {
   myBank: number | null
   nextHandLeft: number | null // секунд до раздачи «сама»; не начнётся сама — null
   ante: number // анте с каждого: в раздаче — её, между раздачами — следующей; 0 — нет
+  // Страддл (#222): в раздаче — её (у UTG не хватило — 0), между раздачами — 2 ББ следующей, если он у стола; нет — 0
+  straddle: number
   bb: number // большой блайнд: в раздаче — её, между раздачами — следующей; для показа сумм в ББ (Р-62)
   tournament: TournamentView | null // кэш — null
 }
@@ -275,6 +277,7 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
     myBank: table.settings.timeBank && table.players.some((p) => p.id === meId) ? Math.ceil(bankOf(table, meId) / 1000) : null,
     nextHandLeft: !hand && typeof table.nextHandAt === 'number' ? secondsLeft(table.nextHandAt, now) : null,
     ante: hand ? (hand.ante ?? 0) : (tournament?.blinds.ante ?? table.settings.ante ?? 0),
+    straddle: hand ? (hand.straddle ?? 0) : table.settings.straddle && table.settings.format !== 'tournament' ? 2 * table.settings.bb : 0,
     bb: hand ? hand.bb : (tournament?.blinds.bb ?? table.settings.bb),
     tournament,
   }
@@ -695,8 +698,8 @@ export function historyHandView(s: SavedHand): HistoryHandView {
   }
 }
 
-// Шапка: «Холдем, без лимита · блайнды 5/10, анте 1»; в турнире — «Турнир · …»; блайнды неизвестны
-// (живые карты в турнире) — без них
+// Шапка: «Холдем, без лимита · блайнды 5/10, анте 1»; был страддл (#222) — «…, страддл 20» (из журнала);
+// в турнире — «Турнир · …»; блайнды неизвестны (живые карты в турнире) — без них
 function headOf(s: SavedHand): string {
   const record = s.hand.record
   const t = s.table
@@ -706,8 +709,10 @@ function headOf(s: SavedHand): string {
   const limit = own !== undefined && t?.game !== id ? 'nolimit' : (t?.limit ?? (id === 'omaha' ? 'pot' : 'nolimit'))
   const game = `${own ?? GAME_LABELS[id] ?? GAME_LABELS.holdem}, ${limit === 'pot' ? 'пот-лимит' : 'без лимита'}`
   const blinds = record ? { sb: record.sb, bb: record.bb, ante: record.ante ?? 0 } : t && !t.tournament ? t : null
+  const log = record?.log ?? s.hand.live?.log ?? []
+  const straddle = Array.isArray(log) ? log.find((e) => e.type === 'straddle') : undefined
   const blindsText = blinds
-    ? ` · блайнды ${formatNumber(blinds.sb)}/${formatNumber(blinds.bb)}${blinds.ante > 0 ? `, анте ${formatNumber(blinds.ante)}` : ''}`
+    ? ` · блайнды ${formatNumber(blinds.sb)}/${formatNumber(blinds.bb)}${blinds.ante > 0 ? `, анте ${formatNumber(blinds.ante)}` : ''}${straddle ? `, страддл ${formatNumber(straddle.bet)}` : ''}`
     : ''
   return `${t?.tournament ? 'Турнир · ' : ''}${game}${blindsText}`
 }
@@ -764,6 +769,8 @@ function betText(e: HandLogEntry): string {
   switch (e.type) {
     case 'ante':
       return e.allIn ? `анте ${to}, олл-ин` : `анте ${to}`
+    case 'straddle':
+      return e.allIn ? `страддл ${to}, олл-ин` : `страддл ${to}`
     case 'fold':
       return 'пас'
     case 'check':

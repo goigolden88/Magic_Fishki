@@ -105,6 +105,11 @@ export function addHand(hud: Hud, hand: HudHand, end: HudEnd): Hud {
       street = e.street
       toBeat = 0
     }
+    // Страддл (#222) — вслепую, как блайнд: поднимает ставку круга, но не вход, не рейз и не первый ход
+    if (e.type === 'straddle') {
+      toBeat = Math.max(toBeat, e.bet)
+      continue
+    }
     const c = counts.get(e.playerId)
     if (!c) continue
     const isRaise = e.type === 'raise' || (e.type === 'allin' && e.bet > toBeat)

@@ -35,11 +35,21 @@ export function FormatFields({ form, players, onChange }: { form: TournamentForm
         ))}
       </div>
       {form.format === 'cash' ? (
-        <label className="field">
-          Анте, фишек — 0, если нет
-          <input inputMode="numeric" pattern="[0-9 ]*" value={form.ante} onChange={(e) => onChange({ ...form, ante: e.target.value })} />
-          <span className="muted">Анте ставят все в раздаче до блайндов, в банк.</span>
-        </label>
+        <>
+          <label className="field">
+            Анте, фишек — 0, если нет
+            <input inputMode="numeric" pattern="[0-9 ]*" value={form.ante} onChange={(e) => onChange({ ...form, ante: e.target.value })} />
+            <span className="muted">Анте ставят все в раздаче до блайндов, в банк.</span>
+          </label>
+          {/* #222: страддл — только при создании стола, в турнире его нет */}
+          <label className="check">
+            <input type="checkbox" checked={form.straddle} onChange={(e) => onChange({ ...form, straddle: e.target.checked })} />
+            Страддл: UTG ставит 2 ББ вслепую
+          </label>
+          {form.straddle && (
+            <p className="muted">Каждую раздачу следующий после большого блайнда. Ходит до флопа последним и может повысить. Вдвоём или у UTG меньше 2 ББ — без страддла.</p>
+          )}
+        </>
       ) : (
         <TournamentFields form={form} players={players} onChange={onChange} />
       )}

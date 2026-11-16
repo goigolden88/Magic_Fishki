@@ -699,7 +699,9 @@ export function blindsLine(table: TableState, v: TableView): string {
       : table.settings.game === 'shortdeck'
         ? 'Шорт-дек · '
         : ''
-  return `${game}${t ? 'Турнир · ' : ''}Блайнды ${levelText(blinds)}${runs ? ` · ${runs}` : ''}`
+  // Страддл (#222): «Блайнды 5/10 · страддл 20»
+  const straddle = v.straddle > 0 ? ` · страддл ${formatNumber(v.straddle)}` : ''
+  return `${game}${t ? 'Турнир · ' : ''}Блайнды ${levelText(blinds)}${straddle}${runs ? ` · ${runs}` : ''}`
 }
 
 // Суммы за столом (Р-62): «Стеки и ставки в больших блайндах» на этом телефоне — в ББ раздачи, иначе фишками.

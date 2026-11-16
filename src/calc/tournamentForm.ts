@@ -15,6 +15,7 @@ import { formatNumber } from './format'
 export type TournamentForm = {
   format: TableFormat
   ante: string // кэш: анте, фишек; пусто — 0
+  straddle: boolean // кэш: страддл (#222) — UTG ставит 2 ББ вслепую
   buyIn: string // ₽
   scheme: BlindScheme
   growth: string // % за уровень — для «процентов»
@@ -37,6 +38,7 @@ export function tournamentForm(players: number): TournamentForm {
   return {
     format: 'cash',
     ante: '0',
+    straddle: false,
     buyIn: String(t.buyIn),
     scheme: t.scheme,
     growth: String(t.growthPct),
@@ -49,11 +51,14 @@ export function tournamentForm(players: number): TournamentForm {
   }
 }
 
+// Настройки стола, которые задаёт форма «Кэш» / «Турнир»; straddle — только у кэша и только «да» (#222)
+export type FormatSettings = Pick<Settings, 'format' | 'ante' | 'straddle' | 'tournament'>
+
 // Форма из уже разобранного выбора — своя «Быстрая комната» в «Настройках» (Р-62): formSettings вернёт то же
-export function tournamentFormOf(s: Pick<Settings, 'format' | 'ante' | 'tournament'>, players: number): TournamentForm {
+export function tournamentFormOf(s: FormatSettings, players: number): TournamentForm {
   const base = tournamentForm(players)
   const t = s.tournament
-  if (s.format !== 'tournament' || !t) return { ...base, ante: String(s.ante ?? 0) }
+  if (s.format !== 'tournament' || !t) return { ...base, ante: String(s.ante ?? 0), straddle: s.straddle === true }
   return {
     ...base,
     format: 'tournament',
@@ -69,13 +74,13 @@ export function tournamentFormOf(s: Pick<Settings, 'format' | 'ante' | 'tourname
   }
 }
 
-// Настройки стола из формы; ошибка — та же строка, что скажет стол
-export function formSettings(
-  form: TournamentForm,
-): { ok: true; settings: Pick<Settings, 'format' | 'ante' | 'tournament'> } | { ok: false; error: string } {
+// Настройки стола из формы; ошибка — та же строка, что скажет стол. Страддл — полем только когда включён:
+// без него настройки — как до #222
+export function formSettings(form: TournamentForm): { ok: true; settings: FormatSettings } | { ok: false; error: string } {
   if (form.format === 'cash') {
     const ante = wholeOf(form.ante)
-    return ante === null ? { ok: false, error: 'Анте — целое число фишек, не меньше нуля' } : { ok: true, settings: { format: 'cash', ante } }
+    if (ante === null) return { ok: false, error: 'Анте — целое число фишек, не меньше нуля' }
+    return { ok: true, settings: { format: 'cash', ante, ...(form.straddle ? { straddle: true } : {}) } }
   }
   const buyIn = wholeOf(form.buyIn)
   if (buyIn === null || buyIn === 0) return { ok: false, error: 'Бай-ин — целое число рублей больше нуля' }

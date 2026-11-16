@@ -59,6 +59,27 @@ describe('своя игра (#224): выгрузка и история назы�
   })
 })
 
+describe('страддл (#222): выгрузка и история раздачи', () => {
+  // Вчетвером: кнопка P0, малый P1, большой P2, страддл P3 — 20. P0 повышает до 60, все пас — 40 вернулись P0
+  const t = newTable(['p0', 'p1', 'p2', 'p3'], { ...PHONES, straddle: true })
+  const s = play(t, [start('p0', deckFor(HOLDEM_GAME)), raise('p0', 60), fold('p1'), fold('p2'), fold('p3')], false)
+  const hand = s.lastHand as HistoryHand
+  const one = savedHands(roomEvening('KQ7MZP', s, 'p0'), [hand])[0]
+
+  it('строка «posts straddle» после блайндов, рейз — от страддла', () => {
+    const text = handText(one)
+    expect(text).toContain('P1: posts small blind 5\nP2: posts big blind 10\nP3: posts straddle 20\n*** HOLE CARDS ***')
+    expect(text).toContain('P0: raises 40 to 60\nP1: folds\nP2: folds\nP3: folds\nUncalled bet (40) returned to P0\nP0 collected 55 from pot')
+  })
+
+  it('история: «страддл 20» в шапке и первым ходом префлопа, банк префлопа — с ним', () => {
+    const view = historyHandView(one)
+    expect(view.head).toBe('Холдем, без лимита · блайнды 5/10, страддл 20')
+    expect(view.streets[0].moves).toEqual(['P3: страддл 20', 'P0: рейз до 60', 'P1: пас', 'P2: пас', 'P3: пас'])
+    expect(view.streets[0].pot).toBe(35)
+  })
+})
+
 describe('выгрузка раздачи текстом покер-румов', () => {
   const { first, second } = evening()
 

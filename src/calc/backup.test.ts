@@ -424,6 +424,15 @@ describe('файл-копия формата 6: покер-рум', () => {
     expect(parse(text)).toEqual({ ok: true, backup })
   })
 
+  it('«Быстрая комната» со страддлом (#222) — в копии и обратно, формат копии прежний', () => {
+    const straddle = { ...POKER, quickRoom: { ...ROOM, format: { format: 'cash' as const, ante: 0, straddle: true } } }
+    const backup = makeBackup([], SETTINGS, NOW, [], {}, {}, undefined, straddle)
+    const text = backupText(backup)
+    expect(JSON.parse(text).format).toBe(BACKUP_FORMAT)
+    expect(parse(text)).toEqual({ ok: true, backup })
+    expect(backup.poker.quickRoom?.format).toEqual({ format: 'cash', ante: 0, straddle: true })
+  })
+
   it('копия формата 5 (без покер-рума) читается — ничего не задано', () => {
     const { poker: _p, ...old } = makeBackup([game('g1')], SETTINGS, NOW, [], {}, {}, undefined, POKER)
     const parsed = parse(JSON.stringify({ ...old, format: 5 }))

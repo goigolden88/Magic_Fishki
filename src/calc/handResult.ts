@@ -45,7 +45,7 @@ function blindsOf(h: HistoryHand, fallback: Blinds | null): Blinds | null {
 }
 
 // Деньги раздачи: сколько каждый вложил (вернувшаяся непокрытая ставка уже вычтена) и банк на начало
-// каждой улицы, до её ходов (префлоп — анте и блайнды). Улицы после закрытых торгов (ва-банк) — банк итоговый.
+// каждой улицы, до её ходов (префлоп — анте, блайнды и страддл). Улицы после закрытых торгов (ва-банк) — банк итоговый.
 // Блайнды неизвестны — null
 export type HandMoney = {
   committed: Record<string, number>
@@ -80,10 +80,16 @@ export function handMoney(h: HistoryHand, fallback: Blinds | null = null): HandM
       bets.set(id, amount)
     }
   }
+  // Страддл (#222) — записью журнала, как блайнд: в банке префлопа до ходов
+  for (const e of log) {
+    if (e.type !== 'straddle') continue
+    put(e.playerId, Math.max(0, e.bet - (bets.get(e.playerId) ?? 0)))
+    bets.set(e.playerId, e.bet)
+  }
   const potAt: HandMoney['potAt'] = { preflop: total() }
   let street: Street = 'preflop'
   for (const e of log) {
-    if (e.type === 'ante') continue
+    if (e.type === 'ante' || e.type === 'straddle') continue
     if (e.street !== street) {
       street = e.street
       bets = new Map()
