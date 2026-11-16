@@ -18,6 +18,7 @@ import {
 import type { SavedHand } from '../calc/evenings'
 import { allTimeHud, allTimeMore, moreView, type MoreView, type OutcomeView } from '../calc/pokerAllTime'
 import { countsView, type HudView } from '../calc/pokerView'
+import { trainerHashOf } from '../calc/trainerFromHand'
 import { formatDate, formatDayMonth } from '../dates'
 import { allHands, getSettings, listGames } from '../store/db'
 import { HudRows } from './Hud'
@@ -228,6 +229,7 @@ export function PlayerScreen({ id }: { id: string }) {
           initial={open.number}
           title={`${formatDate(open.day)} · ${open.table}`}
           back={`← ${data.stat.name}`}
+          toTrainer={trainerHashOf}
           onClose={() => setOpen(null)}
         />
       </main>
