@@ -4,3 +4,4 @@ dev-dist
 *.local
 .wrangler
 shots
+.dev.vars
