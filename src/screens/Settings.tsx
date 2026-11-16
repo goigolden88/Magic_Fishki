@@ -27,6 +27,42 @@ import {
 } from '../calc/quickBets'
 import { QUICK_ROOM_DEFAULT, quickRoomError, quickRoomLine, quickRoomSettings, type QuickRoom } from '../calc/quickRoom'
 import { RoomFields, roomChoiceOf, roomFormOf, type RoomForm } from './RoomFields'
+import {
+  canAddOwnGame,
+  canAddRound,
+  canRemoveRound,
+  fromHandAllowed,
+  fromHandChoices,
+  OWN_GAME_NEW,
+  ownFormError,
+  ownGameFormOf,
+  ownGameLine,
+  ownGameOf,
+  ownSeatsLine,
+  putOwnGame,
+  removeOwnGame,
+  withDeck,
+  withHole,
+  withoutRound,
+  withRound,
+  withRoundCards,
+  type OwnField,
+  type OwnGameForm,
+} from '../calc/ownGameForm'
+import type { Limit } from '../poker/game'
+import {
+  OWN_BOARD_MAX,
+  OWN_BOARD_MIN,
+  OWN_GAMES_MAX,
+  OWN_HOLE_MAX,
+  OWN_HOLE_MIN,
+  OWN_NAME_MAX,
+  OWN_PREFIX,
+  OWN_ROUND_MAX,
+  type OwnGame,
+  type OwnGameId,
+  type OwnOrder,
+} from '../poker/ownGame'
 import { demoGames, hasDemo } from '../calc/demo'
 import { formatNumber, formatRate, parseChips, parseRate, pluralForm } from '../calc/format'
 import { formatDate, today } from '../dates'
@@ -98,6 +134,7 @@ export function SettingsScreen() {
   const [saved, setSaved] = useState(false)
   const [myLook, setMyLook] = useState(loadMyLook) // личный «Вид стола» (Р-61): меняется и восстановлением из копии
   const [restored, setRestored] = useState(0) // восстановили из копии — карточки покер-рума (Р-62) читаются заново
+  const [ownGames, setOwnGames] = useState(loadOwnGames) // свои игры (#225): их правит «Свои игры», выбирает «Быстрая комната»
   const [openGroups, setOpenGroups] = useState(loadOpenGroups) // развёрнутые разделы (#234), на этом устройстве
 
   useEffect(() => {
@@ -230,6 +267,16 @@ export function SettingsScreen() {
                 key={`room-${restored}`}
                 defaultBuyin={settings.defaultBuyin}
                 players={settings.players.length}
+                ownGames={ownGames}
+              />
+              {/* #225: свои игры — привычки телефона ведущего, как «Быстрая комната» */}
+              <OwnGamesCard
+                key={`own-${restored}`}
+                games={ownGames}
+                onChange={(games) => {
+                  saveOwnGames(games)
+                  setOwnGames(games)
+                }}
               />
               <AtTableCard key={`bets-${restored}`} />
               <MyLookCard key={`look-${restored}`} look={myLook} onChange={setMyLook} />
@@ -247,6 +294,7 @@ export function SettingsScreen() {
                 onPlayers={(players) => setSettings((s) => s && { ...s, players })}
                 onLook={() => {
                   setMyLook(loadMyLook())
+                  setOwnGames(loadOwnGames())
                   setRestored((n) => n + 1)
                 }}
               />
@@ -822,14 +870,15 @@ function AtTableCard() {
 
 // Своя «Быстрая комната» (Р-62): те же поля, что в форме «Новая комната», без игроков и пароля. Сохраняется
 // кнопкой — блайнды и стек проверяются; стек, равный закупу по умолчанию, следует за ним. «Сбросить» — начальные значения
-function QuickRoomCard({ defaultBuyin, players }: { defaultBuyin: number; players: number }) {
+// ownGames — свои игры телефона (#225): их кнопки в «Покере»
+function QuickRoomCard({ defaultBuyin, players, ownGames }: { defaultBuyin: number; players: number; ownGames: OwnGame[] }) {
   const [open, setOpen] = useState(false)
   const [own, setOwn] = useState(loadQuickRoom)
   const [form, setForm] = useState<RoomForm>(() =>
-    roomFormOf(own ?? QUICK_ROOM_DEFAULT, String(own?.startingStack ?? defaultBuyin), players),
+    roomFormOf(own ?? QUICK_ROOM_DEFAULT, String(own?.startingStack ?? defaultBuyin), players, ownGames),
   )
   const [saved, setSaved] = useState(false)
-  const choice = roomChoiceOf(form)
+  const choice = roomChoiceOf(form, ownGames)
   const error = choice ? quickRoomError(choice) : null
 
   function change(next: RoomForm) {
@@ -849,7 +898,7 @@ function QuickRoomCard({ defaultBuyin, players }: { defaultBuyin: number; player
   function reset() {
     saveQuickRoom(null)
     setOwn(null)
-    setForm(roomFormOf(QUICK_ROOM_DEFAULT, String(defaultBuyin), players))
+    setForm(roomFormOf(QUICK_ROOM_DEFAULT, String(defaultBuyin), players, ownGames))
     setSaved(false)
   }
 
@@ -860,13 +909,13 @@ function QuickRoomCard({ defaultBuyin, players }: { defaultBuyin: number; player
         По умолчанию для кнопки «Быстрая комната» на «Играть»: с какой игрой, блайндами, стеком и таймером она создаёт
         стол одним касанием. Для одного стола — «Настроить…» там же. Только на этом телефоне; есть в копии.
       </p>
-      <p>{quickRoomLine(quickRoomSettings(defaultBuyin, own, loadOwnGames()))}</p>
+      <p>{quickRoomLine(quickRoomSettings(defaultBuyin, own, ownGames))}</p>
       <button type="button" className="big wide" aria-expanded={open} onClick={() => setOpen(!open)}>
         {open ? 'Свернуть быструю комнату' : 'Настроить быструю комнату'}
       </button>
       {open && (
         <>
-          <RoomFields form={form} players={players} onChange={change} />
+          <RoomFields form={form} players={players} own={ownGames} onChange={change} />
           {error && <p className="warn">{error}</p>}
           {saved && <p className="ok">Сохранено</p>}
           <div className="row">
@@ -882,6 +931,241 @@ function QuickRoomCard({ defaultBuyin, players }: { defaultBuyin: number; player
     </form>
   )
 }
+
+// «Свои игры» (#225, Р-85): список своих игр этого телефона — касание правит, «Добавить игру» — новая, до
+// OWN_GAMES_MAX. Играются только в комнате с картами на телефонах; сохраняются сразу, есть в копии
+function OwnGamesCard({ games, onChange }: { games: OwnGame[]; onChange: (games: OwnGame[]) => void }) {
+  // Что правится: id своей игры или «новая»; null — редактора нет
+  const [editing, setEditing] = useState<OwnGameId | 'new' | null>(null)
+  const current = editing === 'new' || editing === null ? null : (games.find((g) => g.id === editing) ?? null)
+  const canAdd = canAddOwnGame(games)
+
+  function save(form: OwnGameForm) {
+    const id = current?.id ?? (`${OWN_PREFIX}${ulid()}` as OwnGameId)
+    onChange(putOwnGame(games, ownGameOf(form, id)))
+    setEditing(null)
+  }
+
+  function remove() {
+    if (!current || !confirm(`Удалить игру «${current.name}»? В новых комнатах её больше не будет.`)) return
+    onChange(removeOwnGame(games, current.id))
+    setEditing(null)
+  }
+
+  return (
+    <section className="card">
+      <h3>Свои игры</h3>
+      <p className="muted">
+        Свои варианты покера: сколько карт на руках и сколько из них играть, колода, карты стола по кругам и лимит. Они
+        появляются в «Покере» при создании комнаты с картами на телефонах. Только на этом телефоне; есть в копии.
+      </p>
+      {games.length === 0 ? (
+        <p>Своих игр нет</p>
+      ) : (
+        <ul className="own-games">
+          {games.map((g) => (
+            <li key={g.id}>
+              <button type="button" aria-pressed={editing === g.id} onClick={() => setEditing(editing === g.id ? null : g.id)}>
+                <strong>{g.name}</strong>
+                <span className="muted">{ownGameLine(g)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {editing !== null ? (
+        <OwnGameEditor
+          key={editing}
+          initial={current ? ownGameFormOf(current) : OWN_GAME_NEW}
+          onSave={save}
+          onDelete={current ? remove : null}
+          onCancel={() => setEditing(null)}
+        />
+      ) : (
+        <>
+          <button type="button" className="big wide" disabled={!canAdd} onClick={() => setEditing('new')}>
+            Добавить игру
+          </button>
+          {!canAdd && <p className="muted">Не больше {OWN_GAMES_MAX} своих игр</p>}
+        </>
+      )}
+    </section>
+  )
+}
+
+// Кнопка выбора поля своей игры: выбранная — главного цвета
+function Pick(props: { on: boolean; disabled?: boolean; onClick: () => void; children: string }) {
+  return (
+    <button
+      type="button"
+      className={props.on ? 'big primary grow' : 'big grow'}
+      aria-pressed={props.on}
+      disabled={props.disabled}
+      onClick={props.onClick}
+    >
+      {props.children}
+    </button>
+  )
+}
+
+const OWN_HOLES = Array.from({ length: OWN_HOLE_MAX - OWN_HOLE_MIN + 1 }, (_, i) => OWN_HOLE_MIN + i)
+const OWN_ROUND_CARDS = Array.from({ length: OWN_ROUND_MAX }, (_, i) => i + 1)
+
+// Правка одной своей игры: поля кнопками, как в форме комнаты; ошибка — под своим полем, «Сохранить» тогда
+// неактивна. onDelete null — игра ещё не сохранена
+function OwnGameEditor(props: {
+  initial: OwnGameForm
+  onSave: (form: OwnGameForm) => void
+  onDelete: (() => void) | null
+  onCancel: () => void
+}) {
+  const [form, setForm] = useState(props.initial)
+  const error = ownFormError(form)
+  const set = (change: Partial<OwnGameForm>) => setForm({ ...form, ...change })
+  const warn = (field: OwnField) => error?.field === field && <p className="warn">{error.text}</p>
+
+  function submit(e: FormEvent) {
+    e.preventDefault()
+    if (!error) props.onSave(form)
+  }
+
+  return (
+    <form className="own-editor" onSubmit={submit}>
+      <label className="field">
+        Название
+        <input value={form.name} maxLength={OWN_NAME_MAX} onChange={(e) => set({ name: e.target.value })} />
+      </label>
+      {warn('name')}
+
+      <fieldset className="players-pick">
+        <legend className="muted">Карт на руках</legend>
+        <div className="row">
+          {OWN_HOLES.map((n) => (
+            <Pick key={n} on={form.hole === n} onClick={() => setForm(withHole(form, n))}>
+              {String(n)}
+            </Pick>
+          ))}
+        </div>
+      </fieldset>
+
+      <fieldset className="players-pick">
+        <legend className="muted">Играть из руки</legend>
+        <div className="row">
+          <Pick on={form.fromHand === 'any'} onClick={() => set({ fromHand: 'any' })}>
+            Любые
+          </Pick>
+          {fromHandChoices(form).map((n) => (
+            <Pick key={n} on={form.fromHand === n} disabled={!fromHandAllowed(form, n)} onClick={() => set({ fromHand: n })}>
+              {`Ровно ${n}`}
+            </Pick>
+          ))}
+        </div>
+        <p className="muted">
+          {form.fromHand === 'any'
+            ? 'Рука — лучшие пять из своих карт и стола.'
+            : `Рука — ровно ${form.fromHand} из руки и ${5 - form.fromHand} со стола.`}
+        </p>
+        {warn('fromHand')}
+      </fieldset>
+
+      <fieldset className="players-pick">
+        <legend className="muted">Колода</legend>
+        <div className="row">
+          {OWN_DECKS.map(([deck, label]) => (
+            <Pick key={deck} on={form.deck === deck} onClick={() => setForm(withDeck(form, deck))}>
+              {label}
+            </Pick>
+          ))}
+        </div>
+      </fieldset>
+
+      <fieldset className="players-pick">
+        <legend className="muted">Старшинство</legend>
+        <div className="row">
+          {OWN_ORDERS.map(([order, label]) => (
+            <Pick key={order} on={form.order === order} onClick={() => set({ order })}>
+              {label}
+            </Pick>
+          ))}
+        </div>
+        {form.order === 'shortdeck' && <p className="muted">Флеш старше фулл-хауса, тройка старше стрита.</p>}
+      </fieldset>
+
+      <fieldset className="players-pick">
+        <legend className="muted">Карты стола по кругам</legend>
+        {form.board.map((cards, i) => (
+          <div key={i} className="row own-round">
+            <span>Круг {i + 1}</span>
+            {OWN_ROUND_CARDS.map((n) => (
+              <Pick key={n} on={cards === n} onClick={() => setForm(withRoundCards(form, i, n))}>
+                {String(n)}
+              </Pick>
+            ))}
+          </div>
+        ))}
+        <div className="row">
+          <button type="button" className="big grow" disabled={!canAddRound(form)} onClick={() => setForm(withRound(form))}>
+            + круг
+          </button>
+          <button
+            type="button"
+            className="big grow"
+            disabled={!canRemoveRound(form)}
+            onClick={() => setForm(withoutRound(form))}
+          >
+            − круг
+          </button>
+        </div>
+        <p className="muted">
+          Круги — после раздачи рук, в каждом свои торги; всего карт стола от {OWN_BOARD_MIN} до {OWN_BOARD_MAX}. «3, 1, 1» —
+          флоп, тёрн и ривер.
+        </p>
+        {warn('board')}
+      </fieldset>
+
+      <fieldset className="players-pick">
+        <legend className="muted">Лимит</legend>
+        <div className="row">
+          {OWN_LIMITS.map(([limit, label]) => (
+            <Pick key={limit} on={form.limit === limit} onClick={() => set({ limit })}>
+              {label}
+            </Pick>
+          ))}
+        </div>
+      </fieldset>
+
+      <p>{ownSeatsLine(form)}</p>
+      <div className="row">
+        <button className="big primary grow" disabled={error !== null}>
+          Сохранить
+        </button>
+        <button type="button" className="big" onClick={props.onCancel}>
+          Отмена
+        </button>
+      </div>
+      {props.onDelete && (
+        <button type="button" className="big wide" onClick={props.onDelete}>
+          Удалить
+        </button>
+      )}
+    </form>
+  )
+}
+
+const OWN_DECKS: [OwnGameForm['deck'], string][] = [
+  [52, '52 карты'],
+  [36, '36 карт'],
+]
+
+const OWN_ORDERS: [OwnOrder, string][] = [
+  ['standard', 'Обычное'],
+  ['shortdeck', 'Как в шорт-деке'],
+]
+
+const OWN_LIMITS: [Limit, string][] = [
+  ['nolimit', 'Без лимита'],
+  ['pot', 'Пот-лимит'],
+]
 
 // Список своих кнопок одного вида: подписи, «✕», ввод новой
 function BetsList(props: {

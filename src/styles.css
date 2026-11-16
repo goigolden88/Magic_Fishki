@@ -1807,6 +1807,47 @@ textarea.note-input {
 }
 
 /* Цвета заметок в «Настройках»: точка и поле подписи в строку */
+/* «Свои игры» (#225): список — кнопки во всю ширину карточки, название и строка игры под ним */
+.own-games {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.own-games button {
+  display: grid;
+  gap: 0.2rem;
+  width: 100%;
+  min-height: 3.5rem;
+  padding: 0.6rem 1rem;
+  text-align: left;
+}
+
+.own-games button[aria-pressed='true'] {
+  outline: 2px solid var(--accent);
+}
+
+.own-games .muted {
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
+.own-editor {
+  margin-top: 1rem;
+}
+
+/* Круг стола: подпись слева, кнопки числа карт — поровну остаток строки */
+.own-round {
+  align-items: center;
+}
+
+.own-round > span {
+  flex: 0 0 auto;
+  min-width: 4.5rem;
+}
+
 .note-labels {
   display: grid;
   gap: 0.4rem;
