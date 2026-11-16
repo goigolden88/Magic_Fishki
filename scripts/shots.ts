@@ -27,6 +27,8 @@
 // Контраст (#211): после каждого снимка — замер на странице: текст к своему фону (не ниже 4,5 : 1, крупный —
 // 3 : 1) и края кнопок и полей к тому, что под ними (3 : 1); что ниже — строкой «контраст …», по разу на гамму.
 // Сбоем не считается: это подсказка для глаз, снимок — главное.
+// «⚙ Стол» за столом с ботами (#243): открытая карточка посреди раздачи, на 390 и 1366, в «Ночи» и «Дне» (снимки 13a, 13b);
+// npm run shots -- gear — только он.
 // Chrome — google-chrome, google-chrome-stable или chromium; свой путь — переменная CHROME
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -1146,6 +1148,38 @@ async function hudOnly(cdp: Cdp): Promise<void> {
   }
 }
 
+// npm run shots -- gear: «⚙ Стол» за столом с ботами (#243) — в мой ход, посреди раздачи, на телефоне и ноутбуке,
+// в «Ночи» и «Дне»: верх карточки («Мой вид стола») и она же, пролистанная к «Этот стол»
+async function gearOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES.slice(0, 2)) {
+    for (const theme of ['night', 'day'] as const) {
+      console.log(`«⚙ Стол», ${theme}, ${size.width} × ${size.height}`)
+      const d = await Device.open(cdp, size, theme === 'night' ? '' : `${theme}-`)
+      if (theme !== 'night') {
+        await d.goto('#/settings')
+        await d.waitText('Добавить демо-данные')
+        await pickTheme(d, theme)
+      }
+      await screen('Против ботов, ⚙ Стол', size, async () => {
+        await botsTable(d, 3)
+        await d.click('⚙ Стол')
+        await d.waitText('Этот стол')
+        await d.waitText('Меняется между раздачами')
+        await d.shot('13a-gear-stol', false)
+        await d.eval(`(() => {
+          const h = [...document.querySelectorAll('.gear-pop h3')].find((e) => e.innerText.trim() === 'Этот стол')
+          h.scrollIntoView({ block: 'start' })
+          return true
+        })()`)
+        await d.shot('13b-gear-etot-stol', false)
+        // «Готово» закрывает, стол на месте
+        await d.click('Готово')
+        await waitGone(d, 'Этот стол')
+      })
+    }
+  }
+}
+
 // Против ботов с bots ботами (1…5) — с чистого хранилища: форма, «Начать», мой ход
 async function botsTable(d: Device, bots: number): Promise<void> {
   await themeOnly(d)
@@ -1313,13 +1347,16 @@ async function main(): Promise<void> {
     const onlyChoices = process.argv.includes('vybor') // npm run shots -- vybor: ряды кнопок выбора (#238)
     const onlyHistory = process.argv.includes('history') // npm run shots -- history: история раздач (#239)
     const onlyHud = process.argv.includes('hud') // npm run shots -- hud: «Боты читают» в карточке HUD (#240)
-    const part = onlyTrainer || onlyChoices || onlyHistory || onlyHud
+    const onlyGear = process.argv.includes('gear') // npm run shots -- gear: «⚙ Стол» за столом с ботами (#243)
+    const part = onlyTrainer || onlyChoices || onlyHistory || onlyHud || onlyGear
     if (onlyHud) await hudOnly(cdp)
+    if (onlyGear) await gearOnly(cdp)
     if (onlyTrainer) await trainerOnly(cdp)
     if (onlyChoices) await choicesOnly(cdp)
     if (onlyHistory) await historyOnly(cdp)
     if (!onlyTable && !part) for (const size of SIZES) await scenario(cdp, size, theme, uchet)
     if (!uchet && !part) for (const size of SIZES) await wideTableStep(cdp, size)
+    if (!onlyTable && !uchet && !part) await gearOnly(cdp)
     if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !part) {
       for (const other of ['club', 'day'] as const) for (const size of SIZES) await themeScenario(cdp, size, other)
     }
