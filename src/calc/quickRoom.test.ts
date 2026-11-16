@@ -132,6 +132,22 @@ describe('своя «Быстрая комната» (Р-62)', () => {
     )
   })
 
+  it('запас времени (#223): в настройки и подпись — только со временем на ход; из памяти без поля — выкл', () => {
+    const banked: QuickRoom = { ...ROOM, turnSeconds: 20, timeBank: 30 }
+    expect(quickRoomSettings(1000, banked)).toMatchObject({ turnSeconds: 20, timeBank: 30 })
+    expect(quickRoomLine(quickRoomSettings(1000, banked))).toBe(
+      'Омаха пот-лимит · кэш · карты на телефонах · блайнды 25/50 · стек 5 000 · ход 20 с · запас 30 с'.replace(/ 000/, ' 000'),
+    )
+    expect(quickRoomSettings(1000, ROOM)).not.toHaveProperty('timeBank')
+    expect(quickRoomSettings(1000, { ...banked, turnSeconds: null })).not.toHaveProperty('timeBank')
+    expect(parseQuickRoom(JSON.parse(JSON.stringify(banked)))).toEqual(banked)
+    // Выбор, сохранённый до запаса (поля нет), — выкл; без времени на ход запаса нет
+    const { timeBank: _b, ...old } = banked
+    expect(parseQuickRoom(old)).toEqual({ ...banked, timeBank: null })
+    expect(parseQuickRoom({ ...banked, turnSeconds: null })).toEqual({ ...banked, turnSeconds: null, timeBank: null })
+    expect(parseQuickRoom({ ...banked, timeBank: 20 })).toBeNull()
+  })
+
   it('сохранить нельзя: блайнды не годятся, стек меньше большого блайнда', () => {
     expect(quickRoomError({ sb: 5, bb: 10, startingStack: 1000 })).toBeNull()
     expect(quickRoomError({ sb: 10, bb: 10, startingStack: 10 })).toBeNull()

@@ -131,20 +131,34 @@ export function dockOf(v: {
   return 'none'
 }
 
-// Полоса «Ждём хода»: чей ход и сколько секунд; торги закрыты — кто отдаёт банк
+// Полоса «Ждём хода»: чей ход и сколько секунд; пошёл его запас (#223) — «запас N с»; торги закрыты — кто отдаёт банк
 export function waitLine(v: {
   toActName: string | null
   turnLeft: number | null
+  turnBank?: boolean
   stage: string | null
   stageLabel: string
   isHost: boolean
   phoneCards: boolean
 }): string {
-  if (v.toActName) return `Ждём хода · ${v.toActName}${v.turnLeft !== null ? ` · ${v.turnLeft} с` : ''}`
+  if (v.toActName) return `Ждём хода · ${v.toActName}${v.turnLeft !== null ? ` · ${secondsText(v.turnLeft, v.turnBank)}` : ''}`
   if (v.stage === 'showdown' && !v.phoneCards) {
     return `${v.stageLabel} — ${v.isHost ? 'отметьте победителя ниже' : 'ведущий отмечает победителя'}`
   }
   return v.stageLabel
+}
+
+// Над своими кнопками: «Ваш ход · 20 с · запас 30 с»; пошёл запас (#223) — «Ваш ход · запас 12 с»;
+// запаса за столом нет (bank — null) — «Ваш ход · 20 с»; таймера нет — «Ваш ход»
+export function turnTitle(left: number | null, bank: number | null = null, onBank = false): string {
+  if (left === null) return 'Ваш ход'
+  if (onBank) return `Ваш ход · ${secondsText(left, true)}`
+  return `Ваш ход · ${left} с${bank !== null ? ` · ${secondsText(bank, true)}` : ''}`
+}
+
+// Секунды хода: «12 с», запас — «запас 12 с»
+export function secondsText(seconds: number, bank = false): string {
+  return bank ? `запас ${seconds} с` : `${seconds} с`
 }
 
 // Ползунок ставки (Р-69). Где стоит игрок — из RaiseView (pokerView.ts): ставка круга, банк после моего колла

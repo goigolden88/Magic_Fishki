@@ -16,11 +16,13 @@ import {
   betSlider,
   betStepChips,
   dockOf,
+  secondsText,
   SLIDER_TRACK,
   sliderAmount,
   sliderIndex,
   spotsBySeat,
   stepAmount,
+  turnTitle,
   waitLine,
   type BetSlider,
   type BetStep,
@@ -61,7 +63,7 @@ import { runView, type RunView } from '../calc/pokerRuns'
 import { runsText } from '../calc/quickRoom'
 import { gameFromTable, gameFromTournament } from '../calc/pokerGame'
 import { deckOf, faceOf, lookClass, lookOf, suitClass } from '../calc/pokerLook'
-import { timerSettings, turnSecondsOf } from '../calc/pokerTimer'
+import { timeBankOf, timerSettings, turnSecondsOf } from '../calc/pokerTimer'
 import { levelText, prizesOf } from '../calc/tournamentForm'
 import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS } from '../model'
@@ -467,6 +469,8 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
             bb={v.bb}
             who={null}
             left={v.turnLeft}
+            bank={v.myBank}
+            onBank={v.turnBank}
             online={room.online}
             onAct={(body) => room.send(body)}
           />
@@ -1389,7 +1393,7 @@ function SeatSpot(props: {
           D
         </span>
       )}
-      {s.turnLeft !== null && <span className="seat-timer">{s.turnLeft} с</span>}
+      {s.turnLeft !== null && <span className={s.turnBank ? 'seat-timer bank' : 'seat-timer'}>{secondsText(s.turnLeft, s.turnBank)}</span>}
       <span className="seat-head">
         {note && <NoteDot note={note} labels={labels} onOpen={() => onNote(false)} />}
         {s.isMe ? (
@@ -1429,7 +1433,8 @@ function SeatSpot(props: {
 // Повысить можно только олл-ином — вместо ползунка кнопка «Олл-ин N». Пот-лимит (#80) — среди быстрых сумм
 // «Пот», под ползунком «Не больше банка: N»; олл-ина больше «пота» нет.
 // who — за кого ход на одном телефоне («Ход: имя»); null — свои: «Ваш ход».
-// left — секунд на мой ход (таймер стола); online — есть связь: без неё кнопки неактивны.
+// left — секунд на мой ход (таймер стола); bank — мой запас (#223), секунд, null — запаса нет; onBank — запас
+// уже идёт, тогда left — его секунды; online — есть связь: без неё кнопки неактивны.
 // Быстрые суммы — свои кнопки этого телефона (Р-62); bb — большой блайнд раздачи: суммы на кнопках — в ББ,
 // если так выбрано в «Настройках»; число в поле — всегда фишками.
 // Ползунок (Р-69): по бокам «−» и «+» на шаг из «Настроек» (1 ББ или 0,5 ББ), под суммой — «N % банка · сумма»
@@ -1438,10 +1443,12 @@ export function ActionsCard(props: {
   bb: number
   who: string | null
   left?: number | null
+  bank?: number | null
+  onBank?: boolean
   online: boolean
   onAct: (body: Extract<ClientBody, { type: 'act' }>) => void
 }) {
-  const { actions: a, bb, who, left = null, online, onAct: act } = props
+  const { actions: a, bb, who, left = null, bank = null, onBank = false, online, onAct: act } = props
   const unit = useBbUnit(bb)
   const money = (n: number) => stackText(n, unit)
   const r = a.raise
@@ -1463,7 +1470,7 @@ export function ActionsCard(props: {
   const raiseLabel = r && to === r.max && r.allIn ? 'Олл-ин' : r?.label === 'Ставка' ? 'Ставка' : 'Рейз до'
   return (
     <section className="dock actions">
-      <p className="dock-title">{who !== null ? `Ход: ${who}` : `Ваш ход${left !== null ? ` · ${left} с` : ''}`}</p>
+      <p className="dock-title">{who !== null ? `Ход: ${who}` : turnTitle(left, bank, onBank)}</p>
       {slider && r && (
         <form className="bet-form" onSubmit={confirmRaise}>
           <div className="quick-row">
@@ -1952,13 +1959,13 @@ export function MoveSeat(props: { view: TableView; seat: number; online: boolean
   )
 }
 
-// «Настройки стола» ведущего между раздачами (#75): время на ход и раздача «сама» — со следующей раздачи.
+// «Настройки стола» ведущего между раздачами (#75): время на ход, запас времени (#223) и раздача «сама» — со следующей раздачи.
 // Сохранили — форма заново из стола (key)
 // Кэш (#78) — ещё и анте; турнир до «Начать турнир» — призы по местам: тогда видно, сколько пришло.
 // Кому виден HUD (#79) — здесь же
 function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableState; view: TableView }) {
   const saved = timerSettings(table.settings)
-  const [form, setForm] = useState<TimerForm>(() => timerForm(saved.turnSeconds, saved.autoStart))
+  const [form, setForm] = useState<TimerForm>(() => timerForm(saved.turnSeconds, saved.autoStart, saved.timeBank))
   const savedAnte = table.settings.ante ?? 0
   const [anteText, setAnteText] = useState(String(savedAnte))
   const savedHud = table.settings.publicHud === true
@@ -1967,6 +1974,7 @@ function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableS
   const [prizesOwn, setPrizesOwn] = useState(savedPrizes !== null)
   const [prizes, setPrizes] = useState<string[]>(() => (savedPrizes ?? []).map(String))
   const turn = turnSecondsOf(form.choice, form.text)
+  const bank = timeBankOf(turn.ok ? turn.seconds : null, form.bank)
   const t = v.tournament
   const ante = t ? savedAnte : (parseChips(anteText) ?? (anteText.trim() === '0' ? 0 : null))
   const editPrizes = t !== null && !t.started
@@ -1977,6 +1985,7 @@ function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableS
   const changed =
     turn.ok &&
     (turn.seconds !== saved.turnSeconds ||
+      bank !== saved.timeBank ||
       form.autoStart !== saved.autoStart ||
       ante !== savedAnte ||
       prizesChanged ||
@@ -1987,6 +1996,7 @@ function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableS
     room.send({
       type: 'tableSettings',
       turnSeconds: turn.seconds,
+      timeBank: bank,
       autoStart: form.autoStart,
       publicHud,
       ...(t ? {} : { ante }),

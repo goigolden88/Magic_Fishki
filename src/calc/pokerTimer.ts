@@ -1,8 +1,20 @@
 // Форма «Время на ход» и «Следующая раздача сама» (#75): при создании комнаты и в настройках
 // стола у ведущего. Выбор кнопкой — выкл, готовое число секунд или «своё» с числом в поле
-import { AUTO_START_MS, TURN_MAX_S, TURN_MIN_S, type AutoStart, type Settings } from '../poker/table'
+import {
+  AUTO_START_MS,
+  TIME_BANK_ADD_S,
+  TIME_BANK_EVERY,
+  TIME_BANK_MAX_S,
+  TURN_MAX_S,
+  TURN_MIN_S,
+  type AutoStart,
+  type Settings,
+} from '../poker/table'
 
 export const TURN_PRESETS = [20, 30, 60]
+
+// Совет для вечера (#223): ход 20 с и запас 30 с
+export const TIMER_TIP = { turnSeconds: 20, timeBank: 30 }
 
 export type TurnChoice = 'off' | 'custom' | number // number — одно из TURN_PRESETS
 
@@ -36,7 +48,27 @@ export function autoStartNote(mode: AutoStart): string {
   return `Новая раздача начнётся сама через ${AUTO_START_MS[mode] / 1000} с после раздачи банков`
 }
 
-// Настройки времени стола; у столов до #75 полей нет — выкл
-export function timerSettings(settings: Settings): { turnSeconds: number | null; autoStart: AutoStart } {
-  return { turnSeconds: settings.turnSeconds ?? null, autoStart: settings.autoStart ?? 'off' }
+// Запас времени (#223) из формы: без времени на ход запаса нет — поля в форме тогда не видно
+export function timeBankOf(turnSeconds: number | null, bank: number | null): number | null {
+  return turnSeconds === null ? null : bank
+}
+
+// Подпись под «Запасом времени»
+export function timeBankNote(bank: number | null): string {
+  if (bank === null) {
+    return `Без запаса: время вышло — сразу чек или пас. Совет для вечера — ход ${TIMER_TIP.turnSeconds} с и запас ${TIMER_TIP.timeBank} с`
+  }
+  return (
+    `Время на ход вышло — идёт свой запас, ${bank} с на вечер; каждые ${TIME_BANK_EVERY} раздач +${TIME_BANK_ADD_S} с, ` +
+    `не больше ${TIME_BANK_MAX_S} с. Вне сети запас не тратится`
+  )
+}
+
+// Настройки времени стола; у столов до #75 полей нет — выкл, до #223 — без запаса
+export function timerSettings(settings: Settings): { turnSeconds: number | null; timeBank: number | null; autoStart: AutoStart } {
+  return {
+    turnSeconds: settings.turnSeconds ?? null,
+    timeBank: timeBankOf(settings.turnSeconds ?? null, settings.timeBank ?? null),
+    autoStart: settings.autoStart ?? 'off',
+  }
 }

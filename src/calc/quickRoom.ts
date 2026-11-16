@@ -4,7 +4,7 @@ import type { Regular } from '../model'
 import type { CardsMode, GameId, Limit } from '../poker/game'
 import { isMixShare, type MixShare } from '../poker/mix'
 import { isMaxRuns, type MaxRuns } from '../poker/runs'
-import { CARD_BACKS, DEFAULT_SETTINGS, FELTS, TURN_MAX_S, TURN_MIN_S, type AutoStart, type Settings } from '../poker/table'
+import { CARD_BACKS, DEFAULT_SETTINGS, FELTS, TIME_BANK_PRESETS, TURN_MAX_S, TURN_MIN_S, type AutoStart, type Settings } from '../poker/table'
 import { tournamentError, type TournamentSettings } from '../poker/tournament'
 import { formatNumber } from './format'
 import { lookOf, type Look } from './pokerLook'
@@ -35,6 +35,8 @@ export type RoomChoice = {
   cards: CardsMode
   variant: GameChoice
   turnSeconds: number | null
+  // Запас времени (#223), секунд; нет или null — выкл. Только со временем на ход: без него не уходит
+  timeBank?: number | null
   autoStart: AutoStart
   look: Look
   format: Pick<Settings, 'format' | 'ante' | 'tournament'>
@@ -91,6 +93,7 @@ export function roomSettings(c: RoomChoice): Partial<Settings> {
     cards: c.cards,
     ...gameSettings(c.variant),
     turnSeconds: c.turnSeconds,
+    ...(c.timeBank && c.turnSeconds !== null ? { timeBank: c.timeBank } : {}),
     autoStart: c.autoStart,
     ...c.look,
     ...c.format,
@@ -104,7 +107,7 @@ export function roomSettings(c: RoomChoice): Partial<Settings> {
 // startingStack null — закуп по умолчанию «Настроек». На телефоне ведущего и в копии; не задана — начальные значения
 export type QuickRoom = Omit<RoomChoice, 'startingStack'> & { startingStack: number | null }
 
-export const QUICK_ROOM_DEFAULT: QuickRoom = { ...ROOM_DEFAULTS, startingStack: null, mix: null, maxRuns: 1 }
+export const QUICK_ROOM_DEFAULT: QuickRoom = { ...ROOM_DEFAULTS, startingStack: null, mix: null, maxRuns: 1, timeBank: null }
 
 // Выбор для запроса create: своя или начальная, стек — свой или закуп по умолчанию
 export function quickRoomChoice(room: QuickRoom | null, defaultBuyin: number): RoomChoice {
@@ -133,7 +136,7 @@ function isPositive(x: unknown): x is number {
 // приложение; знает ли её сервер — скажет он сам при создании
 export function parseQuickRoom(raw: unknown): QuickRoom | null {
   if (!isRecord(raw)) return null
-  const { sb, bb, startingStack, cards, variant, turnSeconds, autoStart, look, format, publicHud, mix, maxRuns } = raw
+  const { sb, bb, startingStack, cards, variant, turnSeconds, timeBank, autoStart, look, format, publicHud, mix, maxRuns } = raw
   if (!isPositive(sb) || !isPositive(bb) || sb > bb) return null
   if (startingStack !== null && (!isPositive(startingStack) || startingStack < bb)) return null
   if (cards !== 'live' && cards !== 'phones') return null
@@ -142,6 +145,8 @@ export function parseQuickRoom(raw: unknown): QuickRoom | null {
   if (turnSeconds !== null && !(Number.isInteger(turnSeconds) && (turnSeconds as number) >= TURN_MIN_S && (turnSeconds as number) <= TURN_MAX_S)) {
     return null
   }
+  // Запас (#223): у выбора до него поля нет — выкл
+  if (timeBank !== undefined && timeBank !== null && !(TIME_BANK_PRESETS as readonly unknown[]).includes(timeBank)) return null
   if (!AUTO_START_LABELS.some(([mode]) => mode === autoStart)) return null
   if (!isRecord(look) || !(FELTS as readonly unknown[]).includes(look.felt) || !(CARD_BACKS as readonly unknown[]).includes(look.cardBack)) {
     return null
@@ -165,6 +170,7 @@ export function parseQuickRoom(raw: unknown): QuickRoom | null {
     cards,
     variant: { game: variant.game as GameId, limit: variant.limit },
     turnSeconds: turnSeconds as number | null,
+    timeBank: turnSeconds === null ? null : ((timeBank as number | null | undefined) ?? null),
     autoStart: autoStart as AutoStart,
     look: { felt: look.felt as Look['felt'], cardBack: look.cardBack as Look['cardBack'] },
     format: f,
@@ -179,7 +185,7 @@ function isRecord(x: unknown): x is Record<string, unknown> {
 }
 
 // Подпись под кнопкой: «Холдем · кэш · карты на телефонах · блайнды 5/10 · стек 1 000»;
-// у омахи — с лимитом, с таймером — «ход 30 с»
+// у омахи — с лимитом, с таймером — «ход 30 с», с запасом (#223) — ещё «запас 30 с»
 export function quickRoomLine(s: Partial<Settings>): string {
   const name = GAME_CHOICES.find(([id]) => id === (s.game ?? 'holdem'))?.[1] ?? 'Холдем'
   const game = s.game === 'omaha' ? `${name} ${s.limit === 'nolimit' ? 'без лимита' : 'пот-лимит'}` : name
@@ -190,6 +196,7 @@ export function quickRoomLine(s: Partial<Settings>): string {
     `блайнды ${formatNumber(s.sb ?? DEFAULT_SETTINGS.sb)}/${formatNumber(s.bb ?? DEFAULT_SETTINGS.bb)}`,
     `стек ${formatNumber(s.startingStack ?? DEFAULT_SETTINGS.startingStack)}`,
     ...(typeof s.turnSeconds === 'number' ? [`ход ${s.turnSeconds} с`] : []),
+    ...(typeof s.turnSeconds === 'number' && typeof s.timeBank === 'number' ? [`запас ${s.timeBank} с`] : []),
   ].join(' · ')
 }
 

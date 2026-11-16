@@ -389,6 +389,31 @@ describe('экран стола: время на ход, перерыв, раз�
     expect([off.turnLeft, off.seats[0].turnLeft, off.paused, off.nextHandLeft]).toEqual([null, null, false, null])
   })
 
+  it('запас времени (#223): пока идёт время на ход — свои секунды и свой запас; пошёл запас — «запас» у места', () => {
+    const s = play(newTable(['p0', 'p1', 'p2'], { turnSeconds: 20, timeBank: 30 }), [{ ...start('p0'), now: 1000 }], false)
+    const base = tableView(s, 'p0', 1000 + 5000)
+    expect([base.turnLeft, base.turnBank, base.myBank]).toEqual([15, false, 30])
+    expect(base.seats.map((x) => [x.turnLeft, x.turnBank])).toEqual([
+      [15, false],
+      [null, false],
+      [null, false],
+    ])
+    // Чужой запас, пока не тратится, не виден: у мест его нет, а свой — у каждого свой
+    expect(tableView(s, 'p1', 1000 + 5000).myBank).toBe(30)
+    const bank = onTime(s, 1000 + 20_000)!
+    const v = tableView(bank, 'p1', 1000 + 20_000 + 7_200) // от времени сервера, как turnLeft
+    expect([v.turnLeft, v.turnBank]).toEqual([23, true])
+    expect(v.seats.map((x) => [x.turnLeft, x.turnBank])).toEqual([
+      [23, true],
+      [null, false],
+      [null, false],
+    ])
+    expect(tableView(bank, 'p0', 1000 + 20_000 + 30_000).turnLeft).toBe(0)
+    // Запаса за столом нет или я не за столом — моего запаса нет
+    expect(tableView(play(timed(), [start('p0')], false), 'p0', 0).myBank).toBeNull()
+    expect(tableView(s, 'гость', 0).myBank).toBeNull()
+  })
+
   it('перерыв — у всех «Перерыв», таймер не идёт; раздача «сама» — секунды до неё', () => {
     let s = play(timed(), [start('p0'), fold('p0'), fold('p1'), award('p0', [['p2']], 2000)], false)
     expect(tableView(s, 'p1', 2500).nextHandLeft).toBe(3)
