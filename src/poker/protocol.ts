@@ -32,7 +32,9 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 // 20 — страддл (#222, Р-91): настройка straddle при создании, страддл в раздаче (straddle) и в журнале ('straddle')
 // 21 — открытые карманные карты своей игры (#226): поле up в описании (settings.games); сообщения те же, но
 //      телефон до 21 открытые карты как «видны всем» не покажет
-export const PROTOCOL_VERSION = 21
+// 22 — хай/лоу своей игры (#227): поле hiLo в описании (settings.games) и в описании раздачи (game.hiLo),
+//      в записи раздачи — лоу дошедших и делёж банков (lows, lowBest, split), так же у каждого борда (runs)
+export const PROTOCOL_VERSION = 22
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 

@@ -25,6 +25,9 @@ export type OwnGame = {
   order: OwnOrder // старшинство комбинаций
   board: number[] // карт стола по кругам после раздачи рук: 1–3 круга, в каждом 1–3, всего 3–5
   limit: Limit
+  // Хай/лоу (#227): банк пополам старшей руке и лоу «восьмёрка или лучше»; только с колодой 52. Нет поля — без
+  // хай/лоу: так пишется и «нет», чтобы описание без хай/лоу читали телефоны и копии до #227
+  hiLo?: boolean
 }
 
 // Старшинство: обычное или как в шорт-деке (флеш старше фулл-хауса, тройка старше стрита, Р-52)
@@ -42,7 +45,9 @@ export const OWN_GAMES_MAX = 8
 // Мест за столом — не больше, сколько бы карт ни хватало
 export const SEATS_MAX = 10
 
-const FIELDS = ['id', 'name', 'hole', 'up', 'fromHand', 'deck', 'order', 'board', 'limit']
+const FIELDS = ['id', 'name', 'hole', 'up', 'fromHand', 'deck', 'order', 'board', 'limit', 'hiLo']
+
+export const HI_LO_DECK_ERROR = 'Хай/лоу — только с колодой 52: в 36 картах лоу не собрать'
 // Круги стола по порядку — имена кругов торгов после раздачи рук
 const BOARD_STREETS: Street[] = ['flop', 'turn', 'river']
 
@@ -69,6 +74,8 @@ export function ownGameError(x: unknown): string | null {
   if (g.deck !== 52 && g.deck !== 36) return `${name}: колода — 52 или 36 карт`
   if (g.order !== 'standard' && g.order !== 'shortdeck') return `${name}: старшинство — обычное или как в шорт-деке`
   if (g.limit !== 'nolimit' && g.limit !== 'pot') return `${name}: лимит — без лимита или пот-лимит`
+  if (g.hiLo !== undefined && typeof g.hiLo !== 'boolean') return `${name}: хай/лоу — да или нет`
+  if (g.hiLo === true && g.deck !== 52) return HI_LO_DECK_ERROR
   if (!Array.isArray(g.board) || g.board.length < 1 || g.board.length > OWN_ROUNDS_MAX) {
     return `${name}: кругов карт стола — от 1 до ${OWN_ROUNDS_MAX}`
   }
@@ -103,7 +110,7 @@ export function ownGameDef(game: OwnGame): GameDef {
     { street: 'preflop', deal: [{ kind: 'hole', down: game.hole - up, up }] },
     ...game.board.map((count, i) => ({ street: BOARD_STREETS[i], deal: [{ kind: 'board' as const, count }] })),
   ]
-  return { id: game.id, name: game.name, variant, rounds }
+  return { id: game.id, name: game.name, variant, rounds, ...(game.hiLo ? { hiLo: true as const } : {}) }
 }
 
 // Сколько мест за столом своей игры: игроки × карты на руках + карты стола ≤ колода, но не больше SEATS_MAX

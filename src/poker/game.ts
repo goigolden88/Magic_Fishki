@@ -22,6 +22,9 @@ export type GameDef = {
   name?: string // у своей игры (#224) — её название; у встроенных поля нет
   variant: Variant // колода и правило руки
   rounds: GameRound[]
+  // Хай/лоу (#227): каждый банк пополам — лучшей старшей руке и лучшему лоу (bestLow); только у своей игры
+  // с колодой 52. Нет поля — весь банк старшей руке
+  hiLo?: true
 }
 
 export const HOLDEM_GAME: GameDef = {

@@ -191,10 +191,14 @@ export function awardPots(hand: Hand, winners: string[][]): string | Record<stri
 // «Прогнать несколько раз» (#167, Р-58): runs — победители каждого банка на каждом борде, по порядку бордов.
 // Каждый банк (и побочный) делится по бордам поровну, доля борда — его победителям, как awardPots;
 // нечётные фишки деления по бордам — по правилу ничьей: по одной, по кругу от кнопки, среди взявших
-// этот банк хоть на одном борде. Один борд — как awardPots
-export function awardRuns(hand: Hand, runs: string[][][]): string | Record<string, number> {
+// этот банк хоть на одном борде. Один борд — как awardPots.
+// Хай/лоу (#227): lows — взявшие лоу каждого банка на каждом борде (как runs; пусто — лоу не было). Доля борда
+// с лоу — пополам: старшей половине (runs) — с нечётной фишкой, младшей — lows; ничья внутри половины — по правилу
+// ничьей. Лоу не было — вся доля старшей руке. Нечётные фишки деления по бордам — среди взявших хоть часть банка
+export function awardRuns(hand: Hand, runs: string[][][], lows?: string[][][]): string | Record<string, number> {
   if (hand.stage !== 'showdown') return 'Торги ещё идут'
   if (runs.length === 0) return 'Нет ни одного борда'
+  if (lows && lows.length !== runs.length) return 'Нужен лоу каждого борда'
   const payouts: Record<string, number> = {}
   const add = (part: Record<string, number>) => {
     for (const [id, amount] of Object.entries(part)) if (amount > 0) payouts[id] = (payouts[id] ?? 0) + amount
@@ -208,12 +212,24 @@ export function awardRuns(hand: Hand, runs: string[][][]): string | Record<strin
       if (ids.some((id) => !hand.pots[k].eligible.includes(id))) return `Банк ${k + 1}: отмечен игрок, который за него не борется`
     }
   }
+  for (const low of lows ?? []) {
+    if (low.length !== hand.pots.length) return `Нужен лоу каждого банка: банков ${hand.pots.length}`
+    for (let k = 0; k < hand.pots.length; k++) {
+      if (new Set(low[k]).size !== low[k].length) return `Банк ${k + 1}: лоу отмечен дважды`
+      if (low[k].some((id) => !hand.pots[k].eligible.includes(id))) return `Банк ${k + 1}: лоу у игрока, который за него не борется`
+    }
+  }
   for (let k = 0; k < hand.pots.length; k++) {
     const amount = hand.pots[k].amount
     const share = Math.floor(amount / runs.length)
-    for (const winners of runs) add(splitPot(share, fromButton(hand, winners[k])))
+    runs.forEach((winners, r) => {
+      const low = lows?.[r][k] ?? []
+      const lowHalf = low.length > 0 ? Math.floor(share / 2) : 0
+      add(splitPot(share - lowHalf, fromButton(hand, winners[k])))
+      if (lowHalf > 0) add(splitPot(lowHalf, fromButton(hand, low)))
+    })
     const odd = amount - share * runs.length
-    if (odd > 0) add(splitPot(odd, fromButton(hand, runs.flatMap((w) => w[k]))))
+    if (odd > 0) add(splitPot(odd, fromButton(hand, runs.flatMap((w, r) => [...w[k], ...(lows?.[r][k] ?? [])]))))
   }
   for (const seat of hand.seats) seat.chips += payouts[seat.id] ?? 0
   return payouts
