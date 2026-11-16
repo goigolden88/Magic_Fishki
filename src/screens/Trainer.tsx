@@ -3,6 +3,7 @@ import type { Card } from '../poker/cards'
 import { deckOf, suitClass } from '../calc/pokerLook'
 import { cardFace } from '../calc/pokerView'
 import { CLASSES, emptyRange, parseRange, rangeText } from '../calc/rangeText'
+import { TRAINER_PATH, type TrainerStart } from '../calc/trainerFromHand'
 import {
   BOARD_MAX,
   HAND_CARDS,
@@ -25,13 +26,15 @@ import { loadMyLook } from './pokerStorage'
 import { PlayingCard } from './PokerRoom'
 import { useTrainerOdds } from './trainerOddsClient'
 
-export const TRAINER_HASH = '#/poker/trainer'
+export const TRAINER_HASH = `#${TRAINER_PATH}`
 
 // Сторона экрана: к руке и диапазону — номер (ключ и выбор карт), текст диапазона, его ошибка и вес касания
 type Side = TrainerSide & { id: number; text: string; error: string | null; weight: number }
 
 let nextId = 1
 const newSide = (): Side => ({ id: nextId++, mode: 'hand', cards: [], range: emptyRange(), text: '', error: null, weight: TRAINER_WEIGHTS[0] })
+// Сторона раздачи из истории (#221): карты известны — «Рука», нет — «Диапазон» с пустой сеткой
+const sideOf = (cards: Card[] | null): Side => (cards ? { ...newSide(), cards } : { ...newSide(), mode: 'range' })
 
 // Вкладки вверху (#214): сначала «Калькулятор»
 type Tab = 'calc' | 'charts'
@@ -44,12 +47,13 @@ type ChartsModule = typeof import('./TrainerCharts')
 
 // «Тренажёр» (#213, Р-73): калькулятор эквити — 2…6 сторон (рука или диапазон на сетке 13 × 13) и борд;
 // счёт — в фоне (useTrainerOdds). Ввод живёт, пока открыт экран: не хранится, при возврате — с чистого листа.
-// Вкладки (#214, Р-76): «Калькулятор» и «Чарты»; переключение ввод вкладок не стирает
-export function TrainerScreen() {
+// Вкладки (#214, Р-76): «Калькулятор» и «Чарты»; переключение ввод вкладок не стирает.
+// start — стороны и борд раздачи из истории (#221, из адреса): только начальный ввод, правка адрес не меняет
+export function TrainerScreen({ start = null }: { start?: TrainerStart | null }) {
   const [tab, setTab] = useState<Tab>('calc')
   const [charts, setCharts] = useState<ChartsModule | 'loading' | 'failed' | null>(null)
-  const [sides, setSides] = useState<Side[]>(() => [newSide(), newSide()])
-  const [board, setBoard] = useState<Card[]>([])
+  const [sides, setSides] = useState<Side[]>(() => (start ? start.sides.map(sideOf) : [newSide(), newSide()]))
+  const [board, setBoard] = useState<Card[]>(() => start?.board ?? [])
   const [open, setOpen] = useState<number | 'board' | null>(null) // чья колода открыта: сторона (id) или борд
   const input = useMemo(() => trainerInput(sides, board), [sides, board])
   const odds = useTrainerOdds('sides' in input ? input.sides : null, board)

@@ -13,13 +13,15 @@ import { PokerLocalScreen } from './screens/PokerLocal'
 import { PokerBotsScreen } from './screens/PokerBots'
 import { TrainerScreen } from './screens/Trainer'
 import { parseRoomLink, roomHash, type RoomTarget } from './calc/pokerLink'
+import { parseTrainerPath, TRAINER_PATH, type TrainerStart } from './calc/trainerFromHand'
 import { saveSeat } from './screens/pokerStorage'
 
 // Маршруты: #/ — игры, #/game/:id — игра, #/game/:id/deal — казино-стол игры, #/settings — настройки, #/import — из Телеграма, #/players — игроки,
 // #/players/:id — карточка постоянного игрока, #/help — справка, #/poker — покер онлайн,
 // #/poker/:код — стол, #/poker/:код/:игрок/:токен — стол с местом («пересадить»); у обоих в конце может быть
 // ?server=адрес — комната на своём сервере (#83), кривой адрес — экран «ссылка не открывается»,
-// #/poker/local — стол на этом телефоне, #/poker/bots — против ботов, #/poker/trainer — тренажёр
+// #/poker/local — стол на этом телефоне, #/poker/bots — против ботов, #/poker/trainer — тренажёр,
+// #/poker/trainer?side=AsKs&side=&board=… — тренажёр со сторонами раздачи из истории (#221)
 // (все три под код из 6 знаков не подходят)
 type Route =
   | { screen: 'games' }
@@ -35,13 +37,14 @@ type Route =
   | { screen: 'pokerBadLink'; error: string }
   | { screen: 'pokerLocal' }
   | { screen: 'pokerBots' }
-  | { screen: 'trainer' }
+  | { screen: 'trainer'; start: TrainerStart | null }
 
 function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, '')
   if (path === '/poker/local') return { screen: 'pokerLocal' }
   if (path === '/poker/bots') return { screen: 'pokerBots' }
-  if (path === '/poker/trainer') return { screen: 'trainer' }
+  // Тренажёр; ?side=…&board=… — раздача из истории (#221), кривой адрес — с чистого листа. Раньше ссылки на комнату
+  if (path === TRAINER_PATH || path.startsWith(`${TRAINER_PATH}?`)) return { screen: 'trainer', start: parseTrainerPath(path) }
   const game = path.match(/^\/game\/([^/]+)$/)
   if (game) return { screen: 'game', id: decodeURIComponent(game[1]) }
   const deal = path.match(/^\/game\/([^/]+)\/deal$/)
@@ -107,7 +110,7 @@ export function App() {
     case 'pokerBots':
       return <PokerBotsScreen />
     case 'trainer':
-      return <TrainerScreen />
+      return <TrainerScreen key={JSON.stringify(route.start)} start={route.start} />
     default:
       return <GamesScreen />
   }

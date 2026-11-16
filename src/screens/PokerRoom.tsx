@@ -821,8 +821,9 @@ function NetText({ mine }: { mine: MyHandView }) {
 
 // Раздача из истории (#239), как в покер-румах: шапка (игра, лимит, блайнды, время), места со стеками в начале
 // и позициями, «Вам сдано» — и после паса, улицы — карты, банк на начало и ходы; в конце — вскрытие, банки,
-// мой итог; «Текстом» — тот же текст, что в файле «Выгрузить», и «Скопировать»
-function HistoryBody({ view: v }: { view: HistoryHandView }) {
+// мой итог; «В калькулятор» (#221) — если есть адрес калькулятора (trainer); «Текстом» — тот же текст,
+// что в файле «Выгрузить», и «Скопировать»
+function HistoryBody({ view: v, trainer }: { view: HistoryHandView; trainer: string | null }) {
   const [text, setText] = useState(false)
   const [note, setNote] = useState<string | null>(null)
   // Вскрытие и показанные: мои карты взятого без вскрытия — уже в «Вам сдано»
@@ -892,6 +893,11 @@ function HistoryBody({ view: v }: { view: HistoryHandView }) {
           Ваш итог за раздачу: <NetText mine={v.mine} />
         </p>
       )}
+      {trainer && (
+        <a className="big wide button-link" href={trainer}>
+          В калькулятор
+        </a>
+      )}
       <button type="button" className="big wide" aria-expanded={text} onClick={() => setText(!text)}>
         {text ? 'Скрыть текст' : 'Текстом'}
       </button>
@@ -913,7 +919,9 @@ function HistoryBody({ view: v }: { view: HistoryHandView }) {
 // note — почему не приходит (нет связи); старый список при этом остаётся.
 // Прошлый вечер (#114) — та же карточка: title — вместо «История раздач», back — вместо «Закрыть».
 // Из карточки игрока (#197) — сразу раздача initial, «← Все раздачи» — весь её вечер.
-// hands — записи раздач вечера (#239): со столом вечера — чей телефон, и своими картами
+// hands — записи раздач вечера (#239): со столом вечера — чей телефон, и своими картами.
+// toTrainer (#221) — адрес калькулятора для раздачи или null; только у прошлых вечеров и карточки игрока:
+// под столом уход в калькулятор рвёт связь с комнатой
 export function HandHistory(props: {
   hands: SavedHand[] | null
   note?: string | null
@@ -921,9 +929,10 @@ export function HandHistory(props: {
   back?: string
   initial?: number
   top?: ReactNode // над списком раздач — итог прошлого вечера (#242)
+  toTrainer?: (saved: SavedHand) => string | null
   onClose: () => void
 }) {
-  const { hands, note = null, title = 'История раздач', back = 'Закрыть', initial, top, onClose } = props
+  const { hands, note = null, title = 'История раздач', back = 'Закрыть', initial, top, toTrainer, onClose } = props
   const [open, setOpen] = useState<number | null>(initial ?? null)
   const ref = useRef<HTMLElement>(null)
   const hand = hands?.find((h) => h.number === open) ?? null
@@ -944,7 +953,7 @@ export function HandHistory(props: {
         </button>
       </div>
       {hand ? (
-        <HistoryBody view={historyHandView(hand)} />
+        <HistoryBody view={historyHandView(hand)} trainer={toTrainer?.(hand) ?? null} />
       ) : (
         <>
           {note && <p className="warn">{note}</p>}

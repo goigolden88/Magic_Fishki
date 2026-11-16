@@ -44,6 +44,7 @@ import { BOTS_HASH, FINISH_BOTS } from './PokerBots'
 import { LOCAL_HASH, NO_STORAGE } from './PokerLocal'
 import { TRAINER_HASH } from './Trainer'
 import { TRAINER_SIDES_MAX } from '../calc/trainerView'
+import { trainerHashOf } from '../calc/trainerFromHand'
 import { HandHistory } from './PokerRoom'
 import {
   clearBotTable,
@@ -390,6 +391,7 @@ function PastEvenings() {
           title={`${formatDate(eveningDay(open.evening))} · ${eveningLine(open.evening)}`}
           back="← Вечера"
           top={<EveningResultTable hands={open.hands} />}
+          toTrainer={trainerHashOf}
           onClose={() => setOpen(null)}
         />
         {error && <p className="warn">{error}</p>}
