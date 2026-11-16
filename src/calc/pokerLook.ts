@@ -96,8 +96,8 @@ export function backupLook(look: MyLook): MyLook {
 
 // Рубашка, которой рисуются карты: «Своя», а картинки на этом устройстве нет (стёрли память, другой браузер), —
 // «Как у стола»
-export function shownBack(mine: MyLook, ownBack: boolean): MyBack | null {
-  return mine.cardBack === OWN_BACK && !ownBack ? null : mine.cardBack
+export function drawnBack(mine: MyLook, hasPicture: boolean): MyBack | null {
+  return mine.cardBack === OWN_BACK && !hasPicture ? null : mine.cardBack
 }
 
 // Ничего не выбрано — записи в памяти телефона нет; выбранная колода, и «две масти» тоже, — запись есть;
@@ -117,10 +117,10 @@ export function mergeMyLook(local: MyLook, backup: MyLook): MyLook {
 }
 
 // Классы обёртки стола: сукно и рубашка карт внутри неё; свой выбор телефона — поверх выбора ведущего.
-// ownBack — есть ли на устройстве своя картинка рубашки (#220)
-export function lookClass(settings: Partial<Settings>, mine: MyLook = MY_LOOK_DEFAULT, ownBack = false): string {
+// hasPicture — есть ли на устройстве своя картинка рубашки (#220)
+export function lookClass(settings: Partial<Settings>, mine: MyLook = MY_LOOK_DEFAULT, hasPicture = false): string {
   const table = lookOf(settings)
-  return `table-look felt-${mine.felt ?? table.felt} back-${shownBack(mine, ownBack) ?? table.cardBack}`
+  return `table-look felt-${mine.felt ?? table.felt} back-${drawnBack(mine, hasPicture) ?? table.cardBack}`
 }
 
 // Цвет масти на лице карты: две масти цветом — черви и бубны красные (класс red);

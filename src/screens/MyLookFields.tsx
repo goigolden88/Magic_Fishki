@@ -6,8 +6,8 @@ import {
   faceOf,
   MY_BACK_LABELS,
   MY_FELT_LABELS,
+  drawnBack,
   OWN_BACK,
-  shownBack,
   type MyLook,
 } from '../calc/pokerLook'
 import { compressOwnBack, setOwnBack } from './ownBackImage'
@@ -41,7 +41,7 @@ export function MyLookFields({ look, onChange }: { look: MyLook; onChange: (look
   const [busy, setBusy] = useState(false)
   const [ownError, setOwnError] = useState('')
   const own = hasOwnBack()
-  const back = shownBack(look, own) // «Своя» без картинки — «Как у стола»
+  const back = drawnBack(look, own) // «Своя» без картинки — «Как у стола»
 
   function update(change: Partial<MyLook>) {
     const next = { ...look, ...change }

@@ -4,6 +4,7 @@ import {
   backupLook,
   DECK_LABELS,
   deckOf,
+  drawnBack,
   FACE_LABELS,
   faceOf,
   isDefaultLook,
@@ -14,7 +15,6 @@ import {
   MY_FELT_LABELS,
   MY_LOOK_DEFAULT,
   parseMyLook,
-  shownBack,
   suitClass,
 } from '../calc/pokerLook'
 import { CARD_BACKS, FELTS } from './table'
@@ -122,8 +122,8 @@ describe('личный вид стола (Р-61)', () => {
     expect(lookClass({}, own, false)).toBe('table-look felt-green back-classic')
     // встроенная рубашка — как прежде, картинка в памяти ей не мешает
     expect(lookClass(settings, { ...MY_LOOK_DEFAULT, cardBack: 'dark' }, true)).toBe('table-look felt-burgundy back-dark')
-    expect(shownBack(own, false)).toBeNull()
-    expect(shownBack(own, true)).toBe('own')
+    expect(drawnBack(own, false)).toBeNull()
+    expect(drawnBack(own, true)).toBe('own')
   })
 
   it('своя рубашка из памяти — «Своя»; в копию — «Как у стола», остальное как было', () => {
