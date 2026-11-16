@@ -1,7 +1,19 @@
 import { parseChips } from '../calc/format'
 import type { Look } from '../calc/pokerLook'
 import { timeBankOf, turnSecondsOf } from '../calc/pokerTimer'
-import { GAME_CHOICES, MAX_RUNS_CHOICES, MIX_SHARE_CHOICES, type GameChoice, type QuickRoom, type RoomChoice } from '../calc/quickRoom'
+import { ownGameLine } from '../calc/ownGameForm'
+import {
+  GAME_CHOICES,
+  MAX_RUNS_CHOICES,
+  MIX_SHARE_CHOICES,
+  ownSeatsNote,
+  roomGameChoice,
+  roomOwnGames,
+  type GameChoice,
+  type QuickRoom,
+  type RoomChoice,
+} from '../calc/quickRoom'
+import type { OwnGame } from '../poker/ownGame'
 import { formSettings, tournamentFormOf, type TournamentForm } from '../calc/tournamentForm'
 import type { CardsMode, Limit } from '../poker/game'
 import { MIX_SHARE_DEFAULT, MIX_VOTE_MS, type MixShare } from '../poker/mix'
@@ -27,14 +39,15 @@ export type RoomForm = {
   maxRuns: MaxRuns
 }
 
-// Форма из уже разобранного выбора; stack — строкой (пусто — пока не прочитан закуп по умолчанию)
-export function roomFormOf(room: QuickRoom, stack: string, players: number): RoomForm {
+// Форма из уже разобранного выбора; stack — строкой (пусто — пока не прочитан закуп по умолчанию).
+// own — свои игры телефона (#225): выбранной своей там нет или карты живые — холдем
+export function roomFormOf(room: QuickRoom, stack: string, players: number, own: OwnGame[]): RoomForm {
   return {
     sb: String(room.sb),
     bb: String(room.bb),
     stack,
     cards: room.cards,
-    variant: room.variant,
+    variant: roomGameChoice(room.cards, room.variant, own),
     timer: timerForm(room.turnSeconds, room.autoStart, room.timeBank ?? null),
     look: room.look,
     format: tournamentFormOf(room.format, players),
@@ -44,8 +57,9 @@ export function roomFormOf(room: QuickRoom, stack: string, players: number): Roo
   }
 }
 
-// Разбор формы — как у «Создать комнату»; что-то не годится — null (подсказки показывают поля)
-export function roomChoiceOf(form: RoomForm): RoomChoice | null {
+// Разбор формы — как у «Создать комнату»; что-то не годится — null (подсказки показывают поля).
+// Своей игры уже нет на телефоне (own) — холдем (#225)
+export function roomChoiceOf(form: RoomForm, own: OwnGame[]): RoomChoice | null {
   const sb = parseChips(form.sb)
   const bb = parseChips(form.bb)
   const stack = parseChips(form.stack)
@@ -57,7 +71,7 @@ export function roomChoiceOf(form: RoomForm): RoomChoice | null {
     bb,
     startingStack: stack,
     cards: form.cards,
-    variant: form.variant,
+    variant: roomGameChoice(form.cards, form.variant, own),
     turnSeconds: turn.seconds,
     timeBank: timeBankOf(turn.seconds, form.timer.bank),
     autoStart: form.timer.autoStart,
@@ -69,11 +83,15 @@ export function roomChoiceOf(form: RoomForm): RoomChoice | null {
   }
 }
 
-// players — сколько играют: призы турнира по умолчанию — по ним
-export function RoomFields({ form, players, onChange }: { form: RoomForm; players: number; onChange: (form: RoomForm) => void }) {
+// players — сколько играют: призы турнира по умолчанию — по ним; own — свои игры телефона (#225)
+export function RoomFields(props: { form: RoomForm; players: number; own: OwnGame[]; onChange: (form: RoomForm) => void }) {
+  const { form, players, own, onChange } = props
   const set = (change: Partial<RoomForm>) => onChange({ ...form, ...change })
   const game = formSettings(form.format)
   const cards = form.cards
+  const variant = roomGameChoice(cards, form.variant, own)
+  // #225: мест меньше обычного — из-за какой своей игры
+  const seatsNote = ownSeatsNote(roomOwnGames({ cards, variant, mix: form.mix }, own))
   return (
     <>
       <TableFields
@@ -96,7 +114,7 @@ export function RoomFields({ form, players, onChange }: { form: RoomForm; player
               type="button"
               className={cards === mode ? 'big primary grow' : 'big grow'}
               aria-pressed={cards === mode}
-              onClick={() => set({ cards: mode })}
+              onClick={() => set({ cards: mode, variant: roomGameChoice(mode, form.variant, own) })}
             >
               {label}
             </button>
@@ -109,9 +127,16 @@ export function RoomFields({ form, players, onChange }: { form: RoomForm; player
         </p>
       </fieldset>
 
-      <GameFields choice={form.variant} phones={cards === 'phones'} onChange={(variant) => set({ variant })} />
+      {/* #225: свои игры — только с картами на телефонах */}
+      <GameFields
+        choice={variant}
+        phones={cards === 'phones'}
+        own={cards === 'phones' ? own : undefined}
+        onChange={(variant) => set({ variant })}
+      />
       {/* #166: «Микс» — только карты на телефонах */}
       {cards === 'phones' && <MixFields mix={form.mix} onChange={(mix) => set({ mix })} />}
+      {seatsNote && <p className="muted">{seatsNote}</p>}
       {/* #167: «Прогнать несколько раз» — только карты на телефонах, кэш и турнир */}
       {cards === 'phones' && <RunsFields max={form.maxRuns} onChange={(maxRuns) => set({ maxRuns })} />}
 
@@ -142,8 +167,12 @@ const LIMIT_CHOICES: [Limit, string][] = [
   ['nolimit', 'Без лимита'],
 ]
 
-export function GameFields({ choice, phones, onChange }: { choice: GameChoice; phones: boolean; onChange: (c: GameChoice) => void }) {
+// own (#225) — свои игры телефона после трёх встроенных; нет поля — своих игр здесь не бывает (стол на этом
+// телефоне, живые карты)
+export function GameFields(props: { choice: GameChoice; phones: boolean; own?: OwnGame[]; onChange: (c: GameChoice) => void }) {
+  const { choice, phones, own, onChange } = props
   const omaha = choice.game === 'omaha'
+  const mine = own?.find((g) => g.id === choice.game)
   return (
     <fieldset className="players-pick">
       <legend className="muted">Покер</legend>
@@ -159,7 +188,20 @@ export function GameFields({ choice, phones, onChange }: { choice: GameChoice; p
             {label}
           </button>
         ))}
+        {own?.map((g) => (
+          <button
+            key={g.id}
+            type="button"
+            className={choice.game === g.id ? 'big primary' : 'big'}
+            aria-pressed={choice.game === g.id}
+            onClick={() => onChange({ ...choice, game: g.id })}
+          >
+            {g.name}
+          </button>
+        ))}
       </div>
+      {own?.length === 0 && <p className="muted">Свои игры — «Настройки» → «Свои игры»</p>}
+      {mine && <p className="muted">{ownGameLine(mine)}</p>}
       {omaha && (
         <>
           <p className="muted">Лимит</p>
@@ -178,15 +220,17 @@ export function GameFields({ choice, phones, onChange }: { choice: GameChoice; p
           </div>
         </>
       )}
-      <p className="muted">
-        {choice.game === 'shortdeck'
-          ? `Колода 36 карт, без двоек–пятёрок; флеш старше фулл-хауса, A-6-7-8-9 — стрит${phones ? '' : ' (карты живые)'}. Две карты на руках, ставки без лимита.`
-          : !omaha
-          ? 'Две карты на руках, ставки без лимита.'
-          : `Четыре карты на руках, рука — ровно две свои и три со стола${phones ? '' : ' (карты живые)'}. ${
-              choice.limit === 'pot' ? 'Рейз — не больше банка.' : 'Ставки без лимита.'
-            }`}
-      </p>
+      {!mine && (
+        <p className="muted">
+          {choice.game === 'shortdeck'
+            ? `Колода 36 карт, без двоек–пятёрок; флеш старше фулл-хауса, A-6-7-8-9 — стрит${phones ? '' : ' (карты живые)'}. Две карты на руках, ставки без лимита.`
+            : !omaha
+            ? 'Две карты на руках, ставки без лимита.'
+            : `Четыре карты на руках, рука — ровно две свои и три со стола${phones ? '' : ' (карты живые)'}. ${
+                choice.limit === 'pot' ? 'Рейз — не больше банка.' : 'Ставки без лимита.'
+              }`}
+        </p>
+      )}
     </fieldset>
   )
 }

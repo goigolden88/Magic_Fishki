@@ -13,7 +13,11 @@ import {
   quickRoomHost,
   quickRoomLine,
   quickRoomSettings,
+  ownSeatsNote,
   ROOM_DEFAULTS,
+  roomGameChoice,
+  roomMaxSeats,
+  roomOwnGames,
   roomSettings,
   type QuickRoom,
 } from './quickRoom'
@@ -205,6 +209,29 @@ describe('своя «Быстрая комната» (Р-62)', () => {
     // Живые карты — своих игр нет
     expect(quickRoomSettings(1000, { ...room, cards: 'live' }, [omaha7])).toMatchObject({ game: 'holdem', cards: 'live' })
     expect(quickRoomSettings(1000, { ...room, cards: 'live' }, [omaha7])).not.toHaveProperty('games')
+  })
+
+  it('выбор в форме (#225): своя — с картами на телефонах и пока есть; места и строка — по самой «тесной»', () => {
+    const omaha7: OwnGame = { id: 'own-o7', name: 'Омаха-7', hole: 7, fromHand: 2, deck: 52, order: 'standard', board: [3, 1, 1], limit: 'pot' }
+    const mine: OwnGame = { ...omaha7, id: 'own-h', name: 'Мой холдем', hole: 2, fromHand: 'any', limit: 'nolimit' }
+    const own7 = { game: 'own-o7' as const, limit: 'pot' as const }
+    expect(roomGameChoice('phones', own7, [omaha7])).toEqual(own7)
+    expect(roomGameChoice('live', own7, [omaha7])).toEqual(DEFAULT_GAME)
+    expect(roomGameChoice('phones', own7, [mine])).toEqual(DEFAULT_GAME)
+    expect(roomGameChoice('live', { game: 'omaha', limit: 'nolimit' }, [])).toEqual({ game: 'omaha', limit: 'nolimit' })
+    // Без «Микса» — выбранная, с «Миксом» — все свои, выбранная первой; живые — ни одной
+    expect(roomOwnGames({ cards: 'phones', variant: own7, mix: null }, [mine, omaha7])).toEqual([omaha7])
+    expect(roomOwnGames({ cards: 'phones', variant: own7, mix: 'half' }, [mine, omaha7])).toEqual([omaha7, mine])
+    expect(roomOwnGames({ cards: 'phones', variant: DEFAULT_GAME, mix: null }, [mine, omaha7])).toEqual([])
+    expect(roomOwnGames({ cards: 'live', variant: own7, mix: 'half' }, [mine, omaha7])).toEqual([])
+    // Мест: 52 − 5 = 47 карт на руки, по 7 — шесть мест; у двух карт хватает на всех
+    expect(roomMaxSeats([omaha7, mine])).toBe(6)
+    expect(roomMaxSeats([])).toBe(DEFAULT_SETTINGS.maxSeats)
+    expect(ownSeatsNote([mine, omaha7])).toBe('За столом не больше 6 — из-за „Омаха-7“')
+    expect(ownSeatsNote([mine])).toBeNull()
+    expect(ownSeatsNote([])).toBeNull()
+    // Ровно девять мест — как обычно, строки нет
+    expect(ownSeatsNote([{ ...mine, hole: 5 }])).toBeNull()
   })
 
   it('страддл (#222): галочка — в комнату и в память; без поля и «нет» — без страддла; не «да»/«нет» — негодно', () => {

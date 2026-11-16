@@ -512,8 +512,10 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
   const [myName, setMyName] = useState('')
   const [hasPassword, setHasPassword] = useState(() => loadPassword() !== '')
   const [password, setPassword] = useState('')
-  // Начальные значения формы (ROOM_DEFAULTS); стек — закуп по умолчанию. Своя «Быстрая комната» (Р-62) их не меняет
-  const [form, setForm] = useState<RoomForm>(() => roomFormOf(QUICK_ROOM_DEFAULT, '', 0))
+  // Начальные значения формы (ROOM_DEFAULTS); стек — закуп по умолчанию. Своя «Быстрая комната» (Р-62) их не меняет.
+  // Свои игры (#225) — из «Настроек» этого телефона
+  const [own] = useState(loadOwnGames)
+  const [form, setForm] = useState<RoomForm>(() => roomFormOf(QUICK_ROOM_DEFAULT, '', 0, own))
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -545,7 +547,7 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
   const regularIds = (regulars ?? []).map((r) => r.id)
   const me = roster.find((r) => r.id === meId)
   const name = me ? me.name : myName.trim()
-  const choice = roomChoiceOf(form)
+  const choice = roomChoiceOf(form, own)
   const ready = name !== '' && choice !== null && (hasPassword || password !== '') && !busy
 
   async function create(e: FormEvent) {
@@ -558,7 +560,7 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
       name,
       ...(me ? { regularId: me.id } : {}),
       roster,
-      settings: roomSettings(choice, loadOwnGames()),
+      settings: roomSettings(choice, own),
     }
     setBusy(true)
     setError(null)
@@ -637,7 +639,7 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
       )}
 
       {/* Поля стола — общие с «Быстрой комнатой» в «Настройках» (Р-62) */}
-      <RoomFields form={form} players={roster.length} onChange={setForm} />
+      <RoomFields form={form} players={roster.length} own={own} onChange={setForm} />
 
       {error && <p className="warn">{error}</p>}
       <div className="row">
