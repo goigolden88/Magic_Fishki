@@ -3,7 +3,7 @@ import { random } from '../calc/allInOdds'
 import { HOLDEM, OMAHA, SHORT_DECK, type Card } from './cards'
 import { deckFor, HOLDEM_GAME, isDeckOf, OMAHA_GAME, SHORT_DECK_GAME, shuffle, type GameDef } from './game'
 import { ownGameDef, ownGameError, ownGamesError, parseOwnGames, seatsFor, type OwnGame } from './ownGame'
-import { PROTOCOL_VERSION, type ClientBody } from './protocol'
+import { PROTOCOL_VERSION, VERSION_ERROR, type ClientBody } from './protocol'
 import type { RandomBytes } from './tokens'
 import { createTable, gameFor, handle, limitFor, type Settings, type TableState } from './table'
 import { allin, call, fold, MODES, newTable, play, stackedDeck, start, type Step } from './testing'
@@ -190,6 +190,14 @@ describe('своя игра: отказы описания', () => {
     expect(parseOwnGames([OWN_OMAHA, { ...OWN_OMAHA, hole: 9 }, OWN_HOLDEM, { ...OWN_OMAHA, name: 'Повтор' }])).toEqual([OWN_OMAHA, OWN_HOLDEM])
     expect(parseOwnGames('битое')).toEqual([])
     expect(parseOwnGames(null)).toEqual([])
+  })
+})
+
+describe('своя игра: версия протокола', () => {
+  it('19 — старое приложение (18) за стол не пускают: «обновите приложение»', () => {
+    expect(PROTOCOL_VERSION).toBe(19)
+    const r = handle(newTable(['p0', 'p1'], own(OWN_HOLDEM)), 'p0', { v: 18, type: 'start' }, 0, deckFor(HOLDEM_GAME))
+    expect(r).toEqual({ ok: false, error: VERSION_ERROR })
   })
 })
 
