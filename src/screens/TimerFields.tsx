@@ -56,8 +56,10 @@ export function TimerFields({ form, onChange }: { form: TimerForm; onChange: (fo
   )
 }
 
-// «Следующая раздача сама» — у комнаты и у стола «Против ботов» (#156)
-export function AutoStartField({ value, onChange }: { value: AutoStart; onChange: (mode: AutoStart) => void }) {
+// «Следующая раздача сама» — у комнаты и у стола «Против ботов» (#156); disabled — идёт раздача, а меняется
+// она между раздачами («⚙ Стол», #243)
+export function AutoStartField(props: { value: AutoStart; onChange: (mode: AutoStart) => void; disabled?: boolean }) {
+  const { value, onChange, disabled = false } = props
   return (
     <fieldset className="players-pick">
       <legend className="muted">Следующая раздача сама</legend>
@@ -68,13 +70,16 @@ export function AutoStartField({ value, onChange }: { value: AutoStart; onChange
             type="button"
             className={value === mode ? 'big primary' : 'big'}
             aria-pressed={value === mode}
+            disabled={disabled}
             onClick={() => onChange(mode)}
           >
             {label}
           </button>
         ))}
       </div>
-      <p className="muted">{autoStartNote(value)}.</p>
+      <p className="muted">
+        {autoStartNote(value)}.{disabled && ' Меняется между раздачами.'}
+      </p>
     </fieldset>
   )
 }

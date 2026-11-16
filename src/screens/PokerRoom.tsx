@@ -72,10 +72,11 @@ import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 import { NO_COPY, useHandCopy, useMyCards } from './handCopy'
 import { openGameYear } from './openYears'
-import { HudCard, HudFields, HudLine } from './Hud'
+import { HudCard, HudFields, HudLine, useHudDetailed } from './Hud'
 import { noteOf, type NoteLabels, type PlayerNote } from '../calc/playerNotes'
 import { NoteDot, NotePop, useNotes } from './PlayerNote'
 import { LookFields } from './LookFields'
+import { LookGear } from './TableGear'
 import { playFlights, useLandOnHide } from './cardFly'
 import {
   loadBigBlinds,
@@ -91,8 +92,10 @@ import {
   saveOpenCards,
   saveRecordedGame,
   loadBetStep,
+  lookVersionNow,
   subscribeBetStep,
   subscribeBigBlinds,
+  subscribeLook,
   tableFitStyle,
 } from './pokerStorage'
 import { TimerFields, timerForm, type TimerForm } from './TimerFields'
@@ -336,6 +339,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   // Каждый ответ — в копию на этом телефоне (#114), и когда карточка «История раздач» закрыта.
   // askHistory — новый на каждый вид стола, поэтому в зависимостях только эти два
   const [history, setHistory] = useState(false)
+  useLookVersion() // свой вид сменили в «⚙» (#243) — стол сразу в новом
   const lastKey = JSON.stringify([table.lastHand?.number, table.lastHand?.record?.shown])
   const { online, askHistory } = room
   useEffect(() => {
@@ -429,6 +433,8 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
             </button>
           )}
           {!copyWorks && <p className="warn">{NO_COPY}</p>}
+          {/* «⚙» (#243): свой вид и HUD коротко / подробно — не выходя из комнаты; «Настройки стола» ведущего — у него */}
+          <LookGear />
 
           {v.canShow && (
             <ShowCard
@@ -701,6 +707,11 @@ function useBbUnit(bb: number): number | null {
 // Шаг колеса и «−»/«+» у ползунка (Р-69): выбор в «Настройках» действует на столе сразу
 export function useBetStep(): BetStep {
   return useSyncExternalStore(subscribeBetStep, loadBetStep)
+}
+
+// Свой вид стола сменили (#243: «⚙» за столом) — стол с этим хуком перерисовывается с новым видом
+export function useLookVersion(): number {
+  return useSyncExternalStore(subscribeLook, lookVersionNow)
 }
 
 // Под столом — банки с претендентами
@@ -1144,6 +1155,7 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
   const inBB = useBigBlinds()
   const unit = inBB ? v.bb : null
   const toggleUnit = useUnitToggle(inBB)
+  const hudDetailed = useHudDetailed()
   const mine = v.seats.some((s) => s.isMe)
   const bottom = v.me?.seat ?? 0
   // Широкое окно (#210): панель хода — у правого нижнего угла стола, точки мест — свои, справа внизу мест нет
@@ -1219,6 +1231,7 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
               myCards={s.isMe ? v.myCards : null}
               myHand={s.isMe ? v.myHand : null}
               open={open && !dealing}
+              hudDetailed={hudDetailed}
               onHud={() => {
                 setNoteFor(null)
                 setHudOf(s.id)
@@ -1343,8 +1356,8 @@ function FreeSeat(props: { seat: number; at: Spot; bottom: boolean; onSeat?: (se
 // Место у стола. bottom — нижнее по центру (я): растёт вверх от низа рамки, остальные — от своей точки
 // в обе стороны. myCards — мои карты в раздаче: крупнее чужих, лицом — пока держишь палец или «всегда открыты»;
 // myHand — подпись моей комбинации сейчас, у открытых карт.
-// onHud — касание строки HUD (#79): подробно.
-// note — заметка этого телефона об игроке с этим именем (Р-56): точка у имени; onNote(false) — касание точки, onNote(true) — имени.
+// onHud — касание строки HUD (#79): подробно. hudDetailed — строка подробная, с 3-бетом (#241, #243).
+// note —заметка этого телефона об игроке с этим именем (Р-56): точка у имени; onNote(false) — касание точки, onNote(true) — имени.
 // Моё место (Р-64): касание имени или стека — onUnit, суммы ББ ↔ фишки; заметки о себе нет
 function SeatSpot(props: {
   seat: SeatView
@@ -1353,6 +1366,7 @@ function SeatSpot(props: {
   myCards: Card[] | null
   myHand: string | null
   open: boolean
+  hudDetailed: boolean
   onHud: () => void
   note: PlayerNote | null
   labels: NoteLabels
@@ -1360,7 +1374,7 @@ function SeatSpot(props: {
   unit: number | null // стек и ставка — в ББ (Р-62); null — фишками
   onUnit: () => void
 }) {
-  const { seat: s, at, bottom, myCards, myHand, open, onHud, note, labels, onNote, unit, onUnit } = props
+  const { seat: s, at, bottom, myCards, myHand, open, hudDetailed, onHud, note, labels, onNote, unit, onUnit } = props
   const unitLabel = unit === null ? 'показать суммы в ББ' : 'показать суммы в фишках'
   const marks = [
     s.place !== null && `${s.place} место`,
@@ -1412,7 +1426,7 @@ function SeatSpot(props: {
       ) : (
         <span className="seat-chips">{stackText(s.chips, unit)}</span>
       )}
-      {s.hud && <HudLine hud={s.hud} onOpen={onHud} />}
+      {s.hud && <HudLine hud={s.hud} onOpen={onHud} detailed={hudDetailed} />}
       {myCards ? (
         <PeekCards cards={myCards} open={open} size="mid" label={myHand} className="seat-cards" fly={seatGroup(s.seat)} />
       ) : (

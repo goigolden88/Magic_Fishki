@@ -1877,6 +1877,53 @@ textarea.note-input {
   box-shadow: 0 0.4rem 1.5rem var(--pop-shadow);
 }
 
+/* «⚙» за столом (#243): карточка поверх всего экрана — внизу, над столом виден его верх; на широком окне — справа,
+   стол слева виден целиком. Листается сама, «Готово» — всегда внизу карточки */
+.gear-shade {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0.5rem;
+  /* от гаммы не зависит: стол под карточкой притушен чуть-чуть — новое сукно и рубашку видно */
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.gear-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: min(100%, 34rem);
+  max-height: 80dvh;
+  margin: 0;
+  border: 2px solid var(--gold);
+  box-shadow: 0 0.4rem 1.5rem var(--pop-shadow);
+}
+
+.gear-pop h2 {
+  margin: 0;
+}
+
+.gear-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (min-width: 1024px) {
+  .gear-shade {
+    align-items: stretch;
+    justify-content: flex-end;
+  }
+
+  .gear-pop {
+    max-height: none;
+  }
+}
+
 .hud-name {
   font-size: 1.05rem;
   overflow-wrap: anywhere;
