@@ -4,6 +4,7 @@ import {
   backupText,
   lastBackupText,
   makeBackup,
+  mergeOwnGames,
   mergePokerPrefs,
   parseBackup,
   planRestore,
@@ -63,6 +64,7 @@ import {
   loadDockSizeChoice,
   loadMyLook,
   loadNotes,
+  loadOwnGames,
   loadQuickBets,
   loadQuickBetsChoice,
   loadQuickRoom,
@@ -75,6 +77,7 @@ import {
   saveDockSize,
   saveMyLook,
   saveNotes,
+  saveOwnGames,
   saveQuickBets,
   saveQuickRoom,
   saveServer,
@@ -456,7 +459,7 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
   // Заметки об игроках и подписи цветов (Р-56) — из памяти телефона, читаются сразу, без ожидания
   function backupNow(now: string) {
     const { notes, labels } = loadNotes()
-    return makeBackup(games ?? [], settings, now, hands, notes, labels, loadMyLook(), localPokerPrefs(), charts)
+    return makeBackup(games ?? [], settings, now, hands, notes, labels, loadMyLook(), localPokerPrefs(), charts, loadOwnGames())
   }
 
   // Сохранил ли браузер файл, приложению не узнать (на iPhone — не всегда): обещать нельзя
@@ -552,6 +555,10 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
     saveBetStep(poker.betStep)
     // Гамма (Р-70): здесь не выбрана — из копии, и сразу на экране; выбранная здесь остаётся
     saveTheme(poker.theme)
+    // Свои игры (Р-85): из копии — те, которых здесь нет по id; свои не трогаются
+    const ownBefore = loadOwnGames()
+    const ownGames = mergeOwnGames(ownBefore, parsed.backup.ownGames)
+    saveOwnGames(ownGames)
     onLook()
     onPlayers(plan.players)
     setGames(await listGames())
@@ -560,7 +567,9 @@ function BackupCard(props: { settings: Settings; onPlayers: (players: Regular[])
     const handsNote = plan.hands.length > 0 ? `; раздач покера добавлено ${plan.hands.length}` : ''
     const notesNote = merged.added > 0 ? `; заметок об игроках добавлено ${merged.added}` : ''
     const chartsNote = plan.charts.length > 0 ? `; чартов добавлено ${plan.charts.length}` : ''
-    setNote({ ok: true, text: `Добавлено ${plan.added.length}, уже были ${plan.existing}${handsNote}${notesNote}${chartsNote}` })
+    const ownAdded = ownGames.length - ownBefore.length
+    const ownNote = ownAdded > 0 ? `; своих игр добавлено ${ownAdded}` : ''
+    setNote({ ok: true, text: `Добавлено ${plan.added.length}, уже были ${plan.existing}${handsNote}${notesNote}${chartsNote}${ownNote}` })
   }
 
   return (
@@ -803,7 +812,7 @@ function QuickRoomCard({ defaultBuyin, players }: { defaultBuyin: number; player
         По умолчанию для кнопки «Быстрая комната» на «Играть»: с какой игрой, блайндами, стеком и таймером она создаёт
         стол одним касанием. Для одного стола — «Настроить…» там же. Только на этом телефоне; есть в копии.
       </p>
-      <p>{quickRoomLine(quickRoomSettings(defaultBuyin, own))}</p>
+      <p>{quickRoomLine(quickRoomSettings(defaultBuyin, own, loadOwnGames()))}</p>
       <button type="button" className="big wide" aria-expanded={open} onClick={() => setOpen(!open)}>
         {open ? 'Свернуть быструю комнату' : 'Настроить быструю комнату'}
       </button>

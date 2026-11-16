@@ -358,7 +358,8 @@ describe.each(MODES)('запас времени (#223) (%s)', (_, rt) => {
   })
 
   it('старая копия приложения (протокол 17) — «обновите приложение»', () => {
-    expect(PROTOCOL_VERSION).toBe(18)
+    // 18 — запас времени; с #224 (свои игры) — 19, старая копия отказ получает так же
+    expect(PROTOCOL_VERSION).toBeGreaterThan(17)
     expect(handle(banked(), 'h', { v: 17, type: 'tableSettings', timeBank: 60 }, 0)).toEqual({ ok: false, error: VERSION_ERROR })
   })
 

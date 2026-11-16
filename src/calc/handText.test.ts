@@ -4,6 +4,8 @@ import type { HistoryHand } from '../poker/history'
 import { call, check, fold, newTable, play, raise, stackedDeck, start } from '../poker/testing'
 import { botsEvening, eveningTable, roomEvening, savedHands, type EveningTable, type SavedHand } from './evenings'
 import { handsFileName, handsText, handText } from './handText'
+import type { OwnGame } from '../poker/ownGame'
+import { historyHandView } from './pokerView'
 
 const PHONES = { cards: 'phones' as const }
 
@@ -24,6 +26,38 @@ function saved(me: string | null, hand: HistoryHand, mine?: string[]): SavedHand
   const e = roomEvening('KQ7MZP', table, me)
   return savedHands(e, [hand], mine ? new Map([[hand.number, mine]]) : undefined)[0]
 }
+
+describe('своя игра (#224): выгрузка и история называют её названием, улицы — по её кругам', () => {
+  const game: OwnGame = { id: 'own-o5', name: 'Омаха-5', hole: 5, fromHand: 2, deck: 52, order: 'standard', board: [2, 2, 1], limit: 'pot' }
+  const t = newTable(['p0', 'p1'], { cards: 'phones', games: [game], game: game.id })
+  // Хедз-ап: кнопка P0, сдача — сначала P1
+  const hole = [
+    ['2c', '3c', '4c', '5c', '6c'],
+    ['Ah', 'Ad', 'Kh', 'Kd', 'Qh'],
+  ]
+  const deck = stackedDeck(hole, ['7s', '8s', '9d', 'Td', 'Js'])
+  const pass = [check('p1'), check('p0')]
+  const s = play(t, [start('p0', deck), call('p0'), check('p1'), ...pass, ...pass, ...pass], false)
+  const hand = s.lastHand as HistoryHand
+  const one = savedHands(roomEvening('KQ7MZP', s, 'p0'), [hand], new Map([[hand.number, hole[1]]]))[0]
+
+  it('шапка — названием и лимитом своей игры, улицы — по две, две и одной карте', () => {
+    expect(one.table?.game).toBe('own-o5')
+    const text = handText(one)
+    expect(text.split('\n')[0]).toMatch(/^PokerStars Hand #\d+0001: Омаха-5 Pot Limit \(5\/10\) - /)
+    expect(text).toContain('Dealt to P0 [Ah Ad Kh Kd Qh]')
+    expect(text).toContain('*** FLOP *** [7s 8s]\nP1: checks')
+    expect(text).toContain('*** TURN *** [7s 8s] [9d Td]')
+    expect(text).toContain('*** RIVER *** [7s 8s 9d Td] [Js]')
+    expect(text).toContain('Board [7s 8s 9d Td Js]')
+  })
+
+  it('история раздачи: шапка — названием, у улиц — карты стола к ним', () => {
+    const view = historyHandView(one)
+    expect(view.head).toBe('Омаха-5, пот-лимит · блайнды 5/10')
+    expect(view.streets.map((x) => x.board.length)).toEqual([0, 2, 4, 5])
+  })
+})
 
 describe('выгрузка раздачи текстом покер-румов', () => {
   const { first, second } = evening()

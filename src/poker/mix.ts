@@ -2,7 +2,8 @@
 // предлагает другую игру, остальные за столом — «За» или «Против» до срока; не ответил — «За».
 // Смена — если «против» не больше доли, заданной ведущим (mixAgainst); новая игра держится до
 // следующего предложения. Правила хода голосования — в table.ts, здесь — типы и счёт
-import type { GameId } from './game'
+// Игра — встроенная или своя игра стола (#224)
+import type { TableGameId } from './ownGame'
 
 // Доля «против», при которой смена ещё проходит: не больше трети, половины или двух третей голосовавших
 export type MixShare = 'third' | 'half' | 'twothirds'
@@ -24,8 +25,8 @@ export const MIX_VOTE_MS = 15_000
 export type MixVote = {
   after: number
   by: string
-  from: GameId
-  game: GameId
+  from: TableGameId
+  game: TableGameId
   deadline: number
   voters: string[]
   answers: Record<string, boolean>
@@ -34,8 +35,8 @@ export type MixVote = {
 // Итог голосования — видят все до конца следующей раздачи. cancelled — ведущий нажал «Без смены»
 export type MixResult = {
   after: number
-  from: GameId
-  game: GameId
+  from: TableGameId
+  game: TableGameId
   changed: boolean
   against: number
   total: number

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildDeck, HOLDEM, OMAHA, SHORT_DECK, winners, type Card, type Variant } from '../poker/cards'
 import { allin, call, check, fold, newTable, play, raise, stackedDeck, start } from '../poker/testing'
 import { viewFor, type HandRecord } from '../poker/table'
-import { allInOdds, equity, percents } from './allInOdds'
+import { allInOdds, equity, percents, SAMPLES, WORK } from './allInOdds'
 
 // Образец — полный перебор досдач через winners из правил покера (медленно, только с флопа и тёрна)
 function reference(variant: Variant, hands: Card[][], board: Card[]): number[] {
@@ -100,6 +100,34 @@ describe('шансы на ва-банке: расчёт', () => {
     const t = Date.now()
     expect(percents(equity(OMAHA, omaha, [], 5)!).reduce((a, b) => a + b, 0)).toBe(100)
     expect(Date.now() - t).toBeLessThan(1000)
+  })
+
+  it('своя игра (#224): 7 карт «любые» втроём до флопа — выборка меньше, не дольше 300 мс; ответ один и тот же', () => {
+    const any7: Variant = { ...HOLDEM }
+    const hands = [
+      ['Ah', 'Kh', 'Qd', 'Jd', '9s', '4c', '2h'],
+      ['Tc', 'Ts', '8c', '7c', '6h', '3d', '3s'],
+      ['5s', '6s', 'As', '2d', 'Kc', 'Qc', '8d'],
+    ]
+    equity(any7, [['Ah', 'Kh'], ['Qs', 'Qd']], [], 5) // разогрев
+    const t = performance.now()
+    const first = equity(any7, hands, [], 5)!
+    expect(performance.now() - t).toBeLessThan(300)
+    // Работа — не больше, чем у холдема на шестерых с SAMPLES досдач
+    expect(Math.floor(WORK / (3 * 792)) * 3 * 792).toBeLessThanOrEqual(SAMPLES * 6 * 21)
+    expect(percents(first).reduce((a, b) => a + b, 0)).toBe(100)
+    expect(equity(any7, hands, [], 5)).toEqual(first)
+    // Омаха на 7 карт («ровно 2») и с флопа — полный перебор, как по правилам
+    const omaha7 = hands.map((h) => h.slice(0, 7))
+    expect(percents(equity(OMAHA, omaha7, [], 5)!).reduce((a, b) => a + b, 0)).toBe(100)
+    expectSame(OMAHA, [hands[0], hands[1]], ['9d', '9h', '7d'])
+  })
+
+  it('холдем и омаха — выборка прежняя: те же проценты, что до своих игр', () => {
+    const six = [['As', 'Ah'], ['Kd', 'Kc'], ['Qs', 'Jd'], ['7c', '8c'], ['2d', '2h'], ['Ac', 'Td']]
+    expect(percents(equity(HOLDEM, six, [], 5)!)).toEqual([34, 17, 11, 20, 13, 5])
+    const omaha = [['Ah', 'Kh', 'Qd', 'Jd'], ['Tc', 'Ts', '8c', '7c'], ['5s', '6s', 'As', '2d']]
+    expect(percents(equity(OMAHA, omaha, [], 5)!)).toEqual([44, 32, 24])
   })
 
   it('округление: разница — первому', () => {

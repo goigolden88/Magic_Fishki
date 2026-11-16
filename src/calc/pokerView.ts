@@ -12,7 +12,8 @@ import { bankOf, blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type HandRecord, typ
 import { allInOdds } from './allInOdds'
 import { handBlinds as tableBlinds, type SavedHand } from './evenings'
 import { handMoney, handNet, handPositions, positionLabels } from './handResult'
-import { handText } from './handText'
+import { isOwnGameId } from '../poker/ownGame'
+import { boardAtOf, handText } from './handText'
 import { runBoards, type RunBoardView } from './pokerRuns'
 import {
   buildLevels,
@@ -226,9 +227,12 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
   const myHole = cards?.hole[meId]
   const myCards = myHole && myHole.length > 0 && myHole.every((c) => c !== null) ? (myHole as Card[]) : null
   const mySeat = hand?.seats.find((s) => s.id === meId)
-  // Правило руки — варианта раздачи (омаха — ровно две из руки, шорт-дек — свой порядок)
+  // Правило руки — варианта раздачи (омаха — ровно две из руки, шорт-дек — свой порядок). Своя игра (#224):
+  // «ровно N из руки» — со стола нужно 5 − N, а первый круг стола может быть меньше трёх карт
+  const fromHand = cards?.game.variant.fromHand
+  const boardNeed = Math.max(3, typeof fromHand === 'number' ? 5 - fromHand : 0)
   const myHand =
-    cards && myCards && mySeat && !mySeat.folded && cards.board.length >= 3
+    cards && myCards && mySeat && !mySeat.folded && cards.board.length >= boardNeed
       ? bestHand(cards.game.variant, myCards, cards.board).name
       : null
   const hidden = record?.hidden?.playerId === meId ? record.hidden : null
@@ -697,8 +701,10 @@ function headOf(s: SavedHand): string {
   const record = s.hand.record
   const t = s.table
   const id = record?.game.id ?? t?.game ?? 'holdem'
-  const limit = t?.limit ?? (id === 'omaha' ? 'pot' : 'nolimit')
-  const game = `${GAME_LABELS[id] ?? GAME_LABELS.holdem}, ${limit === 'pot' ? 'пот-лимит' : 'без лимита'}`
+  // Своя игра (#224) — её названием; лимит — стола, если игра та же, иначе без лимита (как в выгрузке)
+  const own = isOwnGameId(id) ? record?.game.name : undefined
+  const limit = own !== undefined && t?.game !== id ? 'nolimit' : (t?.limit ?? (id === 'omaha' ? 'pot' : 'nolimit'))
+  const game = `${own ?? GAME_LABELS[id] ?? GAME_LABELS.holdem}, ${limit === 'pot' ? 'пот-лимит' : 'без лимита'}`
   const blinds = record ? { sb: record.sb, bb: record.bb, ante: record.ante ?? 0 } : t && !t.tournament ? t : null
   const blindsText = blinds
     ? ` · блайнды ${formatNumber(blinds.sb)}/${formatNumber(blinds.bb)}${blinds.ante > 0 ? `, анте ${formatNumber(blinds.ante)}` : ''}`
@@ -723,10 +729,13 @@ function streetsOf(h: HistoryHand, blinds: { sb: number; bb: number } | null): H
   const runs = record?.runs && record.runs.length > 1 ? record.runs.map((r) => r.board) : null
   const board = runs ? runs[0].slice(0, commonLength(runs)) : (record?.board ?? [])
   const money = handMoney(h, blinds)
+  // Улицы и карт стола к каждой — по описанию игры раздачи (своя игра, #224); у живых карт — как в холдеме
+  const rounds = Array.isArray(record?.game.rounds) && record.game.rounds.length > 0 ? record.game.rounds : null
+  const boardAt = rounds ? boardAtOf(rounds) : BOARD_AT
   const out: HistoryStreet[] = []
-  for (const street of STREETS) {
+  for (const street of rounds ? rounds.map((r) => r.street) : STREETS) {
     const moves = log.filter((e) => e.street === street).map((e) => `${names.get(e.playerId) ?? 'Ушёл'}: ${moveText(e)}`)
-    const at = BOARD_AT[street]
+    const at = boardAt[street]
     if (street !== 'preflop' && moves.length === 0 && board.length < at) continue
     out.push({ label: STAGE_LABELS[street], board: board.slice(0, at), pot: money?.potAt[street] ?? null, moves })
   }

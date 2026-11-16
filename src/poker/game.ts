@@ -19,6 +19,7 @@ export type GameRound = { street: Street; deal: DealStep[] }
 
 export type GameDef = {
   id: string
+  name?: string // у своей игры (#224) — её название; у встроенных поля нет
   variant: Variant // колода и правило руки
   rounds: GameRound[]
 }

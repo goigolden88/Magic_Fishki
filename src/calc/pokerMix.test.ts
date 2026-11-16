@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { deckFor, HOLDEM_GAME } from '../poker/game'
 import { MIX_VOTE_MS } from '../poker/mix'
+import type { OwnGame } from '../poker/ownGame'
 import type { ClientBody } from '../poker/protocol'
 import { fold, newTable, play, start, type Step } from '../poker/testing'
 import { mixView } from './pokerMix'
@@ -53,5 +54,37 @@ describe('mixView', () => {
     expect(mixView(cancelled, 'p2', 0)).toEqual({ kind: 'result', line: 'Остаёмся в холдем — ведущий оставил игру' })
     expect(mixView(play(yes, [start('p0', deckFor(HOLDEM_GAME))], false), 'p0', 0)).toBeNull()
     expect(mixView(afterHand(false), 'p0', 0)).toBeNull()
+  })
+
+  it('своя игра стола (#224) — в выборе после встроенных, в голосовании и итоге — названием, без падежей', () => {
+    const omaha6: OwnGame = { id: 'own-o6', name: 'Омаха-6', hole: 6, fromHand: 2, deck: 52, order: 'standard', board: [3, 1, 1], limit: 'pot' }
+    const s = play(
+      newTable(['p0', 'p1', 'p2', 'p3'], { cards: 'phones', mix: true, games: [omaha6], maxSeats: 6 }),
+      [start('p0', deckFor(HOLDEM_GAME)), fold('p3'), fold('p0'), fold('p1')],
+      false,
+    )
+    expect(mixView(s, 'p0', 0)).toEqual({
+      kind: 'propose',
+      choices: [
+        ['omaha', 'Омаха'],
+        ['shortdeck', 'Шорт-дек'],
+        ['own-o6', 'Омаха-6'],
+      ],
+    })
+    const base = play(s, [msg('p0', { type: 'mixPropose', game: 'own-o6' })], false)
+    expect(mixView(base, 'p1', 0)).toMatchObject({ kind: 'vote', line: 'P0 (батон) предлагает игру „Омаха-6“' })
+    expect(mixView(base, 'p0', 0)).toMatchObject({ line: 'Вы предложили игру „Омаха-6“' })
+    const yes = play(base, ['p1', 'p2', 'p3'].map((id) => msg(id, { type: 'mixVote', yes: true })), false)
+    expect(mixView(yes, 'p1', 0)).toEqual({ kind: 'result', line: 'Следующая раздача — „Омаха-6“' })
+    // Идёт своя — в выборе остальные, и встроенный холдем
+    const later = play(
+      yes,
+      [start('p0', deckFor(HOLDEM_GAME)), fold('p0'), fold('p1'), fold('p2')],
+      false,
+    )
+    const proposer = later.players.find((p) => p.seat === later.buttonSeat)!.id
+    expect(mixView(later, proposer, 0)).toMatchObject({ kind: 'propose', choices: [['holdem', 'Холдем'], ['omaha', 'Омаха'], ['shortdeck', 'Шорт-дек']] })
+    const back = play(later, [msg(proposer, { type: 'mixPropose', game: 'holdem' }), ...['p0', 'p1', 'p2', 'p3'].filter((id) => id !== proposer).map((id) => msg(id, { type: 'mixVote', yes: false }))], false)
+    expect(mixView(back, 'p0', 0)).toEqual({ kind: 'result', line: 'Остаёмся в игре „Омаха-6“ — против 3 из 4' })
   })
 })

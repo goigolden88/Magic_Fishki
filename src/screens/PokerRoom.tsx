@@ -69,7 +69,7 @@ import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS } from '../model'
 import type { Card } from '../poker/cards'
 import { FINISHED, type ClientBody } from '../poker/protocol'
-import { limitFor, type TableState } from '../poker/table'
+import { limitFor, ownGameOf, type TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 import { NO_COPY, useHandCopy, useMyCards } from './handCopy'
@@ -682,14 +682,18 @@ export function RunDock(props: { run: RunView; online: boolean; onChoose: (times
 }
 
 // Строка над столом: блайнды и анте раздачи (между раздачами — следующей); в турнире — с уровнем;
-// омаха (#80) — с лимитом, шорт-дек (#81) — названием, холдем — без подписи; «прогон до двух раз» (#167) — в конце
+// омаха (#80) — с лимитом, шорт-дек (#81) — названием, своя игра (#224) — названием и лимитом, холдем — без подписи;
+// «прогон до двух раз» (#167) — в конце
 export function blindsLine(table: TableState, v: TableView): string {
   const runs = runsText(table.settings)
   const hand = table.hand
   const t = v.tournament
   const blinds = hand ? { sb: hand.sb, bb: hand.bb, ante: hand.ante ?? 0 } : t ? t.blinds : { ...table.settings, ante: v.ante }
-  const game =
-    table.settings.game === 'omaha'
+  // Своя игра (#224) — названием и лимитом
+  const own = ownGameOf(table.settings)
+  const game = own
+    ? `${own.name}, ${own.limit === 'pot' ? 'пот-лимит' : 'без лимита'} · `
+    : table.settings.game === 'omaha'
       ? `Омаха, ${limitFor(table.settings) === 'pot' ? 'пот-лимит' : 'без лимита'} · `
       : table.settings.game === 'shortdeck'
         ? 'Шорт-дек · '
