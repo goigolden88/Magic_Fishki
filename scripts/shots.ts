@@ -1232,6 +1232,59 @@ async function gearOnly(cdp: Cdp): Promise<void> {
   }
 }
 
+// npm run shots -- smotret: наблюдение за столом с ботами (#244), на телефоне и ноутбуке: в мой ход «⚙ Стол» →
+// «Отойти и смотреть» (карточка — уже с «Вернуться за стол»), «Готово»; свою раздачу — «Пас», следующая — без меня
+async function watchOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES.slice(0, 2)) {
+    console.log(`Наблюдение за столом с ботами, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await screen('Против ботов, наблюдение', size, async () => {
+      await botsTable(d, 3)
+      await d.click('⚙ Стол')
+      await d.waitText('Этот стол')
+      await d.click('Отойти и смотреть')
+      await d.waitText('Вернуться за стол')
+      await d.eval(`(() => {
+        const b = [...document.querySelectorAll('.gear-pop button')].find((e) => e.innerText.trim() === 'Вернуться за стол')
+        b.scrollIntoView({ block: 'center' })
+        return true
+      })()`)
+      await d.shot('14a-nablyudenie-gear', false)
+      await d.click('Готово')
+      await waitGone(d, 'Этот стол')
+      await watchUntilBotsPlay(d)
+      await d.waitText('Вы смотрите: раздачи идут без вас')
+      await d.shot('14b-nablyudenie-stol')
+      // Под столом — карточка «Стол с ботами» со строкой «Вы смотрите»
+      await d.eval(`(() => {
+        const h = [...document.querySelectorAll('h2')].find((e) => e.innerText.trim() === 'Стол с ботами')
+        h.scrollIntoView({ block: 'center' })
+        return true
+      })()`)
+      await d.shot('14c-nablyudenie-kartochka', false)
+    })
+  }
+}
+
+// Наблюдение: своя раздача — «Пас» в свой ход, пока внизу не «Вы смотрите · Ждём хода» — раздача без меня
+async function watchUntilBotsPlay(d: Device): Promise<void> {
+  const started = Date.now()
+  while (Date.now() - started < BOTS_TIMEOUT) {
+    const state = await d.eval<string>(`(() => {
+      if (document.body.innerText.includes('Вы смотрите · Ждём хода')) return 'watch'
+      const fold = [...document.querySelectorAll('.dock.actions button')].find((b) => b.innerText.trim() === 'Пас' && !b.disabled)
+      if (fold) {
+        fold.click()
+        return 'fold'
+      }
+      return 'wait'
+    })()`)
+    if (state === 'watch') return
+    await sleep(300)
+  }
+  throw new Error(`за ${BOTS_TIMEOUT / 1000} с не пошла раздача без меня — нет «Вы смотрите · Ждём хода»`)
+}
+
 // Против ботов с bots ботами (1…5) — с чистого хранилища: форма, «Начать», мой ход
 async function botsTable(d: Device, bots: number): Promise<void> {
   await themeOnly(d)
@@ -1401,16 +1454,19 @@ async function main(): Promise<void> {
     const onlyHud = process.argv.includes('hud') // npm run shots -- hud: «Боты читают» в карточке HUD (#240)
     const onlyTimeBank = process.argv.includes('zapas') // npm run shots -- zapas: запас времени в формах (#223)
     const onlyGear = process.argv.includes('gear') // npm run shots -- gear: «⚙ Стол» за столом с ботами (#243)
-    const part = onlyTrainer || onlyChoices || onlyHistory || onlyHud || onlyTimeBank || onlyGear
+    const onlyWatch = process.argv.includes('smotret') // npm run shots -- smotret: наблюдение за столом с ботами (#244)
+    const part = onlyTrainer || onlyChoices || onlyHistory || onlyHud || onlyTimeBank || onlyGear || onlyWatch
     if (onlyTimeBank) await timeBankOnly(cdp)
     if (onlyHud) await hudOnly(cdp)
     if (onlyGear) await gearOnly(cdp)
+    if (onlyWatch) await watchOnly(cdp)
     if (onlyTrainer) await trainerOnly(cdp)
     if (onlyChoices) await choicesOnly(cdp)
     if (onlyHistory) await historyOnly(cdp)
     if (!onlyTable && !part) for (const size of SIZES) await scenario(cdp, size, theme, uchet)
     if (!uchet && !part) for (const size of SIZES) await wideTableStep(cdp, size)
     if (!onlyTable && !uchet && !part) await gearOnly(cdp)
+    if (!onlyTable && !uchet && !part) await watchOnly(cdp)
     if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !part) {
       for (const other of ['club', 'day'] as const) for (const size of SIZES) await themeScenario(cdp, size, other)
     }

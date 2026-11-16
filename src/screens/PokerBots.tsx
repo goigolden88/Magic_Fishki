@@ -5,6 +5,7 @@ import { NO_COPY, useHandCopy, useMyCards } from './handCopy'
 import {
   autoDealBotHand,
   autoFinishNow,
+  backError,
   BOT_PAUSE_MS,
   botAutoStart,
   botGameLine,
@@ -15,16 +16,19 @@ import {
   botStep,
   botTableView,
   botToAct,
+  botWatch,
   canTopUpAll,
   dealBotHand,
   finishBotHand,
   iAmBroke,
+  iWatch,
   myMove,
   myRebuy,
   resumeBotTable,
   setBotAutoStart,
   setBotFlag,
   topUpAll,
+  watchError,
   type BotStep,
   type BotTable,
 } from '../calc/botTable'
@@ -194,8 +198,16 @@ function BotTableCard(props: {
   const evening = botsEvening(bots.id, table, bots.meId)
   const mine = useMyCards(evening.id, table, v.myCards, false)
   const copyWorks = useHandCopy(evening, history, mine)
-  // Мои фишки кончились — вместо «Начать раздачу» карточка «Докупиться» / «Закончить»
+  // Мои фишки кончились — вместо «Начать раздачу» карточка «Докупиться» / «Закончить»; в наблюдении (#244) — нет:
+  // боты играют и при моём нуле, «Докупиться» — в карточке стола, перед «Вернуться за стол»
   const broke = iAmBroke(bots)
+  const watch = iWatch(bots)
+  const watchBroke = watch && backError(bots) !== null
+  const rebuyButton = (
+    <button type="button" className="big primary wide" onClick={() => apply((bt, now) => myRebuy(bt, now))}>
+      Докупиться на {formatNumber(table.settings.startingStack)}
+    </button>
+  )
   const dock = broke ? 'none' : dockOf(v)
   const level = BOT_LEVELS.find(([l]) => l === bots.level)?.[1] ?? ''
   const botCount = table.players.length - 1
@@ -232,9 +244,7 @@ function BotTableCard(props: {
           {broke && (
             <section className="card">
               <h2>Фишки кончились</h2>
-              <button type="button" className="big primary wide" onClick={() => apply((bt, now) => myRebuy(bt, now))}>
-                Докупиться на {formatNumber(table.settings.startingStack)}
-              </button>
+              {rebuyButton}
               {topUp && topUpButton}
               <button type="button" className="big wide danger-text" onClick={onFinish}>
                 Закончить
@@ -263,6 +273,14 @@ function BotTableCard(props: {
               {auto && ' Следующая раздача начинается сама.'}
               {bots.autoFinish && ' После паса раздача доигрывается сразу.'}
             </p>
+            {/* Наблюдение (#244): раздачи идут без меня; «Вернуться за стол» — в «⚙ Стол» */}
+            {watch && (
+              <p>
+                <strong>Вы смотрите: раздачи идут без вас.</strong>{' '}
+                {watchBroke ? 'Ваши фишки кончились — чтобы вернуться за стол, сначала докупитесь.' : 'Вернуться — в «⚙ Стол».'}
+              </p>
+            )}
+            {watchBroke && rebuyButton}
             {/* «⚙ Стол» (#243) — и во время раздачи: свой вид и галочки стола, не выходя из-за него */}
             <button type="button" className="big wide" aria-haspopup="dialog" onClick={() => setGear(true)}>
               ⚙ Стол
@@ -307,7 +325,10 @@ function BotTableCard(props: {
             </button>
           </section>
         )}
-        {dock === 'wait' && !playOn && <p className="dock wait-strip">{waitLine(v)}</p>}
+        {/* Смотрю, меня в раздаче нет — «Вы смотрите» вместо «Доиграть сразу»: раздача идёт с паузами ботов (#244) */}
+        {dock === 'wait' && !playOn && (
+          <p className="dock wait-strip">{watch && !v.me?.inHand ? `Вы смотрите · ${waitLine(v)}` : waitLine(v)}</p>
+        )}
         {dock === 'host' && topUp && <section className="dock">{topUpButton}</section>}
         {dock === 'host' && (
           <HostDock view={v} pause={auto} onStart={() => apply((bt, now) => dealBotHand(bt, now))} onPause={pause} />
@@ -318,9 +339,15 @@ function BotTableCard(props: {
 }
 
 // «⚙ Стол» (#243): поверх стола, игра идёт. «Мой вид стола» — этого телефона, за всеми столами; «Стол» — этого
-// стола, хранится в нём и меняется сразу. «Следующая раздача сама» — настройка стола ведущего: между раздачами
+// стола, хранится в нём и меняется сразу. «Следующая раздача сама» — настройка стола ведущего: между раздачами.
+// «Отойти и смотреть» / «Вернуться за стол» (#244) — и во время раздачи: идущую, где я в игре, доигрываю
 function BotGear({ bots, apply, onClose }: { bots: BotTable; apply: Apply; onClose: () => void }) {
   const flags = { open: bots.open, showStyles: bots.showStyles, hudAll: bots.hudAll, autoFinish: bots.autoFinish }
+  const watch = iWatch(bots)
+  const why = watch ? backError(bots) : watchError(bots)
+  const note = watch
+    ? 'Вы смотрите: раздачи идут без вас. Вернётесь — в раздаче со следующей.'
+    : 'Боты играют без вас, ваши фишки лежат на месте. Раздачу, где вы в игре, доиграете.'
   return (
     <GearPop title="Стол" onClose={onClose}>
       <MyLookPart heading />
@@ -331,6 +358,20 @@ function BotGear({ bots, apply, onClose }: { bots: BotTable; apply: Apply; onClo
         disabled={Boolean(bots.table.hand)}
         onChange={(mode) => apply((bt, now) => setBotAutoStart(bt, mode, now))}
       />
+      <button
+        type="button"
+        className={watch ? 'big primary wide' : 'big wide'}
+        disabled={why !== null}
+        onClick={() => apply((bt, now) => botWatch(bt, !watch, now))}
+      >
+        {watch ? 'Вернуться за стол' : 'Отойти и смотреть'}
+      </button>
+      <p className="muted">{why ?? note}</p>
+      {watch && why !== null && (
+        <button type="button" className="big primary wide" onClick={() => apply((bt, now) => myRebuy(bt, now))}>
+          Докупиться на {formatNumber(bots.table.settings.startingStack)}
+        </button>
+      )}
     </GearPop>
   )
 }
