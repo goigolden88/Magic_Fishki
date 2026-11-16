@@ -459,7 +459,7 @@ function EveningResultTable({ hands }: { hands: SavedHand[] }) {
         <tbody>
           {result.players.map((p) => (
             <tr key={p.id} className={p.me ? 'history-me' : undefined}>
-              <td>{p.me ? `${p.name} (вы)` : p.name}</td>
+              <td>{p.me && p.name !== 'Вы' ? `${p.name} (вы)` : p.name}</td>
               <td className="num">{formatNumber(p.hands)}</td>
               <td className={`num ${signClass(p.net)}`}>{formatChips(p.net, true)}</td>
               <td className={`num ${signClass(Math.round(p.bb * 10))}`}>{formatTenths(p.bb, true)}</td>
