@@ -48,6 +48,9 @@ export type Settings = {
   cards: CardsMode // у столов до этапа 2 поля нет — живые карты
   // Время на ход, секунд (TURN_MIN_S…TURN_MAX_S); null — без таймера. У столов до #75 полей нет — выкл
   turnSeconds?: number | null
+  // Запас времени (#223), секунд на игрока: одно из TIME_BANK_PRESETS; только вместе с turnSeconds.
+  // null — нет; у столов до него поля нет — нет
+  timeBank?: number | null
   autoStart?: AutoStart // следующая раздача сама — пауза после раздачи банков
   // Вид стола (#77) — выбор ведущего из готовых; у столов до него полей нет — зелёное и классика
   felt?: Felt
@@ -88,6 +91,13 @@ export const AUTO_START_MS: Record<Exclude<AutoStart, 'off'>, number> = { fast: 
 
 export const TURN_MIN_S = 10
 export const TURN_MAX_S = 300
+
+// Запас времени (#223, как у PokerStars): начальный на выбор, каждые TIME_BANK_EVERY раздач стола
+// всем за столом +TIME_BANK_ADD_S, но не больше TIME_BANK_MAX_S
+export const TIME_BANK_PRESETS = [15, 30, 60]
+export const TIME_BANK_ADD_S = 5
+export const TIME_BANK_EVERY = 10
+export const TIME_BANK_MAX_S = 60
 
 // Два истечения хода подряд — игрок пропускает раздачи
 export const TIMEOUTS_TO_SIT_OUT = 2
@@ -190,6 +200,8 @@ export type TableState = {
   paused?: boolean // «Перерыв»: новая раздача не начинается, таймер стоит
   nextHandAt?: number | null // когда начнётся раздача «сама»; null — не начнётся
   timeouts?: Record<string, number> // истечений хода подряд у игрока
+  // Запас времени (#223): сколько осталось у игрока, мс, — без идущего хода; у столов до него поля нет — запаса нет
+  timeBank?: Record<string, number>
   // Турнир (#78): часы уровней, места, призы; null — турнир не начат или стол — кэш. У столов до #78 поля нет
   tournament?: TournamentState | null
   // HUD вечера (#79): счётчики по игрокам за этот стол, прибавляются в конце раздачи (hud.ts).
@@ -202,8 +214,9 @@ export type TableState = {
   runVote?: RunVote | null
 }
 
-// Срок хода: ход — номер раздачи и число ходов в ней (log), чтобы будильник не принял старый срок за новый
-export type TurnClock = { hand: number; move: number; deadline: number }
+// Срок хода: ход — номер раздачи и число ходов в ней (log), чтобы будильник не принял старый срок за новый.
+// bank (#223) — время на ход вышло и идёт запас: чей и с какого мгновения (deadline — его конец); нет поля — идёт время на ход
+export type TurnClock = { hand: number; move: number; deadline: number; bank?: { playerId: string; from: number } }
 
 export type Result = { ok: true; state: TableState } | { ok: false; error: string }
 
@@ -293,6 +306,14 @@ export function onTime(state: TableState, now: number, deck?: Card[]): TableStat
   const turn = state.turn
   if (hand && turn && now >= turn.deadline && sameTurn(turn, hand) && !state.paused) {
     const next = structuredClone(state)
+    // Запас (#223): время на ход вышло, а у игрока в сети есть запас — срок продлевается на весь запас,
+    // в журнале ходов пометки нет. Вне сети запас не тратится; ушёл из сети уже на запасе — срок прежний
+    const id = hand.seats[hand.toAct].id
+    const bank = bankOf(state, id)
+    if (!turn.bank && bank > 0 && state.players.find((p) => p.id === id)?.online) {
+      next.turn = { ...turn, deadline: turn.deadline + bank, bank: { playerId: id, from: turn.deadline } }
+      return next
+    }
     if (expire(next, now)) return null
     clock(next, now)
     return next
@@ -328,8 +349,10 @@ function expire(state: TableState, now: number): string | null {
 }
 
 // Срок хода после любой перемены стола: новый ход — новый срок от now; тот же — срок прежний.
-// Перерыв или таймер выключен — срока нет; идёт раздача — раздачи «сама» нет
+// Перерыв или таймер выключен — срока нет; идёт раздача — раздачи «сама» нет.
+// Ход на запасе кончился — потраченное из запаса вычтено (spendBank), новый ход — снова полное время на ход
 function clock(state: TableState, now: number): void {
+  spendBank(state, now)
   const hand = state.hand
   if (hand) state.nextHandAt = null
   const seconds = state.settings.turnSeconds ?? null
@@ -343,6 +366,38 @@ function clock(state: TableState, now: number): void {
 
 function sameTurn(turn: TurnClock, hand: Hand): boolean {
   return turn.hand === hand.number && turn.move === hand.log.length && hand.toAct !== -1
+}
+
+// Запас игрока сейчас, мс, без идущего хода; за столом запаса нет (и у столов до #223) — 0
+export function bankOf(state: TableState, playerId: string): number {
+  return state.settings.timeBank ? (state.timeBank?.[playerId] ?? 0) : 0
+}
+
+// Ход шёл на запасе и кончился — сходил сам, за него, раздача окончена, «Перерыв»: из запаса — потраченное
+// с конца времени на ход до now, один раз (срок снят). Тот же ход и не перерыв — ничего
+function spendBank(state: TableState, now: number): void {
+  const turn = state.turn
+  const bank = turn?.bank
+  if (!turn || !bank) return
+  if (state.hand && sameTurn(turn, state.hand) && !state.paused) return
+  const banks = state.timeBank
+  if (banks && typeof banks[bank.playerId] === 'number') {
+    banks[bank.playerId] = Math.max(0, banks[bank.playerId] - Math.max(0, now - bank.from))
+  }
+  state.turn = null
+}
+
+// Запас — всем за столом заново, по настройке; выкл — нет ни у кого
+function resetBanks(state: TableState): void {
+  const s = state.settings.timeBank ?? null
+  state.timeBank = s ? Object.fromEntries(state.players.map((p) => [p.id, s * 1000])) : {}
+}
+
+// Каждые TIME_BANK_EVERY раздач стола — всем за столом +TIME_BANK_ADD_S, не больше TIME_BANK_MAX_S
+function refillBanks(state: TableState, handNumber: number): void {
+  if (!state.settings.timeBank || handNumber % TIME_BANK_EVERY !== 0) return
+  const banks = (state.timeBank ??= {})
+  for (const p of state.players) banks[p.id] = Math.min(TIME_BANK_MAX_S * 1000, (banks[p.id] ?? 0) + TIME_BANK_ADD_S * 1000)
 }
 
 // Раздача «сама» — через паузу из настроек; выкл, перерыв, идёт раздача, раздач ещё не было,
@@ -498,6 +553,9 @@ function sit(state: TableState, id: string, name: unknown, now: number, regularI
     offlineSince: null,
   })
   state.chipLog.push({ kind: 'buyin', playerId: id, amount: chips, at: now })
+  // Запас (#223) — новый садится с начальным
+  const bank = state.settings.timeBank ?? null
+  if (bank) (state.timeBank ??= {})[id] = bank * 1000
   return null
 }
 
@@ -788,12 +846,15 @@ function finishHand(
     .filter((s) => s.chips === 0 && seated.has(s.id))
     .map((s) => ({ playerId: s.id, hand: hand.number, chips: s.chips - (payouts[s.id] ?? 0) + s.committed }))
   settleTournament(state, busts, now)
+  refillBanks(state, hand.number)
   armNext(state, now)
 }
 
 // «Перерыв»: новая раздача не начинается, идущая доигрывается без таймера. «Продолжить» —
 // ход получает срок заново, между раздачами — раздача «сама» снова через паузу.
-// В турнире «Перерыв» ещё и стоит часы уровней, «Продолжить» пускает их с того же места
+// В турнире «Перерыв» ещё и стоит часы уровней, «Продолжить» пускает их с того же места.
+// Шёл запас (#223) — потраченное вычтено сразу (spendBank в clock, пока срок хода ещё есть); «Продолжить» —
+// полное время на ход, запас — остаток
 function pause(state: TableState, paused: boolean, now: number): string | null {
   if (state.paused === paused) return paused ? 'Перерыв уже идёт' : 'Перерыва нет'
   state.paused = paused
@@ -806,11 +867,13 @@ function pause(state: TableState, paused: boolean, now: number): string | null {
   return null
 }
 
-// Время на ход, раздача «сама» и кому виден HUD (#79) — ведущий, между раздачами; действуют со следующей раздачи
+// Время на ход, запас времени (#223), раздача «сама» и кому виден HUD (#79) — ведущий, между раздачами;
+// действуют со следующей раздачи. Запас сменился — у всех новый начальный, выключен — запаса нет
 function changeSettings(state: TableState, msg: Extract<ClientBody, { type: 'tableSettings' }>, now: number): string | null {
   if (state.hand) return 'Настройки стола меняются между раздачами'
   const s: Settings = { ...state.settings }
   if ('turnSeconds' in msg) s.turnSeconds = msg.turnSeconds
+  if ('timeBank' in msg) s.timeBank = msg.timeBank
   if ('autoStart' in msg) s.autoStart = msg.autoStart
   if ('publicHud' in msg) s.publicHud = msg.publicHud
   const tournament = s.format === 'tournament'
@@ -828,8 +891,10 @@ function changeSettings(state: TableState, msg: Extract<ClientBody, { type: 'tab
   const error = settingsError(s)
   if (error) return error
   const was = state.settings.autoStart ?? 'off'
+  const bankWas = state.settings.timeBank ?? null
   state.settings = s
   if ((s.autoStart ?? 'off') !== was) armNext(state, now)
+  if ((s.timeBank ?? null) !== bankWas) resetBanks(state)
   return null
 }
 
@@ -1007,6 +1072,7 @@ function remove(state: TableState, by: string, playerId: string, now: number): s
   state.rebuyRequests = state.rebuyRequests.filter((r) => r.playerId !== playerId)
   state.approvedRebuys = state.approvedRebuys.filter((r) => r.playerId !== playerId)
   if (state.hud) delete state.hud[playerId]
+  if (state.timeBank) delete state.timeBank[playerId]
   // Турнир: ушёл — выбыл сразу, место — по моменту ухода, его фишки из игры уходят
   const clock = state.tournament
   if (clock && !clock.out.some((b) => b.playerId === playerId)) {
@@ -1034,6 +1100,11 @@ function settingsError(s: Settings): string | null {
   if (t !== null && (!Number.isInteger(t) || t < TURN_MIN_S || t > TURN_MAX_S)) {
     return `Время на ход — от ${TURN_MIN_S} до ${TURN_MAX_S} секунд или без таймера`
   }
+  const bank = s.timeBank ?? null
+  if (bank !== null && !(TIME_BANK_PRESETS as readonly unknown[]).includes(bank)) {
+    return `Запас времени — ${TIME_BANK_PRESETS.join(', ')} секунд или выкл`
+  }
+  if (bank !== null && t === null) return 'Запас времени — только вместе со временем на ход'
   const a = s.autoStart ?? 'off'
   if (a !== 'off' && !Object.keys(AUTO_START_MS).includes(a)) return 'Следующая раздача сама — выкл, быстро, средне или медленно'
   if (s.felt !== undefined && !(FELTS as readonly unknown[]).includes(s.felt)) return 'Сукно — зелёное, синее, бордовое или графит'

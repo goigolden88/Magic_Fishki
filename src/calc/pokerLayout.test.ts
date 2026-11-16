@@ -22,6 +22,7 @@ import {
   SNAP_WIDTH,
   spotsBySeat,
   stepAmount,
+  turnTitle,
   waitLine,
   type BetSlider,
   type BetSpot,
@@ -228,6 +229,16 @@ describe('панель внизу экрана стола', () => {
     expect(waitLine(showdown)).toBe('Торги закрыты')
     expect(waitLine({ ...showdown, phoneCards: false })).toBe('Торги закрыты — ведущий отмечает победителя')
     expect(waitLine({ ...showdown, phoneCards: false, isHost: true })).toBe('Торги закрыты — отметьте победителя ниже')
+  })
+
+  it('запас времени (#223): в полосе — только когда тратится; над своими кнопками — время и свой запас', () => {
+    const v = { toActName: 'Аня', turnLeft: 12, stage: 'flop', stageLabel: 'Флоп', isHost: false, phoneCards: true }
+    expect(waitLine({ ...v, turnBank: false })).toBe('Ждём хода · Аня · 12 с')
+    expect(waitLine({ ...v, turnBank: true })).toBe('Ждём хода · Аня · запас 12 с')
+    expect(turnTitle(20, 30)).toBe('Ваш ход · 20 с · запас 30 с')
+    expect(turnTitle(7, 30, true)).toBe('Ваш ход · запас 7 с')
+    expect(turnTitle(20)).toBe('Ваш ход · 20 с')
+    expect(turnTitle(null)).toBe('Ваш ход')
   })
 })
 

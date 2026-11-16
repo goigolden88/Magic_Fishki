@@ -44,6 +44,7 @@
   --to-act-line: #5b9dff;
   --to-act-glow: rgba(91, 157, 255, 0.35);
   --picked: #233045;
+  --time-bank: #e7b84a; /* запас времени у места (#223): секунды --bg на нём */
   /* Тени, подложки и подсказки поверх стола */
   --shade: rgba(0, 0, 0, 0.25);
   --tip-bg: rgba(0, 0, 0, 0.78);
@@ -94,6 +95,7 @@
   --to-act-line: var(--green);
   --to-act-glow: rgba(62, 207, 122, 0.35);
   --picked: #24543a;
+  --time-bank: #e7b84a;
   --shade: rgba(0, 0, 0, 0.25);
   --tip-bg: rgba(0, 0, 0, 0.78);
   --on-tip: #fff;
@@ -135,6 +137,7 @@
   --to-act-line: #14784a;
   --to-act-glow: rgba(20, 120, 74, 0.3);
   --picked: #e3efe9;
+  --time-bank: #8a5a00; /* секунды --bg на нём — 5 : 1 */
   --shade: rgba(23, 33, 43, 0.06);
   --tip-bg: rgba(0, 0, 0, 0.78);
   --on-tip: #fff;
@@ -1988,6 +1991,11 @@ textarea.note-input {
   line-height: 1.4;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* Пошёл запас времени (#223) — «запас N с» другим цветом */
+.seat-timer.bank {
+  background: var(--time-bank);
 }
 
 .seat-pos {

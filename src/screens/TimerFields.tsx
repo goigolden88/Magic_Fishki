@@ -1,11 +1,12 @@
-import { AUTO_START_LABELS, autoStartNote, TURN_PRESETS, turnChoiceOf, turnSecondsOf, type TurnChoice } from '../calc/pokerTimer'
-import { TURN_MAX_S, TURN_MIN_S, type AutoStart } from '../poker/table'
+import { AUTO_START_LABELS, autoStartNote, timeBankNote, TURN_PRESETS, turnChoiceOf, turnSecondsOf, type TurnChoice } from '../calc/pokerTimer'
+import { TIME_BANK_PRESETS, TURN_MAX_S, TURN_MIN_S, type AutoStart } from '../poker/table'
 
-// «Время на ход» и «Следующая раздача сама» (#75) — у новой комнаты и в настройках стола ведущего
-export type TimerForm = { choice: TurnChoice; text: string; autoStart: AutoStart }
+// «Время на ход», «Запас времени» (#223) и «Следующая раздача сама» (#75) — у новой комнаты и в настройках стола ведущего.
+// bank — запас, секунд; null — выкл. При «Время на ход: Выкл» поля запаса нет и он не уходит (timeBankOf)
+export type TimerForm = { choice: TurnChoice; text: string; bank: number | null; autoStart: AutoStart }
 
-export function timerForm(turnSeconds: number | null, autoStart: AutoStart): TimerForm {
-  return { ...turnChoiceOf(turnSeconds), autoStart }
+export function timerForm(turnSeconds: number | null, autoStart: AutoStart, timeBank: number | null = null): TimerForm {
+  return { ...turnChoiceOf(turnSeconds), bank: timeBank, autoStart }
 }
 
 const TURN_OPTIONS: [TurnChoice, string][] = [
@@ -13,6 +14,8 @@ const TURN_OPTIONS: [TurnChoice, string][] = [
   ...TURN_PRESETS.map((s): [TurnChoice, string] => [s, `${s} с`]),
   ['custom', 'Своё'],
 ]
+
+const BANK_OPTIONS: [number | null, string][] = [[null, 'Выкл'], ...TIME_BANK_PRESETS.map((s): [number, string] => [s, `${s} с`])]
 
 export function TimerFields({ form, onChange }: { form: TimerForm; onChange: (form: TimerForm) => void }) {
   const turn = turnSecondsOf(form.choice, form.text)
@@ -51,6 +54,25 @@ export function TimerFields({ form, onChange }: { form: TimerForm; onChange: (fo
             : 'Время вышло — за игрока чек, если можно, иначе пас; два раза подряд — он пропускает раздачи.'}
         </p>
       </fieldset>
+      {form.choice !== 'off' && (
+        <fieldset className="players-pick">
+          <legend className="muted">Запас времени</legend>
+          <div className="amounts">
+            {BANK_OPTIONS.map(([bank, label]) => (
+              <button
+                key={label}
+                type="button"
+                className={form.bank === bank ? 'big primary' : 'big'}
+                aria-pressed={form.bank === bank}
+                onClick={() => onChange({ ...form, bank })}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="muted">{timeBankNote(form.bank)}.</p>
+        </fieldset>
+      )}
       <AutoStartField value={form.autoStart} onChange={(autoStart) => onChange({ ...form, autoStart })} />
     </>
   )

@@ -17,6 +17,8 @@
 // Кнопки выбора (#238): в формах «Новая комната» (снимок 03g) и «Против ботов» и в «Виде стола» — каждая надпись
 // внутри своей кнопки, кнопки ряда одной высоты, от 44 px; на телефоне — ещё на 320, 360 и 768 px, иначе сбой.
 // npm run shots -- vybor — только эти три экрана на 390 и 1366.
+// Запас времени (#223): «Новая комната» (03g) — со временем на ход и запасом; npm run shots -- zapas — только
+// «Быстрая комната» в «Настройках» с запасом (05b), «Играть» и «Новая комната» на 390 и 1366.
 // Стол на широком окне (#210): на каждом снимке стола на 1366 и 1920 — проверка, что ни одно место (.seat) не под
 // панелью хода (.table-dock), иначе сбой; ещё — свой шаг «Места и панель» (2, 6 и 10 мест, «Крупная» при 100 и 70 %).
 // npm run shots -- table — только этот шаг.
@@ -888,11 +890,61 @@ async function roomFormStep(d: Device): Promise<void> {
     await d.waitText('Пот-лимит')
     await d.click('Батон предлагает игру перед раздачей')
     await d.waitText('двух третей')
+    // Запас времени (#223) — поле есть только при времени на ход
+    await d.click('20 с')
+    await pickTimeBank(d, '15 с')
+    await d.waitText('15 с на вечер')
     await choicesFit(d, 'Новая комната')
     await d.shot('03g-novaya-komnata')
     await d.click('Отмена')
     await d.waitText('Сесть за стол')
   })
+}
+
+// Кнопка «Запаса времени» (#223): те же надписи «30 с», «60 с» есть и у «Времени на ход» — ищем в своём ряду
+async function pickTimeBank(d: Device, label: string): Promise<void> {
+  const done = await d.eval<boolean>(`(() => {
+    const set = [...document.querySelectorAll('fieldset')].find((f) => f.querySelector('legend')?.innerText.trim() === 'Запас времени')
+    const button = set && [...set.querySelectorAll('button')].find((b) => b.innerText.trim() === ${JSON.stringify(label)})
+    if (!button) return false
+    button.click()
+    return true
+  })()`)
+  if (!done) throw new Error(`нет кнопки запаса «${label}»`)
+}
+
+// npm run shots -- zapas (#223): «Быстрая комната» в «Настройках» со временем на ход и запасом — сохранить;
+// «Играть» с её подписью и форма «Новая комната» с запасом; на телефоне и ноутбуке
+async function timeBankOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES.slice(0, 2)) {
+    console.log(`Запас времени, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await themeOnly(d)
+    await screen('Быстрая комната', size, async () => {
+      await d.goto('#/settings')
+      await d.waitText('Настроить быструю комнату')
+      await d.fontsLoaded()
+      await d.click('Настроить быструю комнату')
+      await d.waitText('Время на ход')
+      await d.click('20 с')
+      await pickTimeBank(d, '30 с')
+      await d.waitText('30 с на вечер')
+      await choicesFit(d, 'Быстрая комната')
+      // «Сохранить» на «Настройках» не одна — отправить форму, где «Запас времени»
+      const saved = await d.eval<boolean>(`(() => {
+        const set = [...document.querySelectorAll('fieldset')].find((f) => f.querySelector('legend')?.innerText.trim() === 'Запас времени')
+        const form = set?.closest('form')
+        if (!form) return false
+        form.requestSubmit()
+        return true
+      })()`)
+      if (!saved) throw new Error('нет формы «Быстрой комнаты»')
+      await d.waitText('запас 30 с')
+      await d.shot('05b-bystraya-komnata-zapas')
+    })
+    await playStep(d)
+    await roomFormStep(d)
+  }
 }
 
 // Форма «Против ботов» с «Играть»: замер кнопок выбора (#238) и снимок; форма остаётся открытой
@@ -1347,8 +1399,10 @@ async function main(): Promise<void> {
     const onlyChoices = process.argv.includes('vybor') // npm run shots -- vybor: ряды кнопок выбора (#238)
     const onlyHistory = process.argv.includes('history') // npm run shots -- history: история раздач (#239)
     const onlyHud = process.argv.includes('hud') // npm run shots -- hud: «Боты читают» в карточке HUD (#240)
+    const onlyTimeBank = process.argv.includes('zapas') // npm run shots -- zapas: запас времени в формах (#223)
     const onlyGear = process.argv.includes('gear') // npm run shots -- gear: «⚙ Стол» за столом с ботами (#243)
-    const part = onlyTrainer || onlyChoices || onlyHistory || onlyHud || onlyGear
+    const part = onlyTrainer || onlyChoices || onlyHistory || onlyHud || onlyTimeBank || onlyGear
+    if (onlyTimeBank) await timeBankOnly(cdp)
     if (onlyHud) await hudOnly(cdp)
     if (onlyGear) await gearOnly(cdp)
     if (onlyTrainer) await trainerOnly(cdp)
