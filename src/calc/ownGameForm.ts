@@ -8,6 +8,7 @@ import {
   OWN_ROUNDS_MAX,
   ownGameError,
   seatsFor,
+  upOf,
   type OwnGame,
   type OwnGameId,
   type OwnOrder,
@@ -16,10 +17,12 @@ import {
 // Форма — описание без id: id даёт экран при первом «Сохранить»
 export type OwnGameForm = Omit<OwnGame, 'id'>
 
-// Новая игра: пустое название, две карты, любые из руки, 52 карты, стол «3, 1, 1» (флоп, тёрн, ривер), без лимита
+// Новая игра: пустое название, две карты, все закрытые, любые из руки, 52 карты, стол «3, 1, 1» (флоп, тёрн, ривер),
+// без лимита
 export const OWN_GAME_NEW: OwnGameForm = {
   name: '',
   hole: 2,
+  up: 0,
   fromHand: 'any',
   deck: 52,
   order: 'standard',
@@ -51,9 +54,11 @@ export function ownGameFormOf(game: OwnGame): OwnGameForm {
   return { ...form, board: [...form.board] }
 }
 
-// Описание из формы: название — без пробелов по краям
+// Описание из формы: название — без пробелов по краям; открытых 0 — без поля up (как у игр до #226: такое
+// описание прочтут и старые телефоны)
 export function ownGameOf(form: OwnGameForm, id: OwnGameId): OwnGame {
-  return { id, ...form, name: form.name.trim(), board: [...form.board] }
+  const { up, ...rest } = form
+  return { id, ...rest, ...(up ? { up } : {}), name: form.name.trim(), board: [...form.board] }
 }
 
 // Под каким полем строка ошибки: остальные поля — кнопками, неверными они не бывают
@@ -83,10 +88,16 @@ export function fromHandAllowed(form: Pick<OwnGameForm, 'board'>, n: number): bo
   return boardCount(form) >= 5 - n
 }
 
-// Меньше карт на руках — «ровно N» не больше их числа (и не больше 5)
+// «Из них открытых» (#226): кнопки от 0 до карт на руках − 1 — хотя бы одна закрытая
+export function upChoices(form: Pick<OwnGameForm, 'hole'>): number[] {
+  return Array.from({ length: form.hole }, (_, i) => i)
+}
+
+// Меньше карт на руках — «ровно N» не больше их числа (и не больше 5), открытых — меньше их числа
 export function withHole(form: OwnGameForm, hole: number): OwnGameForm {
   const most = Math.min(hole, 5)
-  return { ...form, hole, fromHand: form.fromHand !== 'any' && form.fromHand > most ? most : form.fromHand }
+  const fromHand = form.fromHand !== 'any' && form.fromHand > most ? most : form.fromHand
+  return upOf(form) >= hole ? { ...form, hole, up: hole - 1, fromHand } : { ...form, hole, fromHand }
 }
 
 // Колода 36 — старшинство сначала как в шорт-деке, 52 — обычное; дальше его можно сменить
@@ -121,9 +132,11 @@ export function ownSeatsLine(form: OwnGameForm): string {
 }
 
 // Строка игры в списке и в форме комнаты: «5 карт, ровно 2 из руки · стол 3-1-1 · пот-лимит · до 9 игроков»;
-// колода 36 и старшинство — только если они не обычные
+// с открытыми — «3 карты (1 открытая), любые из руки · …»; колода 36 и старшинство — только если они не обычные
 export function ownGameLine(form: OwnGameForm): string {
-  const hand = `${form.hole} ${pluralForm(form.hole, 'карта', 'карты', 'карт')}, ${
+  const up = upOf(form)
+  const open = up > 0 ? ` (${up} ${pluralForm(up, 'открытая', 'открытые', 'открытых')})` : ''
+  const hand = `${form.hole} ${pluralForm(form.hole, 'карта', 'карты', 'карт')}${open}, ${
     form.fromHand === 'any' ? 'любые из руки' : `ровно ${form.fromHand} из руки`
   }`
   const deck =

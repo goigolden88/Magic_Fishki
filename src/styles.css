@@ -2355,6 +2355,11 @@ input.own-back-file {
   font-size: 0.55rem;
 }
 
+/* Открытые карты своей игры (#226) среди рубашек: сжимаются рубашки, карты лицом — почти нет, чтобы читались */
+.seat.many .card-row:not(.best-row) .playing-card.small:not(.back) {
+  flex-shrink: 0.2;
+}
+
 .seat.me.many {
   width: max(var(--seat-w) * 1.3, 7.5rem);
 }
@@ -2381,6 +2386,24 @@ input.own-back-file {
 
 .playing-card.dim {
   opacity: 0.4;
+}
+
+/* Моя открытая карта своей игры (#226): её видят все за столом — рамка цвета гаммы и точка в углу */
+.playing-card.seen {
+  position: relative;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.playing-card.seen::after {
+  content: '';
+  position: absolute;
+  top: -12%;
+  right: -16%;
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 1px solid #f7f7f2;
 }
 
 /* Лицо карт (#219): «Классическое» и «Цветное»; «Крупное» — карта без класса лица, как до #219.
