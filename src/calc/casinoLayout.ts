@@ -29,8 +29,21 @@ const PHONE_HAND: Record<DealKind, { w: number; h: number }> = {
 }
 const PHONE_SEAT_PAD = 0.52 // поля 0,15rem и рамка 2px с боков
 // Имя (0,85rem × 1,15), подпись (0,7rem × 1,15), поля карт по 0,1rem, поля места 0,15rem и рамка 2px —
-// сверху и снизу; с запасом
+// сверху и снизу; с запасом. Строка имени — той же высоты и при меньшем шрифте (#254)
 const PHONE_SEAT_TEXT_H = 2.56
+// Имя у места на телефоне (#254): шрифт 0,85rem; не входит — мельче, до 0,65rem; и так не входит — многоточие
+export const NAME_FONT = 0.85
+export const NAME_FONT_MIN = 0.65
+// Ширина имени — по буквам, в долях шрифта (Golos Text, полужирный), с запасом: узкие, широкие, пошире,
+// заглавные, остальные. Сверено замером в Chrome (npm run shots -- imena): «Константин» — 5,86, «Александра» — 6,
+// «Владислав» — 5,38 em. Не замер на экране — так раскладку проверяет тест; ошибся в меньшую сторону — многоточие,
+// а не наезд
+const NARROW = new Set([...' .,:;!|\'"-ijlrtfI1'])
+const WIDE_CHARS = new Set([...'жшщмыюЖШЩМЫЮmwMW'])
+const WIDER = new Set([...'лдфцъЛДФЦЪ'])
+const NAME_SPARE = 0.1 // rem: на округление на экране
+// Имя занимает и поля места — до рамки 2px с боков (стиль .casino-table.phone .casino-seat .seat-name)
+const NAME_PAD = 0.23
 const PHONE_BOARD_CARD = { w: 1.25, h: 1.75 }
 const PHONE_BOARD_GAP = 0.12
 const PHONE_BOARD_PAD = 0.52 // поля 0,15rem и рамка 2px с двух сторон
@@ -70,9 +83,13 @@ const WIDE_WIN_LINE = 0.96 // вторая строка «Имя · рука»: 
 export type Size = { w: number; h: number }
 export type Box = { x: number; y: number; w: number; h: number } // rem: x — слева, y — сверху
 
+// Место участника (#254): ширина, rem (у мест одного ряда — одна), шрифт имени, rem; full — имя входит целиком
+export type SeatFit = { w: number; font: number; full: boolean }
+
 export type CasinoLayout = {
   hand: Size // карта у места
-  seat: Size
+  seat: Size // место под карты руки — самое узкое; по нему — сколько мест в ряду
+  seats: SeatFit[] // по номеру участника: на телефоне место шире под имя (#254), на широком окне — seat.w
   boardCard: Size
   board: Size // стол: подпись, пять карт и строка победителя
   winCard: Size // мелкая карта в строке победителя (Р-50)
@@ -95,17 +112,22 @@ export type CasinoLayout = {
 // wide — широкое окно (Р-53, Р-60): ширина до WIDE_WIDTH, столы рядами, строка победителя — под картами стола
 // в две строки, карты руки крупнее.
 // Телефон (Р-67): space — ширина сукна, rem (берётся от MIN_WIDTH до PHONE_MAX_WIDTH); все места входят в один
-// ряд — одним рядом над столами, иначе пополам, как прежде; столы — по два в ряд, карты мельче
+// ряд — одним рядом над столами, иначе пополам, как прежде; столы — по два в ряд, карты мельче.
+// names — имена по номеру участника (#254): на телефоне места ряда делят его свободную ширину поровну, пока имя
+// самого длинного не войдёт; не вошло — шрифт имени мельче, до NAME_FONT_MIN. Сколько мест в ряду и высота
+// места — по картам руки, как без имён
 export function casinoLayout(
   kind: DealKind,
   players: number,
   tables: number,
   wide = false,
   space = MIN_WIDTH,
+  names: string[] = [],
 ): CasinoLayout {
   if (!Number.isInteger(players) || players < 1 || players > MAX_CASINO_SEATS) {
     throw new Error(`За столом казино от 1 до ${MAX_CASINO_SEATS} участников`)
   }
+  if (names.length > 0 && names.length !== players) throw new Error('Имён должно быть столько же, сколько участников')
   if (!Number.isInteger(tables) || tables < 1) throw new Error('Столов должно быть не меньше одного')
   const cards = DEAL_KINDS[kind].hand
   const hand = wide ? HAND_CARD[kind] : PHONE_HAND[kind]
@@ -138,13 +160,24 @@ export function casinoLayout(
     w: round(cols * board.w + (cols - 1) * gap),
     h: round(boardRows * board.h + (boardRows - 1) * gap),
   }
-  const width = round(Math.max(perRow * seat.w + (perRow - 1) * gap, center.w))
+  const seats: SeatFit[] = ids.map(() => ({ w: seat.w, font: NAME_FONT, full: true }))
+  if (!wide) {
+    for (const row of [...top, ...bottom]) {
+      const share = floor((limit - (row.length - 1) * gap) / row.length)
+      const need = Math.max(...row.map((id) => nameSeatWidth(names[id] ?? '', NAME_FONT)))
+      const w = round(Math.max(seat.w, Math.min(share, need)))
+      for (const id of row) seats[id] = nameFit(names[id] ?? '', w)
+    }
+  }
+  const rowsW = Math.max(...[...top, ...bottom].map((row) => rowWidth(row, seats, gap)))
+  const width = round(Math.max(perRow * seat.w + (perRow - 1) * gap, center.w, rowsW))
   const height = round(
     blockHeight(top.length, seat.h, gap) + center.h + blockHeight(bottom.length, seat.h, gap) + 2 * centerPad,
   )
   return {
     hand,
     seat,
+    seats,
     boardCard,
     board,
     winCard,
@@ -173,13 +206,12 @@ export function layoutBoxes(l: CasinoLayout): { seats: Box[]; center: Box } {
   const seats: Box[] = []
   const place = (block: number[][], y0: number) =>
     block.forEach((row, r) => {
-      const rowW = row.length * l.seat.w + (row.length - 1) * l.gap
-      row.forEach((id, k) => {
-        seats[id] = {
-          x: round((l.width - rowW) / 2 + k * (l.seat.w + l.gap)),
-          y: round(y0 + r * (l.seat.h + l.gap)),
-          ...l.seat,
-        }
+      const rowW = rowWidth(row, l.seats, l.gap)
+      let x = (l.width - rowW) / 2
+      row.forEach((id) => {
+        const w = l.seats[id].w
+        seats[id] = { x: round(x), y: round(y0 + r * (l.seat.h + l.gap)), w, h: l.seat.h }
+        x += w + l.gap
       })
     })
   place(l.top, 0)
@@ -207,6 +239,37 @@ function rows(ids: number[], perRow: number): number[][] {
   return out
 }
 
+function rowWidth(row: number[], seats: SeatFit[], gap: number): number {
+  return row.reduce((sum, id) => sum + seats[id].w, 0) + (row.length - 1) * gap
+}
+
+// Ширина имени в долях шрифта (#254): по буквам, с запасом — так считает тест, а не замер на экране
+export function nameEm(name: string): number {
+  let em = 0
+  for (const ch of name) {
+    if (NARROW.has(ch)) em += 0.32
+    else if (WIDE_CHARS.has(ch)) em += 0.85
+    else if (WIDER.has(ch)) em += 0.66
+    else if (ch !== ch.toLowerCase()) em += 0.7
+    else em += 0.58
+  }
+  return em
+}
+
+// Ширина места на телефоне, чтобы имя шрифтом font вошло целиком: имя, запас и рамка места
+export function nameSeatWidth(name: string, font: number): number {
+  return round(nameEm(name) * font + NAME_SPARE + NAME_PAD)
+}
+
+// Шрифт имени в месте ширины w (#254): входит шрифтом NAME_FONT — он; нет — крупнейший до NAME_FONT_MIN,
+// при котором входит; и так не входит — NAME_FONT_MIN и многоточие (full: false)
+function nameFit(name: string, w: number): SeatFit {
+  if (nameSeatWidth(name, NAME_FONT) <= w) return { w, font: NAME_FONT, full: true }
+  const font = floor((w - NAME_SPARE - NAME_PAD) / nameEm(name))
+  if (font >= NAME_FONT_MIN) return { w, font, full: true }
+  return { w, font: NAME_FONT_MIN, full: false }
+}
+
 function blockHeight(rowCount: number, seatH: number, gap: number): number {
   return rowCount === 0 ? 0 : rowCount * seatH + (rowCount - 1) * gap
 }
@@ -220,4 +283,9 @@ export function phoneSpace(windowPx: number, remPx: number): number {
 
 function round(x: number): number {
   return Math.round(x * 100) / 100
+}
+
+// Вниз до сотых: ряд из таких мест не шире, чем отведено
+function floor(x: number): number {
+  return Math.floor(x * 100 + 1e-9) / 100
 }

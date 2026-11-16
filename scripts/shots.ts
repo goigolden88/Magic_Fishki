@@ -31,6 +31,8 @@
 // Сбоем не считается: это подсказка для глаз, снимок — главное.
 // «⚙ Стол» за столом с ботами (#243): открытая карточка посреди раздачи, на 390 и 1366, в «Ночи» и «Дне» (снимки 13a, 13b);
 // npm run shots -- gear — только он.
+// Имена у мест казино (#254): четыре гостя с именами 8–12 букв, холдем и омаха, на 360 и 390 px (снимки 04f, 04g),
+// имя с многоточием — сбой; npm run shots -- imena — только они.
 // Chrome — google-chrome, google-chrome-stable или chromium; свой путь — переменная CHROME
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -1049,6 +1051,73 @@ async function casinoAndHelpSteps(d: Device): Promise<void> {
   })
 }
 
+// Имена у мест казино на телефоне (#254): новая игра «только казино» из четырёх гостей с именами 8–12 букв, холдем
+// и омаха, на 360 и 390 px; снимок — первый экран. Замер: у каждого имени — шрифт, ширина текста и места; имя
+// с многоточием (текст шире места) — сбой. npm run shots -- imena — только этот шаг
+const LONG_GUESTS = ['Константин', 'Александра', 'Владислав', 'Станислава'] // выдуманные гости
+const NAME_SIZES: Size[] = [
+  { name: '360', width: 360, height: 780 },
+  { name: '390', width: 390, height: 844 },
+]
+
+async function namesOnly(cdp: Cdp): Promise<void> {
+  for (const size of NAME_SIZES) {
+    const d = await Device.open(cdp, size)
+    await themeOnly(d)
+    for (const [kind, file] of [
+      ['Холдем', '04f-kazino-imena-holdem'],
+      ['Омаха', '04g-kazino-imena-omaha'],
+    ] as const) {
+      await screen(`Казино: имена, ${kind}`, size, async () => {
+        await d.goto('#/poker')
+        await d.waitText('Войти по ссылке')
+        await d.click('В казино')
+        await d.waitText('Новая игра — только казино')
+        await d.click('Новая игра — только казино')
+        await d.waitFor('input[aria-label="Имя гостя"]')
+        for (const name of LONG_GUESTS) {
+          await d.type('input[aria-label="Имя гостя"]', name)
+          await sleep(100)
+          await d.click('Добавить')
+          await sleep(100)
+        }
+        await d.click('Начать')
+        await d.waitText('карты раздаёт программа, всё в открытую')
+        await d.waitText(`участников ${LONG_GUESTS.length}`)
+        // Вариант — в свёрнутых настройках: раскрыть, выбрать, свернуть
+        await d.eval(`(document.querySelector('.casino-fold').click(), true)`)
+        await d.waitText('Вариант')
+        await d.click(kind)
+        await sleep(100)
+        await d.eval(`(document.querySelector('.casino-fold[aria-expanded="true"]')?.click(), true)`)
+        await sleep(100)
+        await d.click('Раздать')
+        await boardsGoing(d)
+        await d.fontsLoaded()
+        await d.shot(file, false)
+        await namesFit(d)
+      })
+    }
+  }
+}
+
+// Имена у мест казино (#254): шрифт, ширина текста (в долях шрифта) и места; текст шире места — сбой
+async function namesFit(d: Device): Promise<void> {
+  const r = await d.eval<{ name: string; font: number; text: number; box: number; em: number }[]>(`(() => {
+    return [...document.querySelectorAll('.casino-seat .seat-name')].map((el) => {
+      const range = document.createRange()
+      range.selectNodeContents(el)
+      const text = range.getBoundingClientRect().width
+      const font = parseFloat(getComputedStyle(el).fontSize)
+      const r2 = (x) => Math.round(x * 100) / 100
+      return { name: el.textContent, font: r2(font), text: r2(text), box: r2(el.getBoundingClientRect().width), em: r2(text / font) }
+    })
+  })()`)
+  for (const s of r) console.log(`  имя «${s.name}»: шрифт ${s.font} px, текст ${s.text} px (${s.em} em), место ${s.box} px`)
+  const cut = r.filter((s) => s.text > s.box + 0.01)
+  if (cut.length > 0) throw new Error(`имена с многоточием: ${cut.map((s) => s.name).join(', ')}`)
+}
+
 // «Настройки» → «Вид стола» → «Лицо карт»: выбрать касанием
 async function pickFace(d: Device, face: string): Promise<void> {
   await d.goto('#/settings')
@@ -1401,7 +1470,9 @@ async function main(): Promise<void> {
     const onlyHud = process.argv.includes('hud') // npm run shots -- hud: «Боты читают» в карточке HUD (#240)
     const onlyTimeBank = process.argv.includes('zapas') // npm run shots -- zapas: запас времени в формах (#223)
     const onlyGear = process.argv.includes('gear') // npm run shots -- gear: «⚙ Стол» за столом с ботами (#243)
-    const part = onlyTrainer || onlyChoices || onlyHistory || onlyHud || onlyTimeBank || onlyGear
+    const onlyNames = process.argv.includes('imena') // npm run shots -- imena: имена у мест казино на телефоне (#254)
+    const part = onlyTrainer || onlyChoices || onlyHistory || onlyHud || onlyTimeBank || onlyGear || onlyNames
+    if (onlyNames) await namesOnly(cdp)
     if (onlyTimeBank) await timeBankOnly(cdp)
     if (onlyHud) await hudOnly(cdp)
     if (onlyGear) await gearOnly(cdp)
@@ -1409,6 +1480,7 @@ async function main(): Promise<void> {
     if (onlyChoices) await choicesOnly(cdp)
     if (onlyHistory) await historyOnly(cdp)
     if (!onlyTable && !part) for (const size of SIZES) await scenario(cdp, size, theme, uchet)
+    if (!onlyTable && !part) await namesOnly(cdp)
     if (!uchet && !part) for (const size of SIZES) await wideTableStep(cdp, size)
     if (!onlyTable && !uchet && !part) await gearOnly(cdp)
     if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !part) {
