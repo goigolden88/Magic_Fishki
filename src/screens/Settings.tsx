@@ -262,7 +262,7 @@ export function SettingsScreen() {
 
       {/* #234: какая сборка и какой протокол покера — сверить за столом, у всех ли новое; из сборки, без сети */}
       <p className="muted version-line">
-        Версия: {formatDate(__BUILD_DATE__)} · {__BUILD_COMMIT__} · протокол {PROTOCOL_VERSION}
+        Версия: {formatDate(__BUILD_DATE__)} · {__BUILD_COMMIT__} · протокол&nbsp;{PROTOCOL_VERSION}
       </p>
     </main>
   )

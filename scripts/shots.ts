@@ -572,9 +572,12 @@ async function settingsGroup(d: Device, group: string, open = true): Promise<voi
   throw new Error(`раздел «${group}» не ${open ? 'развернулся' : 'свернулся'}`)
 }
 
-// Открыть «Настройки» и развернуть нужные разделы (#234): в первый раз развёрнуто только «Оформление»
+// Открыть «Настройки» и развернуть нужные разделы (#234): в первый раз развёрнуто только «Оформление».
+// Уже открыты — перезагрузить: тот же адрес страницу не перезагружает, и раскрытые карточки остались бы раскрытыми,
+// а кнопка заголовка прежней страницы ответила бы раньше новой
 async function openSettings(d: Device, ...groups: string[]): Promise<void> {
-  await d.goto('#/settings')
+  if ((await d.eval<string>('location.hash')) === '#/settings') await d.reload()
+  else await d.goto('#/settings')
   await d.waitFor('button.group-toggle')
   for (const group of groups) await settingsGroup(d, group)
 }
