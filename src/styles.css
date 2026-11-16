@@ -2909,6 +2909,16 @@ textarea.note-input {
   padding: 0.15rem;
 }
 
+/* Имя у места на телефоне (#254): ширина места и шрифт — из casinoLayout (--seat-w, --name-font у места);
+   имя занимает и поля места — до рамки (NAME_PAD); строка имени — той же высоты при любом шрифте: место
+   не выше, карты мест ряда — на одной линии */
+.casino-table.phone .casino-seat .seat-name {
+  width: calc(100% + 0.3rem);
+  margin: 0 -0.15rem;
+  font-size: var(--name-font, 0.85rem);
+  line-height: calc(0.85rem * 1.15);
+}
+
 .casino-table.phone .casino-hand {
   margin: 0.1rem 0;
 }
