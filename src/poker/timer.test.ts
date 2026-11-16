@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Card } from './cards'
-import { PROTOCOL_VERSION, type ClientBody } from './protocol'
+import { PROTOCOL_VERSION, VERSION_ERROR, type ClientBody } from './protocol'
 import {
   AUTO_START_MS,
   bankOf,
@@ -355,6 +355,11 @@ describe.each(MODES)('запас времени (#223) (%s)', (_, rt) => {
     expect(send(s, 'h', { type: 'tableSettings', turnSeconds: null })).toEqual({ ok: false, error: together })
     expect(send(s, 'h', { type: 'tableSettings', turnSeconds: null, timeBank: null }).ok).toBe(true)
     expect(send(s, 'g', { type: 'tableSettings', timeBank: 60 })).toEqual({ ok: false, error: 'Это может только ведущий' })
+  })
+
+  it('старая копия приложения (протокол 17) — «обновите приложение»', () => {
+    expect(PROTOCOL_VERSION).toBe(18)
+    expect(handle(banked(), 'h', { v: 17, type: 'tableSettings', timeBank: 60 }, 0)).toEqual({ ok: false, error: VERSION_ERROR })
   })
 
   it('стол без новых полей (до запаса) — запаса нет, ход истекает как раньше', () => {
