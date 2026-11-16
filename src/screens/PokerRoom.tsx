@@ -999,20 +999,23 @@ type CardSize = 'small' | 'mid' | 'big'
 // Цвет масти — по колоде из личного «Вида стола» (Р-61): две масти цветом или четыре цвета; не выбрана — четыре (#192).
 // Лицо (#219) — оттуда же: «Крупное» — ранг и масть строкой; «Классическое» и «Цветное» — индекс (ранг над мастью)
 // и повтор по центру: масть или крупный ранг. Узкая карта показывает только индекс по центру (styles.css).
-// Читалка экрана слышит индекс, повтор по центру скрыт от неё
-export function PlayingCard(props: { card: Card | null; size?: CardSize; mark?: 'win' | 'dim'; fly?: string }) {
-  const { card, size, mark, fly } = props
+// Читалка экрана слышит индекс, повтор по центру скрыт от неё.
+// seen — моя открытая карта своей игры (#226): её видят все за столом — рамка и значок, читалке — «карта видна всем»
+export function PlayingCard(props: { card: Card | null; size?: CardSize; mark?: 'win' | 'dim'; fly?: string; seen?: boolean }) {
+  const { card, size, mark, fly, seen } = props
   const f = card === null ? null : cardFace(card)
   const mine = loadMyLook()
   const color = card === null ? '' : suitClass(card, deckOf(mine))
   const face = f ? faceOf(mine) : 'big'
-  const cls = ['playing-card', size, !f && 'back', color, face !== 'big' && `face-${face}`, mark].filter(Boolean).join(' ')
+  const cls = ['playing-card', size, !f && 'back', color, face !== 'big' && `face-${face}`, mark, seen && f && 'seen'].filter(Boolean).join(' ')
   if (!f) return <span className={cls} data-fly={fly} aria-label="карта рубашкой" />
+  const note = seen && <span className="visually-hidden">, карта видна всем</span>
   if (face === 'big')
     return (
       <span className={cls} data-fly={fly}>
         {f.rank}
         {f.suit}
+        {note}
       </span>
     )
   return (
@@ -1024,6 +1027,7 @@ export function PlayingCard(props: { card: Card | null; size?: CardSize; mark?: 
       <span className="card-pip" aria-hidden="true">
         {face === 'classic' ? f.suit : f.rank}
       </span>
+      {note}
     </span>
   )
 }
@@ -1053,6 +1057,7 @@ function CardRow(props: { cards: (Card | null)[]; size?: CardSize; best?: boolea
 // На моём месте у стола (#97) — без подписи (hint) и без переключателя: он под столом.
 // label — моя комбинация сейчас (#105): видна, только пока карты лицом, иначе выдаст руку
 // fly — группа карт для анимации раздачи (#133)
+// seen — номера моих открытых карт своей игры (#226): их видят все — лицом всегда, с пометкой «видна всем»
 function PeekCards(props: {
   cards: Card[]
   open: boolean
@@ -1061,8 +1066,9 @@ function PeekCards(props: {
   label?: string | null
   className?: string
   fly?: string
+  seen?: number[]
 }) {
-  const { cards, open, size, hint, label = null, className = 'peek-cards', fly } = props
+  const { cards, open, size, hint, label = null, className = 'peek-cards', fly, seen = [] } = props
   const [peek, setPeek] = useState(false)
   const on = () => setPeek(true)
   const off = () => setPeek(false)
@@ -1081,7 +1087,7 @@ function PeekCards(props: {
       <>
         <div className={className}>
           {cards.map((c, i) => (
-            <PlayingCard key={i} card={c} size={size} fly={fly && flyKey(fly, i)} />
+            <PlayingCard key={i} card={c} size={size} fly={fly && flyKey(fly, i)} seen={seen.includes(i)} />
           ))}
         </div>
         {now(true)}
@@ -1109,7 +1115,7 @@ function PeekCards(props: {
         onBlur={off}
       >
         {cards.map((c, i) => (
-          <PlayingCard key={i} card={peek ? c : null} size={size} fly={fly && flyKey(fly, i)} />
+          <PlayingCard key={i} card={peek || seen.includes(i) ? c : null} size={size} fly={fly && flyKey(fly, i)} seen={seen.includes(i)} />
         ))}
       </div>
       {now(peek)}
@@ -1373,6 +1379,12 @@ function FreeSeat(props: { seat: number; at: Spot; bottom: boolean; onSeat?: (se
   )
 }
 
+// Мои открытые карты своей игры (#226) — номера карт, которые у моего места видят все (SeatView.cards: открытые —
+// лицом, закрытые — null)
+function seenOf(cards: (Card | null)[] | null): number[] {
+  return (cards ?? []).flatMap((c, i) => (c !== null ? [i] : []))
+}
+
 // Место у стола. bottom — нижнее по центру (я): растёт вверх от низа рамки, остальные — от своей точки
 // в обе стороны. myCards — мои карты в раздаче: крупнее чужих, лицом — пока держишь палец или «всегда открыты»;
 // myHand — подпись моей комбинации сейчас, у открытых карт.
@@ -1448,7 +1460,15 @@ function SeatSpot(props: {
       )}
       {s.hud && <HudLine hud={s.hud} onOpen={onHud} detailed={hudDetailed} />}
       {myCards ? (
-        <PeekCards cards={myCards} open={open} size="mid" label={myHand} className="seat-cards" fly={seatGroup(s.seat)} />
+        <PeekCards
+          cards={myCards}
+          open={open}
+          size="mid"
+          label={myHand}
+          className="seat-cards"
+          fly={seatGroup(s.seat)}
+          seen={seenOf(s.cards)}
+        />
       ) : (
         s.cards && <CardRow cards={s.cards} size={s.isMe ? 'mid' : 'small'} fly={seatGroup(s.seat)} />
       )}

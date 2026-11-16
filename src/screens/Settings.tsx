@@ -44,6 +44,7 @@ import {
   ownSeatsLine,
   putOwnGame,
   removeOwnGame,
+  upChoices,
   withDeck,
   withHole,
   withoutRound,
@@ -61,6 +62,7 @@ import {
   OWN_NAME_MAX,
   OWN_PREFIX,
   OWN_ROUND_MAX,
+  upOf,
   type OwnGame,
   type OwnGameId,
 } from '../poker/ownGame'
@@ -1047,6 +1049,22 @@ function OwnGameEditor(props: {
             </Pick>
           ))}
         </div>
+      </fieldset>
+
+      <fieldset className="players-pick">
+        <legend className="muted">Из них открытых</legend>
+        <div className="row">
+          {upChoices(form).map((n) => (
+            <Pick key={n} on={upOf(form) === n} onClick={() => set({ up: n })}>
+              {String(n)}
+            </Pick>
+          ))}
+        </div>
+        <p className="muted">
+          {upOf(form) === 0
+            ? 'Все карты на руках видит только хозяин.'
+            : `${upOf(form)} из ${form.hole} — лицом для всех за столом, остальные видит только хозяин.`}
+        </p>
       </fieldset>
 
       <fieldset className="players-pick">

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { ownGamesError, type OwnGame } from '../../src/poker/ownGame'
 import { PROTOCOL_VERSION, VERSION_ERROR } from '../../src/poker/protocol'
+import { gameFor } from '../../src/poker/table'
 import { createRoom, NO_PASSWORD, STATUS_TEXT, WRONG_PASSWORD, type CreateDeps } from './http'
 import { FULL } from './registry'
 import { initRoom, type RoomRecord } from './room'
@@ -125,6 +126,10 @@ describe('создание комнаты', () => {
       [[omaha7], 10, '„Омаха-7“: за столом не больше 6 — карт на всех не хватит'],
       [many, 6, 'Своих игр за столом — не больше 8'],
       [[{ ...omaha7, name: 'О'.repeat(200) }], 6, 'Название своей игры — не длиннее 24 знаков'],
+      // Открытых (#226) — от 0 до карт на руках − 1, целым
+      [[{ ...omaha7, up: 7 }], 6, '„Омаха-7“: открытых карт — от 0 до 6, хотя бы одна закрытая'],
+      [[{ ...omaha7, up: -1 }], 6, '„Омаха-7“: открытых карт — от 0 до 6, хотя бы одна закрытая'],
+      [[{ ...omaha7, up: 0.5 }], 6, '„Омаха-7“: открытых карт — от 0 до 6, хотя бы одна закрытая'],
     ] as [unknown[], number, string][]) {
       expect(ownGamesError(games, maxSeats)).toBe(error)
       const bad = withRoom()
@@ -135,6 +140,17 @@ describe('создание комнаты', () => {
       expect(await bad.room.storage.get<RoomRecord>('room')).toBeUndefined()
       expect(bad.calls.released).toEqual(['KQ7MZP'])
     }
+  })
+
+  it('открытые карты своей игры (#226): описание с открытыми доходит до стола, раздача сдаёт их открытыми', async () => {
+    const room = fakeRoom()
+    const { d } = deps('p', { init: (code, name, settings, roster, regularId) => initRoom(room.env, code, name, settings, 0, roster, regularId) })
+    const open3: OwnGame = { id: 'own-o3', name: 'Три с открытой', hole: 3, up: 1, fromHand: 'any', deck: 52, order: 'standard', board: [3, 1, 1], limit: 'nolimit' }
+    const settings = { cards: 'phones', games: [open3], game: open3.id }
+    expect(await createRoom(body('p', { settings }), d)).toMatchObject({ status: 200, body: { code: 'KQ7MZP' } })
+    const table = (await room.storage.get<RoomRecord>('room'))?.table
+    expect(table?.settings.games).toEqual([open3])
+    expect(gameFor(table!.settings)?.rounds[0].deal).toEqual([{ kind: 'hole', down: 2, up: 1 }])
   })
 
   it('страддл (#222): галочка доходит до стола; не «да» и не «нет» — отказ 400, комнаты нет', async () => {

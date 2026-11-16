@@ -2383,6 +2383,24 @@ input.own-back-file {
   opacity: 0.4;
 }
 
+/* Моя открытая карта своей игры (#226): её видят все за столом — рамка цвета гаммы и точка в углу */
+.playing-card.seen {
+  position: relative;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.playing-card.seen::after {
+  content: '';
+  position: absolute;
+  top: -12%;
+  right: -16%;
+  width: 0.5em;
+  height: 0.5em;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 1px solid #f7f7f2;
+}
+
 /* Лицо карт (#219): «Классическое» и «Цветное»; «Крупное» — карта без класса лица, как до #219.
    Карта — контейнер: свою ширину видит сама, где бы ни стояла (стол, места, казино с размерами из casinoLayout).
    Узкая (уже 1,9rem, и без запросов к контейнеру — Safari до 16) — только индекс по центру: ранг над мастью
