@@ -937,6 +937,7 @@ async function pokerSteps(d: Device): Promise<void> {
   // он заменяет стол с ботами в памяти
   await ownGamesStep(d)
   await openCardsStep(d)
+  await hiLoStep(d)
 }
 
 // Форма «Новая комната» без сервера (#238): карты на телефонах, омаха и «Микс» — видны все ряды кнопок выбора;
@@ -1002,6 +1003,24 @@ async function ownGamesStep(d: Device): Promise<void> {
     if (!savedOpen) throw new Error('нет редактора своей игры')
     await d.waitText('3 карты (1 открытая), любые из руки · стол 3-1-1 · без лимита · до 10 игроков')
     await d.shot('05f-svoi-igry-otkrytye')
+    // Хай/лоу (#227): омаха на четыре карты, ровно 2, пот-лимит, галочка «Хай/лоу»
+    await d.click('Добавить игру')
+    await d.waitFor('.own-editor input')
+    await d.type('.own-editor input', 'Омаха хай/лоу')
+    for (const label of ['4', 'Ровно 2', 'Пот-лимит']) await ownEditorClick(d, label)
+    await d.click('Хай/лоу (лоу — восьмёрка или ниже)')
+    await d.waitText('Банк пополам: старшей руке и лучшему лоу')
+    await choicesFit(d, 'Свои игры: хай/лоу')
+    await d.shot('05g-svoya-igra-hi-lo')
+    const savedHiLo = await d.eval<boolean>(`(() => {
+      const form = document.querySelector('.own-editor')
+      if (!form) return false
+      form.requestSubmit()
+      return true
+    })()`)
+    if (!savedHiLo) throw new Error('нет редактора своей игры')
+    await d.waitText('4 карты, ровно 2 из руки · стол 3-1-1 · пот-лимит · хай/лоу · до 10 игроков')
+    await d.shot('05h-svoi-igry-hi-lo')
   })
   await screen('Новая комната: своя игра', d.size, async () => {
     await d.goto('#/poker')
@@ -1039,7 +1058,68 @@ async function ownGamesOnly(cdp: Cdp): Promise<void> {
     await themeOnly(d)
     await ownGamesStep(d)
     await openCardsStep(d)
+    await hiLoStep(d)
   }
+}
+
+// Итог раздачи хай/лоу (#227) без сервера — как у открытых карт (openCardsStep): стол собирают правила стола
+// и кладут в память «Против ботов». Омаха хай/лоу на троих, раздача доиграна чеками: хай — «Тройка, короли» у Бота
+// Север, лоу 7-4-3-2-A — у Бота Юг; под местами «Прошлой раздачи» — делёж банка. Между раздачами боты не ходят
+async function hiLoStep(d: Device): Promise<void> {
+  await screen('Стол: хай/лоу', d.size, async () => {
+    const text = await hiLoTable()
+    await d.goto('#/poker')
+    await d.waitText('Войти по ссылке')
+    await d.eval(`(localStorage.setItem('fishki.poker.bots', ${JSON.stringify(text)}), true)`)
+    await d.goto('#/poker/bots')
+    await d.reload()
+    await d.waitText('лоу — Бот Юг (Лоу 7-4-3-2-A)')
+    await sleep(1500) // раздача долетела
+    await d.eval(`(document.querySelector('.last-hand')?.scrollIntoView({ block: 'start' }), true)`)
+    await d.shot('09g-hi-lo-itog', false)
+  })
+}
+
+// Стол против ботов (BotTable строкой) между раздачами: прошлая — омаха хай/лоу, карты разложены заранее
+async function hiLoTable(): Promise<string> {
+  const load = async (file: string) =>
+    (await runnerImport<Record<string, any>>(join(process.cwd(), 'src/poker', file), { configFile: false, logLevel: 'silent' })).module
+  const table = await load('table.ts')
+  const rules = await load('game.ts')
+  const own = await load('ownGame.ts')
+  const { PROTOCOL_VERSION } = await load('protocol.ts')
+  const mine = { id: 'own-shots', name: 'Омаха хай/лоу', hole: 4, fromHand: 2, deck: 52, order: 'standard', board: [3, 1, 1], limit: 'pot', hiLo: true }
+  const now = Date.now()
+  const settings = { sb: 5, bb: 10, startingStack: 1000, maxSeats: 4, cards: 'phones', autoStart: 'off', games: [mine], game: mine.id }
+  const created = table.createTable('me', 'Вы', settings, now)
+  if (!created.ok) throw new Error(created.error)
+  let state = created.state
+  const send = (from: string, body: Record<string, unknown>, deck?: string[]) => {
+    const r = table.handle(state, from, { v: PROTOCOL_VERSION, ...body }, now, deck)
+    if (!r.ok) throw new Error(`${from} ${String(body.type)}: ${r.error}`)
+    state = r.state
+  }
+  ;['Бот Север', 'Бот Юг'].forEach((name, i) => send(`bot${i + 1}`, { type: 'sit', name }))
+  // Карты: у Севера — короли (тройка с королём стола), у Юга — туз и тройка (лоу), у меня — дамы и 5-6 (лоу хуже)
+  const hands: Record<string, string[]> = { bot1: ['Kh', 'Ks', '9c', 'Th'], bot2: ['Ac', '3d', 'Jc', 'Js'], me: ['5h', '6s', 'Qc', 'Qs'] }
+  const board = ['Kd', '7h', '2s', '4c', 'Qd']
+  // Порядок сдачи — по кругу от первого после кнопки: кнопку даёт пробный старт
+  const def = own.ownGameDef(mine)
+  const probe = table.handle(state, 'me', { v: PROTOCOL_VERSION, type: 'start' }, now, rules.deckFor(def))
+  if (!probe.ok) throw new Error(probe.error)
+  const seats: { id: string }[] = probe.state.hand.seats
+  const order = seats.map((_, k) => seats[(probe.state.hand.button + 1 + k) % seats.length].id)
+  const top = [...[0, 1, 2, 3].flatMap((k) => order.map((id) => hands[id][k])), ...board]
+  send('me', { type: 'start' }, [...top, ...rules.deckFor(def).filter((c: string) => !top.includes(c))])
+  // Доиграть чеками и коллами
+  for (let i = 0; i < 40 && state.hand; i++) {
+    const seat = state.hand.seats[state.hand.toAct]
+    send(seat.id, { type: 'act', action: { type: seat.bet < state.hand.currentBet ? 'call' : 'check' } })
+  }
+  if (state.hand || !state.lastHand?.record?.split) throw new Error('раздача хай/лоу не доиграна')
+  state.settings.game = 'holdem'
+  delete state.settings.games
+  return JSON.stringify({ id: 'shots-hilo', table: state, meId: 'me', level: 'amateur', open: false, showStyles: true, autoFinish: false, hudAll: false, history: [] })
 }
 
 // Открытые карты своей игры (#226) за столом. Своя игра идёт только в комнате (сервер), а боты и стол на этом
