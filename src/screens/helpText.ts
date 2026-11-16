@@ -25,9 +25,20 @@ import { SAMPLES } from '../calc/allInOdds'
 import { CHARTS_GAME, CHARTS_ROUNDING, TRAINER_SIDES_MAX, TRAINER_SIDES_MIN, TRAINER_WEIGHTS, weightLabel } from '../calc/trainerView'
 import { DEFAULT_BUYIN, DEFAULT_QUICK_AMOUNTS, DEFAULT_RATE, DEFAULT_WINDOW, MAX_WINDOW, MIN_WINDOW } from '../model'
 import { TOURNAMENT_RATE } from '../calc/pokerGame'
-import { TURN_PRESETS } from '../calc/pokerTimer'
+import { TIMER_TIP, TURN_PRESETS } from '../calc/pokerTimer'
 import { prizeRuleText } from '../calc/tournamentForm'
-import { AUTO_START_MS, DEFAULT_SETTINGS, HOST_TAKEOVER_MS, TIMEOUTS_TO_SIT_OUT, TURN_MAX_S, TURN_MIN_S } from '../poker/table'
+import {
+  AUTO_START_MS,
+  DEFAULT_SETTINGS,
+  HOST_TAKEOVER_MS,
+  TIME_BANK_ADD_S,
+  TIME_BANK_EVERY,
+  TIME_BANK_MAX_S,
+  TIME_BANK_PRESETS,
+  TIMEOUTS_TO_SIT_OUT,
+  TURN_MAX_S,
+  TURN_MIN_S,
+} from '../poker/table'
 import { HUD_FEW_HANDS } from '../poker/hud'
 import { HUD_FIRM_HANDS } from '../calc/botHud'
 import { MIX_VOTE_MS } from '../poker/mix'
@@ -48,6 +59,12 @@ export type HelpValues = {
   turnMin: string // своё время на ход — от
   turnMax: string // и до
   sitOutAfter: string // истечений хода подряд до «пропускает раздачи»
+  timeBankPresets: string // запас времени (#223): готовые, секунд
+  timeBankEvery: string // раздач стола до пополнения запаса
+  timeBankAdd: string // пополнение, секунд
+  timeBankMax: string // запас — не больше, секунд
+  tipTurn: string // совет для вечера: время на ход, секунд
+  tipBank: string // и запас
   autoStartPauses: string // паузы раздачи «сама»: быстро, средне, медленно, секунд
   casinoStake: string // ставка раунда казино с картами, пока нет прошлой
   casinoTables: string // столов раунда казино с картами по умолчанию
@@ -109,6 +126,12 @@ export const HELP_VALUES: HelpValues = {
   turnMin: formatNumber(TURN_MIN_S),
   turnMax: formatNumber(TURN_MAX_S),
   sitOutAfter: formatNumber(TIMEOUTS_TO_SIT_OUT),
+  timeBankPresets: orList(TIME_BANK_PRESETS.map(formatNumber), 'или'),
+  timeBankEvery: formatNumber(TIME_BANK_EVERY),
+  timeBankAdd: formatNumber(TIME_BANK_ADD_S),
+  timeBankMax: formatNumber(TIME_BANK_MAX_S),
+  tipTurn: formatNumber(TIMER_TIP.turnSeconds),
+  tipBank: formatNumber(TIMER_TIP.timeBank),
   autoStartPauses: orList(
     [AUTO_START_MS.fast, AUTO_START_MS.medium, AUTO_START_MS.slow].map((ms) => formatNumber(ms / 1000)),
     'и',
@@ -320,6 +343,7 @@ export function helpSections(v: HelpValues): HelpSection[] {
       title: 'Время на ход, раздача сама, звук и анимация',
       text: [
         `«Время на ход» — «Выкл» или ${v.turnPresets} с, «Своё» — от ${v.turnMin} до ${v.turnMax} с. Пока идёт ход, у места того, чей ход, в полосе «Ждём хода» и над своими кнопками — сколько секунд осталось. Время вышло — программа сама делает за игрока чек, если можно, иначе пас; в «Ходах» прошлой раздачи — «время вышло». Так ${v.sitOutAfter} раза подряд — игрок «пропускает раздачи»; вернуться — его кнопкой «Вернуться в раздачи». Срок ведёт сервер: ход истекает вовремя, даже когда ведущий вне сети, а телефон игрока спит; отсчёт на экране не зависит от часов телефона.`,
+        `«Запас времени» — как таймбанк в покер-румах, только в комнате и только вместе со временем на ход: «Выкл» (сначала) или ${v.timeBankPresets} с на каждого игрока на весь вечер. Кончилось время на ход — сам пошёл ваш запас: у места вместо секунд — «запас N с» другим цветом, над кнопками — «Ваш ход · запас N с». Сходили — из запаса уходит потраченное, следующий ход — снова с полного времени на ход; кончился и запас — чек или пас, как без него. Пока запас не тратится, он виден только вам — над кнопками: «Ваш ход · ${v.tipTurn} с · запас ${v.tipBank} с»; чужой не виден. Каждые ${v.timeBankEvery} раздач стола всем за столом +${v.timeBankAdd} с, но не больше ${v.timeBankMax} с. Вне сети запас не тратится — ход истекает по времени на ход. «Перерыв» его останавливает: потраченное до перерыва уходит, после «Продолжить» — снова полное время на ход, затем остаток запаса. Новый за столом садится с начальным запасом; ведущий сменил запас в «Настройках стола» — у всех снова начальный. Совет для вечера — ход ${v.tipTurn} с и запас ${v.tipBank} с: короткий ход держит темп, запас даёт подумать в важной раздаче.`,
         'Когда наступает ваш ход, телефон даёт знак — короткий звук и вибрацию (на iPhone — только звук). Звук выключается в «Настройках», «За столом», на этом устройстве.',
         `Анимация карт: когда карты раздаёт программа (комната, «Против ботов», казино-стол), новая раздача прилетает к местам из центра стола по одной, по кругу с места после кнопки, как сдаёт дилер, — вся раздача не дольше ${v.dealSeconds} с; ваши карты прилетают рубашкой. Флоп выкладывается по одной карте, тёрн и ривер — каждая своей короткой анимацией, улица — не дольше ${v.streetSeconds} с. На казино-столе карты открывающегося стола переворачиваются по одной (раздел «Игра»). Анимация ничего не ждёт: кнопки хода, ползунок и таймер работают сразу, а бот или игрок, успевший сходить, просто ходит. Открыли или обновили страницу, вернулись после обрыва связи или на вкладку — карты уже лежат, анимация не повторяется. При живых картах карт на экране нет — и анимации нет. Выключается в «Настройках», «За столом», на этом устройстве.`,
         `«Следующая раздача сама» — «Быстро», «Средне» или «Медленно»: новая раздача начнётся без ведущего через ${v.autoStartPauses} с после раздачи банков, если за столом двое и больше с фишками, которые не пропускают раздачи, и нет перерыва; при живых картах — после того, как ведущий отметил победителей. Если играть было некому, а потом снова стало двое — кто-то докупился, вернулся в раздачи, сел за стол или ведущий поднял стек с нуля, — отсчёт начинается сам с этой минуты. «Выкл» — раздачу начинает ведущий. Взявший банк без вскрытия может «Показать» карты только в эту паузу — до новой раздачи.`,
