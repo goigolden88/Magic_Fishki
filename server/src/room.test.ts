@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { HistoryHand } from '../../src/poker/history'
+import type { OwnGame } from '../../src/poker/ownGame'
 import { PING_MS, PROTOCOL_VERSION, VERSION_ERROR } from '../../src/poker/protocol'
 import { RUN_VOTE_MS } from '../../src/poker/runs'
 import { AUTO_START_MS, HOST_TAKEOVER_MS, type Settings, type TableState } from '../../src/poker/table'
@@ -75,6 +76,37 @@ describe('комната', () => {
       error: 'Блайнды — целые числа, малый не больше большого',
     })
     expect(await stored(r)).toBeUndefined()
+  })
+
+  it('своя игра (#224): комната создаётся, сервер тасует её колоду и сдаёт по её описанию', async () => {
+    const short5: OwnGame = { id: 'own-s5', name: 'Шорт-5', hole: 5, fromHand: 2, deck: 36, order: 'shortdeck', board: [3, 1, 1], limit: 'pot' }
+    const { r, host, guest, hostId, guestId } = await twoPlayers({ cards: 'phones', games: [short5], game: short5.id, maxSeats: 6 })
+    expect(tableOf(guest).settings.games).toEqual([short5])
+    await send(r, host, { type: 'start' }, 1000)
+    const cards = tableOf(guest).hand?.cards
+    expect(cards?.game).toMatchObject({ id: 'own-s5', name: 'Шорт-5' })
+    expect(tableOf(guest).hand?.limit).toBe('pot')
+    // Свои карты видны, чужие — рубашкой; все — из колоды 36
+    expect(cards?.hole[guestId]).toHaveLength(5)
+    expect(cards?.hole[hostId]).toEqual([null, null, null, null, null])
+    const all = (await stored(r))?.table.hand?.cards
+    const dealt = [...(all?.hole[guestId] ?? []), ...(all?.hole[hostId] ?? []), ...(all?.deck ?? [])]
+    expect(dealt).toHaveLength(36)
+    expect(dealt.every((c) => c !== null && !'2345'.includes(c[0]))).toBe(true)
+  })
+
+  it('своя игра с неверным описанием — комнаты нет', async () => {
+    const omaha7: OwnGame = { id: 'own-o7', name: 'Омаха-7', hole: 7, fromHand: 2, deck: 52, order: 'standard', board: [3, 1, 1], limit: 'pot' }
+    for (const [settings, error] of [
+      [{ games: [{ ...omaha7, hole: 8 }], maxSeats: 6 }, '„Омаха-7“: карт на руках — от 2 до 7'],
+      [{ games: [omaha7], maxSeats: 10 }, '„Омаха-7“: за столом не больше 6 — карт на всех не хватит'],
+      [{ games: Array.from({ length: 9 }, (_, i) => ({ ...omaha7, id: `own-g${i}` })), maxSeats: 6 }, 'Своих игр за столом — не больше 8'],
+      [{ games: [{ ...omaha7, name: 'О'.repeat(200) }], maxSeats: 6 }, 'Название своей игры — не длиннее 24 знаков'],
+    ] as [Partial<Settings>, string][]) {
+      const r = fakeRoom()
+      expect(await initRoom(r.env, 'ABCDEF', 'Ведущий', { cards: 'phones', ...settings }, 0)).toEqual({ ok: false, error })
+      expect(await stored(r)).toBeUndefined()
+    }
   })
 
   it('двое подключились — ход одного сразу видят оба', async () => {

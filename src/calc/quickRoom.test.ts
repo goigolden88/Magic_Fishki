@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SETTINGS } from '../poker/table'
+import type { OwnGame } from '../poker/ownGame'
+import { createTable, DEFAULT_SETTINGS } from '../poker/table'
 import { lookOf } from './pokerLook'
 import { turnChoiceOf, turnSecondsOf } from './pokerTimer'
 import {
@@ -180,6 +181,30 @@ describe('своя «Быстрая комната» (Р-62)', () => {
     ]) {
       expect(parseQuickRoom(bad)).toBeNull()
     }
+  })
+
+  it('своя игра (#224): сохраняется; в комнату — её описание и места по картам; её нет на телефоне — холдем', () => {
+    const omaha7: OwnGame = { id: 'own-o7', name: 'Омаха-7', hole: 7, fromHand: 2, deck: 52, order: 'standard', board: [3, 1, 1], limit: 'pot' }
+    const mine: OwnGame = { ...omaha7, id: 'own-h', name: 'Мой холдем', hole: 2, fromHand: 'any', limit: 'nolimit' }
+    const room: QuickRoom = { ...ROOM, variant: { game: 'own-o7', limit: 'pot' }, mix: null }
+    expect(parseQuickRoom(JSON.parse(JSON.stringify(room)))).toEqual(room)
+    const s = quickRoomSettings(1000, room, [mine, omaha7])
+    expect(s).toMatchObject({ cards: 'phones', game: 'own-o7', games: [omaha7], maxSeats: 6 })
+    expect(s).not.toHaveProperty('limit')
+    expect(createTable('h', 'H', s, 0).ok).toBe(true)
+    expect(quickRoomLine(s)).toMatch(/^Омаха-7 пот-лимит · кэш · карты на телефонах · блайнды 25\/50 · стек 5.000 · ход 30 с$/)
+    // С «Миксом» — все свои, выбранная первой; места — по самой «тесной»
+    expect(quickRoomSettings(1000, { ...room, mix: 'half' }, [mine, omaha7])).toMatchObject({ games: [omaha7, mine], maxSeats: 6, mix: true })
+    expect(quickRoomSettings(1000, { ...ROOM, mix: 'half' }, [mine])).toMatchObject({ game: 'omaha', games: [mine], maxSeats: 9 })
+    // Своей игры на телефоне уже нет — холдем, без своих игр
+    const gone = quickRoomSettings(1000, room, [mine])
+    expect(gone).toMatchObject({ game: 'holdem' })
+    expect(gone).not.toHaveProperty('games')
+    expect(gone).not.toHaveProperty('maxSeats')
+    expect(quickRoomLine(gone)).toMatch(/^Холдем · /)
+    // Живые карты — своих игр нет
+    expect(quickRoomSettings(1000, { ...room, cards: 'live' }, [omaha7])).toMatchObject({ game: 'holdem', cards: 'live' })
+    expect(quickRoomSettings(1000, { ...room, cards: 'live' }, [omaha7])).not.toHaveProperty('games')
   })
 
   it('форма из разобранного выбора: formSettings возвращает то же', () => {

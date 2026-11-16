@@ -3,7 +3,8 @@
 // запись, а не дописывается. Здесь — чем вечер назван, что записать и как показать список
 import type { Card } from '../poker/cards'
 import { limitFor, type TableState } from '../poker/table'
-import type { GameId, Limit } from '../poker/game'
+import type { Limit } from '../poker/game'
+import type { TableGameId } from '../poker/ownGame'
 import type { HistoryHand } from '../poker/history'
 import { formatNumber } from './format'
 import { handNet, type Blinds } from './handResult'
@@ -21,7 +22,7 @@ export type Evening = {
 // на телефонах блайнды — из записи раздачи; эти — для живых карт, где записи нет
 export type EveningTable = {
   me: string | null // игрок этого телефона; стол на одном телефоне — null: ходят за всех
-  game: GameId
+  game: TableGameId // своя игра (#224) — её id; название и правила — в записи каждой раздачи (record.game)
   limit: Limit
   sb: number
   bb: number
