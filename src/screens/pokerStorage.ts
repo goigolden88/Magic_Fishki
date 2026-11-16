@@ -14,7 +14,7 @@ import type { CSSProperties } from 'react'
 
 // Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги,
 // звук «ваш ход», «карты всегда открыты», «анимация карт», стол на этом телефоне и стол против ботов,
-// последняя открытая игра для «Продолжить» (#209) — данные этого устройства,
+// последняя открытая игра для «Продолжить» (#209), «HUD у мест: коротко / подробно» (#243) — данные этого устройства,
 // а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21, Р-38).
 // Заметки об игроках и подписи их цветов (Р-56), личный «Вид стола» (Р-61), своя «Быстрая комната», показ в ББ
 // и быстрые ставки (Р-62), размер стола и панели ставок (Р-63), шаг колеса и «−»/«+» (Р-69) — тоже в localStorage, но в копию идут
@@ -40,6 +40,7 @@ const DOCK_SIZE_KEY = 'fishki.poker.dockSize'
 const BET_STEP_KEY = 'fishki.poker.betStep'
 const LAST_KEY = 'fishki.poker.last'
 const MINE_KEY = 'fishki.poker.mine'
+const HUD_DETAIL_KEY = 'fishki.poker.hudDetail'
 
 function read(key: string): string {
   try {
@@ -317,6 +318,45 @@ export function loadMyLook(): MyLook {
 export function saveMyLook(next: MyLook) {
   myLook = next
   write(LOOK_KEY, isDefaultLook(next) ? '' : JSON.stringify(next))
+  lookChanged()
+}
+
+// Вид стола сменили (свой вид, размер стола или панели) — стол на экране перерисовывается сразу (#243:
+// «⚙» за столом). Снимок — номер смены: сам вид стол читает как прежде
+let lookVersion = 0
+const lookListeners = new Set<() => void>()
+
+function lookChanged() {
+  lookVersion++
+  for (const listener of lookListeners) listener()
+}
+
+export const lookVersionNow = () => lookVersion
+
+export function subscribeLook(listener: () => void): () => void {
+  lookListeners.add(listener)
+  return () => lookListeners.delete(listener)
+}
+
+// «HUD у мест: коротко / подробно» (#243): коротко — «VPIP/PFR · N», подробно — ещё 3-бет (#241).
+// Настройка этого устройства для всех столов, сначала — коротко; в копию не идёт
+let hudDetailed: boolean | undefined // undefined — ещё не читали
+const hudDetailedListeners = new Set<() => void>()
+
+export function loadHudDetailed(): boolean {
+  hudDetailed ??= read(HUD_DETAIL_KEY) === 'on'
+  return hudDetailed
+}
+
+export function saveHudDetailed(on: boolean) {
+  hudDetailed = on
+  write(HUD_DETAIL_KEY, on ? 'on' : '')
+  for (const listener of hudDetailedListeners) listener()
+}
+
+export function subscribeHudDetailed(listener: () => void): () => void {
+  hudDetailedListeners.add(listener)
+  return () => hudDetailedListeners.delete(listener)
 }
 
 // Покер-рум на этом телефоне (Р-62): своя «Быстрая комната», суммы за столом в больших блайндах, свои быстрые ставки.
@@ -410,6 +450,7 @@ export function loadTableSizeChoice(): number | null {
 export function saveTableSize(size: number | null) {
   tableSize = size
   write(TABLE_SIZE_KEY, size === null ? '' : String(size))
+  lookChanged()
 }
 
 export function loadDockSizeChoice(): DockSize | null {
@@ -420,6 +461,7 @@ export function loadDockSizeChoice(): DockSize | null {
 export function saveDockSize(size: DockSize | null) {
   dockSize = size
   write(DOCK_SIZE_KEY, size ?? '')
+  lookChanged()
 }
 
 // Переменные CSS обёртки стола: размер стола и панели (действуют только на широком окне — styles.css)
