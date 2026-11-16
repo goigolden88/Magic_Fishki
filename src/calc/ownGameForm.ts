@@ -1,6 +1,7 @@
 // Редактор своей игры (#225, Р-85): «Настройки» → «Свои игры». Поля — кнопками, кроме названия; описание
 // проверяет ownGameError (#224) — та же проверка, что у сервера комнат. Здесь — разбор формы, подписи и список
 import { pluralForm } from './format'
+import type { Limit } from '../poker/game'
 import {
   OWN_BOARD_MAX,
   OWN_GAMES_MAX,
@@ -9,6 +10,7 @@ import {
   seatsFor,
   type OwnGame,
   type OwnGameId,
+  type OwnOrder,
 } from '../poker/ownGame'
 
 // Форма — описание без id: id даёт экран при первом «Сохранить»
@@ -24,6 +26,22 @@ export const OWN_GAME_NEW: OwnGameForm = {
   board: [3, 1, 1],
   limit: 'nolimit',
 }
+
+// Кнопки полей «Колода», «Старшинство», «Лимит» — подписи и для справки
+export const OWN_DECK_LABELS: [OwnGameForm['deck'], string][] = [
+  [52, '52 карты'],
+  [36, '36 карт'],
+]
+
+export const OWN_ORDER_LABELS: [OwnOrder, string][] = [
+  ['standard', 'Обычное'],
+  ['shortdeck', 'Как в шорт-деке'],
+]
+
+export const OWN_LIMIT_LABELS: [Limit, string][] = [
+  ['nolimit', 'Без лимита'],
+  ['pot', 'Пот-лимит'],
+]
 
 // id для проверки формы, пока игра не сохранена
 const DRAFT_ID: OwnGameId = 'own-draft'

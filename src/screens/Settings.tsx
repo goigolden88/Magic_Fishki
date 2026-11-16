@@ -33,7 +33,10 @@ import {
   canRemoveRound,
   fromHandAllowed,
   fromHandChoices,
+  OWN_DECK_LABELS,
   OWN_GAME_NEW,
+  OWN_LIMIT_LABELS,
+  OWN_ORDER_LABELS,
   ownFormError,
   ownGameFormOf,
   ownGameLine,
@@ -49,7 +52,6 @@ import {
   type OwnField,
   type OwnGameForm,
 } from '../calc/ownGameForm'
-import type { Limit } from '../poker/game'
 import {
   OWN_BOARD_MAX,
   OWN_BOARD_MIN,
@@ -61,7 +63,6 @@ import {
   OWN_ROUND_MAX,
   type OwnGame,
   type OwnGameId,
-  type OwnOrder,
 } from '../poker/ownGame'
 import { demoGames, hasDemo } from '../calc/demo'
 import { formatNumber, formatRate, parseChips, parseRate, pluralForm } from '../calc/format'
@@ -1071,7 +1072,7 @@ function OwnGameEditor(props: {
       <fieldset className="players-pick">
         <legend className="muted">Колода</legend>
         <div className="row">
-          {OWN_DECKS.map(([deck, label]) => (
+          {OWN_DECK_LABELS.map(([deck, label]) => (
             <Pick key={deck} on={form.deck === deck} onClick={() => setForm(withDeck(form, deck))}>
               {label}
             </Pick>
@@ -1082,7 +1083,7 @@ function OwnGameEditor(props: {
       <fieldset className="players-pick">
         <legend className="muted">Старшинство</legend>
         <div className="row">
-          {OWN_ORDERS.map(([order, label]) => (
+          {OWN_ORDER_LABELS.map(([order, label]) => (
             <Pick key={order} on={form.order === order} onClick={() => set({ order })}>
               {label}
             </Pick>
@@ -1126,7 +1127,7 @@ function OwnGameEditor(props: {
       <fieldset className="players-pick">
         <legend className="muted">Лимит</legend>
         <div className="row">
-          {OWN_LIMITS.map(([limit, label]) => (
+          {OWN_LIMIT_LABELS.map(([limit, label]) => (
             <Pick key={limit} on={form.limit === limit} onClick={() => set({ limit })}>
               {label}
             </Pick>
@@ -1151,21 +1152,6 @@ function OwnGameEditor(props: {
     </form>
   )
 }
-
-const OWN_DECKS: [OwnGameForm['deck'], string][] = [
-  [52, '52 карты'],
-  [36, '36 карт'],
-]
-
-const OWN_ORDERS: [OwnOrder, string][] = [
-  ['standard', 'Обычное'],
-  ['shortdeck', 'Как в шорт-деке'],
-]
-
-const OWN_LIMITS: [Limit, string][] = [
-  ['nolimit', 'Без лимита'],
-  ['pot', 'Пот-лимит'],
-]
 
 // Список своих кнопок одного вида: подписи, «✕», ввод новой
 function BetsList(props: {
