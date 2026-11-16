@@ -22,6 +22,8 @@ import {
   myMove,
   myRebuy,
   resumeBotTable,
+  setBotAutoStart,
+  setBotFlag,
   topUpAll,
   type BotStep,
   type BotTable,
@@ -31,7 +33,10 @@ import { dockOf, waitLine } from '../calc/pokerLayout'
 import { lookClass } from '../calc/pokerLook'
 import { handFor } from '../poker/history'
 import { NO_STORAGE } from './PokerLocal'
-import { ActionsCard, blindsLine, HandHistory, HostDock, LastHand, PokerTable, PotList, useBigBlinds } from './PokerRoom'
+import { BotFlagFields } from './BotFlagFields'
+import { ActionsCard, blindsLine, HandHistory, HostDock, LastHand, PokerTable, PotList, useBigBlinds, useLookVersion } from './PokerRoom'
+import { GearPop, MyLookPart } from './TableGear'
+import { AutoStartField } from './TimerFields'
 import {
   clearBotTable,
   loadBotTable,
@@ -178,6 +183,8 @@ function BotTableCard(props: {
 }) {
   const { bots, error, onError, apply, onFinish } = props
   const [showHistory, setShowHistory] = useState(false)
+  const [gear, setGear] = useState(false) // «⚙ Стол» открыт (#243)
+  useLookVersion() // свой вид сменили в «⚙» — стол сразу в новом
   const table = bots.table
   const v = botTableView(bots, Date.now(), loadQuickBets()) // свои быстрые ставки (Р-62)
   // История — в моём виде: карты бота, взявшего банк без вскрытия, не видны. Каждая раздача — в «Прошлые вечера»
@@ -256,6 +263,10 @@ function BotTableCard(props: {
               {auto && ' Следующая раздача начинается сама.'}
               {bots.autoFinish && ' После паса раздача доигрывается сразу.'}
             </p>
+            {/* «⚙ Стол» (#243) — и во время раздачи: свой вид и галочки стола, не выходя из-за него */}
+            <button type="button" className="big wide" aria-haspopup="dialog" onClick={() => setGear(true)}>
+              ⚙ Стол
+            </button>
             {/* В раздаче «Перерыв» — здесь: она доигрывается, новая сама не начнётся; между раздачами — внизу экрана */}
             {auto && table.hand && (
               <button type="button" className={v.paused ? 'big primary wide' : 'big wide'} onClick={pause}>
@@ -266,6 +277,7 @@ function BotTableCard(props: {
               Закончить игру
             </button>
           </section>
+          {gear && <BotGear bots={bots} apply={apply} onClose={() => setGear(false)} />}
         </div>
       </div>
 
@@ -302,5 +314,23 @@ function BotTableCard(props: {
         )}
       </div>
     </div>
+  )
+}
+
+// «⚙ Стол» (#243): поверх стола, игра идёт. «Мой вид стола» — этого телефона, за всеми столами; «Стол» — этого
+// стола, хранится в нём и меняется сразу. «Следующая раздача сама» — настройка стола ведущего: между раздачами
+function BotGear({ bots, apply, onClose }: { bots: BotTable; apply: Apply; onClose: () => void }) {
+  const flags = { open: bots.open, showStyles: bots.showStyles, hudAll: bots.hudAll, autoFinish: bots.autoFinish }
+  return (
+    <GearPop title="Стол" onClose={onClose}>
+      <MyLookPart heading />
+      <h3>Этот стол</h3>
+      <BotFlagFields flags={flags} onChange={(flag, on) => apply((bt) => ({ ok: true, bots: setBotFlag(bt, flag, on) }))} />
+      <AutoStartField
+        value={botAutoStart(bots)}
+        disabled={Boolean(bots.table.hand)}
+        onChange={(mode) => apply((bt, now) => setBotAutoStart(bt, mode, now))}
+      />
+    </GearPop>
   )
 }

@@ -46,7 +46,9 @@ import {
   MoveSeat,
   PokerTable,
   PotList,
+  useLookVersion,
 } from './PokerRoom'
+import { LookGear } from './TableGear'
 import { TournamentPanel, TournamentResults } from './Tournament'
 
 // Адрес стола на телефоне: под код комнаты (6 знаков) не подходит
@@ -227,6 +229,7 @@ function LocalTableCard(props: {
   const { table, history, amounts, regulars, error, finishing, onError, apply, onFinish, onRemove } = props
   const [, setTick] = useState(0)
   const [showHistory, setShowHistory] = useState(false)
+  useLookVersion() // свой вид сменили в «⚙» (#243) — стол сразу в новом
   const v = localTableView(table, Date.now(), loadQuickBets()) // свои быстрые ставки (Р-62)
   const actId = toActId(table)
   const hand = table.hand
@@ -276,6 +279,8 @@ function LocalTableCard(props: {
               История раздач
             </button>
           )}
+          {/* «⚙» (#243): свой вид и HUD коротко / подробно; «Вид стола» ведущего — в его карточке, как был */}
+          <LookGear />
 
           <section className="card host">
             <h2>Ведущий</h2>

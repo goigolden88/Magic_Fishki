@@ -86,7 +86,7 @@ export const ROOM_DEFAULTS: Omit<RoomChoice, 'startingStack'> = {
   publicHud: false,
 }
 
-// Свои игры в комнату (#224, Р-84): только карты на телефонах; с «Миксом» — все свои (выбранная — первой), иначе —
+// Свои игры в комнату (#224, Р-85): только карты на телефонах; с «Миксом» — все свои (выбранная — первой), иначе —
 // выбранная. Выбранной уже нет на телефоне (own) — холдем. Мест — сколько хватит карт на каждую (seatsFor)
 function ownSettings(c: RoomChoice, own: OwnGame[]): Partial<Settings> {
   const phones = c.cards === 'phones'

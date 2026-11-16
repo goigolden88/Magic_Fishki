@@ -27,7 +27,7 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 //      ответ дошедшего (runChoice), несколько бордов в раздаче (boards) и в записи (runs)
 // 18 — запас времени (#223): настройка timeBank при создании и в tableSettings, запас игроков в столе (timeBank),
 //      идущий запас в сроке хода (turn.bank)
-// 19 — свои игры (#224, Р-84): настройка games при создании (описания игр), game — и id своей игры;
+// 19 — свои игры (#224, Р-85): настройка games при создании (описания игр), game — и id своей игры;
 //      «Микс» предлагает и свою игру стола (mixPropose), описание своей игры — в раздаче и в записи (game.name)
 export const PROTOCOL_VERSION = 19
 

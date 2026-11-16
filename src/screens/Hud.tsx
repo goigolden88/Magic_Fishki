@@ -1,4 +1,6 @@
+import { useSyncExternalStore } from 'react'
 import type { HudView } from '../calc/pokerView'
+import { loadHudDetailed, saveHudDetailed, subscribeHudDetailed } from './pokerStorage'
 
 // HUD вечера (#79): строка у места, подробно — по касанию строки (не по картам: свои карты
 // подсматривают пальцем), выбор ведущего «HUD видят»
@@ -61,6 +63,42 @@ export function HudCard({ name, hud, onClose }: { name: string; hud: HudView; on
         Закрыть
       </button>
     </div>
+  )
+}
+
+// «HUD у мест: коротко / подробно» (#243): выбор в «⚙» за столом — на всех столах этого устройства сразу
+export function useHudDetailed(): boolean {
+  return useSyncExternalStore(subscribeHudDetailed, loadHudDetailed)
+}
+
+export function HudDetailField() {
+  const detailed = useHudDetailed()
+  const options: [boolean, string][] = [
+    [false, 'Коротко'],
+    [true, 'Подробно'],
+  ]
+  return (
+    <fieldset className="players-pick">
+      <legend className="muted">HUD у мест</legend>
+      <div className="row">
+        {options.map(([value, label]) => (
+          <button
+            key={label}
+            type="button"
+            className={detailed === value ? 'big primary grow' : 'big grow'}
+            aria-pressed={detailed === value}
+            onClick={() => saveHudDetailed(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="muted">
+        {detailed
+          ? 'У места — VPIP, PFR, 3-бет и число раздач: «22/18/7 · 45». Только на этом устройстве, за всеми столами.'
+          : 'У места — VPIP, PFR и число раздач: «22/18 · 45». Только на этом устройстве, за всеми столами.'}
+      </p>
+    </fieldset>
   )
 }
 

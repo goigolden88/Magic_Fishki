@@ -68,6 +68,7 @@ import {
 } from './pokerStorage'
 import { GameFields, RoomFields, roomChoiceOf, roomFormOf, TableFields, type RoomForm } from './RoomFields'
 import { AutoStartField } from './TimerFields'
+import { BotFlagFields, type BotFlags } from './BotFlagFields'
 import { FormatFields } from './Tournament'
 
 const GUEST = '' // «Вы за столом» — не из постоянных
@@ -658,10 +659,9 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
   const [sbText, setSbText] = useState(String(DEFAULT_SETTINGS.sb))
   const [bbText, setBbText] = useState(String(DEFAULT_SETTINGS.bb))
   const [stackText, setStackText] = useState<string | null>(null)
-  const [open, setOpen] = useState(false)
-  const [showStyles, setShowStyles] = useState(true)
-  const [autoFinish, setAutoFinish] = useState(false)
-  const [hudAll, setHudAll] = useState(true)
+  // Галочки стола (#243: общие с «⚙ Стол» за ним): карты ботов закрыты, стиль виден, HUD у всех, доигрывание кнопкой
+  const [flags, setFlags] = useState<BotFlags>({ open: false, showStyles: true, hudAll: true, autoFinish: false })
+  const { showStyles } = flags
   const [autoStart, setAutoStart] = useState<AutoStart>(BOT_AUTO_START_DEFAULT)
   const [error, setError] = useState<string | null>(null)
 
@@ -680,7 +680,7 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
       setError('Игра против ботов уже идёт — продолжите или закончите её')
       return
     }
-    const form = { bots: count, level, open, showStyles, autoFinish, hudAll, sb, bb, startingStack: stack, game, autoStart }
+    const form = { bots: count, level, ...flags, sb, bb, startingStack: stack, game, autoStart }
     const r = startBotTable(form, Date.now(), () => ulid())
     if (!r.ok) {
       setError(r.error)
@@ -759,31 +759,7 @@ function NewBotsCard({ onCancel }: { onCancel: () => void }) {
       {/* Раздача «сама» (#156, Р-51): первая — кнопкой, дальше — через паузу */}
       <AutoStartField value={autoStart} onChange={setAutoStart} />
 
-      <label className="check">
-        <input type="checkbox" checked={open} onChange={(e) => setOpen(e.target.checked)} />
-        Карты ботов открыты
-      </label>
-      <p className="muted">Только на вашем экране — учиться на их решениях. Боты ваших карт не видят.</p>
-
-      <label className="check">
-        <input type="checkbox" checked={showStyles} onChange={(e) => setShowStyles(e.target.checked)} />
-        Стиль ботов виден
-      </label>
-      <p className="muted">Выключите — стиль придётся угадывать по игре.</p>
-
-      {/* #196: HUD у мест ботов — учиться читать соперника; выключено — только у своего места */}
-      <label className="check">
-        <input type="checkbox" checked={hudAll} onChange={(e) => setHudAll(e.target.checked)} />
-        HUD у всех мест
-      </label>
-      <p className="muted">Строка HUD у каждого бота, касание — подробно. Выключено — HUD только у вашего места.</p>
-
-      {/* #194: сбросили — раздача между ботами доигрывается мгновенно; выключено — кнопкой «Доиграть сразу» */}
-      <label className="check">
-        <input type="checkbox" checked={autoFinish} onChange={(e) => setAutoFinish(e.target.checked)} />
-        После паса — сразу доигрывать
-      </label>
-      <p className="muted">Сбросили — боты доигрывают раздачу без пауз. Выключено — внизу кнопка «Доиграть сразу».</p>
+      <BotFlagFields flags={flags} onChange={(flag, on) => setFlags((f) => ({ ...f, [flag]: on }))} />
 
       {error && <p className="warn">{error}</p>}
       <div className="row">
