@@ -207,9 +207,25 @@ describe('своя «Быстрая комната» (Р-62)', () => {
     expect(quickRoomSettings(1000, { ...room, cards: 'live' }, [omaha7])).not.toHaveProperty('games')
   })
 
+  it('страддл (#222): галочка — в комнату и в память; без поля и «нет» — без страддла; не «да»/«нет» — негодно', () => {
+    const room: QuickRoom = { ...ROOM, format: { format: 'cash', ante: 0, straddle: true } }
+    expect(parseQuickRoom(JSON.parse(JSON.stringify(room)))).toEqual(room)
+    expect(quickRoomSettings(1000, room)).toMatchObject({ format: 'cash', straddle: true })
+    expect(createTable('h', 'H', quickRoomSettings(1000, room), 0)).toMatchObject({ ok: true, state: { settings: { straddle: true } } })
+    expect(parseQuickRoom({ ...ROOM, format: { format: 'cash', ante: 0, straddle: false } })?.format).toEqual({ format: 'cash', ante: 0 })
+    expect(quickRoomSettings(1000, ROOM)).not.toHaveProperty('straddle')
+    expect(parseQuickRoom({ ...ROOM, format: { format: 'cash', ante: 0, straddle: 'да' } })).toBeNull()
+  })
+
   it('форма из разобранного выбора: formSettings возвращает то же', () => {
     const cash = { format: 'cash' as const, ante: 5 }
     expect(formSettings(tournamentFormOf(cash, 4))).toEqual({ ok: true, settings: cash })
+    const straddle = { format: 'cash' as const, ante: 0, straddle: true }
+    expect(tournamentFormOf(straddle, 4).straddle).toBe(true)
+    expect(formSettings(tournamentFormOf(straddle, 4))).toEqual({ ok: true, settings: straddle })
+    // Турнир — без страддла, даже если галочка осталась от кэша
+    expect(formSettings({ ...tournamentForm(4), format: 'tournament', straddle: true })).toMatchObject({ ok: true, settings: { format: 'tournament' } })
+    expect(formSettings({ ...tournamentForm(4), format: 'tournament', straddle: true })).not.toHaveProperty('settings.straddle')
     const own = formSettings({ ...tournamentForm(4), format: 'tournament', prizesOwn: true, prizes: ['70', '30'], rebuy: true, rebuyLevels: '3' })
     if (!own.ok) throw new Error(own.error)
     expect(formSettings(tournamentFormOf(own.settings, 4))).toEqual(own)

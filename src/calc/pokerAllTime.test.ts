@@ -294,6 +294,31 @@ describe('покер за всё время: 3-бет, вскрытия, bb/100 
     expect(net(H5)).toEqual({ p: 0, k: -5, v: 5 })
   })
 
+  it('страддл (#222): во вложенном, но не VPIP и не PFR', () => {
+    // Втроём страддл — кнопка p (20). k уравнивает, v пас, p чек; чек до вскрытия, банк 50 — k.
+    // Итог: p −20, k +30, v −10
+    const straddle = saved(
+      ROOM,
+      6,
+      {
+        seats: seats3(1000, 1000, 1000),
+        button: 0,
+        log: [
+          m('preflop', 'p', 'straddle', 20),
+          m('preflop', 'k', 'call', 20),
+          m('preflop', 'v', 'fold', 10),
+          m('preflop', 'p', 'check', 20),
+          ...(['flop', 'turn', 'river'] as Street[]).flatMap((s) => [m(s, 'k', 'check', 0), m(s, 'p', 'check', 0)]),
+        ],
+      },
+      [{ amount: 50, winners: ['k'] }],
+      { k: 50 },
+    )
+    expect(handNet(straddle.hand.record as HandRecord, straddle.hand.payouts)).toEqual({ p: -20, k: 30, v: -10 })
+    expect(allTimeHud(PETYA, [straddle])).toMatchObject({ hands: 1, vpip: 0, pfr: 0, raises: 0, calls: 0, net: -200 })
+    expect(allTimeHud(KOLYA, [straddle])).toMatchObject({ hands: 1, vpip: 1, pfr: 0, calls: 1, net: 300 })
+  })
+
   // С #241 3-бет, WTSD, W$SD и bb/100 считает HUD (allTimeHud) — и по живой раздаче 4: там итог —
   // по выплатам и банкам, блайнды — стола вечера. Сотые ББ: H1 −9, H2 +5,4, H3 +20, H4 +1,5 (p 25 − 10), H5 0
   it('Петя: 3-бет 1 из 2, фолд на 3-бет 0 из 1, WTSD 2 из 3, W$SD 1 из 2, bb/100 по пяти раздачам', () => {

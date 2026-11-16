@@ -48,7 +48,8 @@ export function readHand(hand: Hand): HandRead {
   let level = 0
   const moves: Move[] = []
   for (const e of hand.log) {
-    if (e.type === 'ante') {
+    // Страддл (#222) — у ботов его нет (форма не предлагает); запись пропускается, как анте
+    if (e.type === 'ante' || e.type === 'straddle') {
       pot += e.bet
       continue
     }

@@ -37,6 +37,8 @@
 // (04f-kazino-svoya-rubashka), потом «Удалить свою рубашку»; npm run shots -- rubashka — только она.
 // Разделы «Настроек» сворачиваются (#234): «Настройки» — снимок по умолчанию (05) и с одним развёрнутым «Учётом игр»
 // (05a); шаги, которым нужны карточки свёрнутого раздела, разворачивают его касанием заголовка (openSettings).
+// Страддл (#222): стол на этом телефоне на 4 гостей — форма с галочкой (09c) и первая раздача со страддлом (09d);
+// npm run shots -- straddl — только он.
 // Chrome — google-chrome, google-chrome-stable или chromium; свой путь — переменная CHROME
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -1250,6 +1252,38 @@ async function localTable(d: Device): Promise<void> {
   await sleep(1500) // раздача долетела
 }
 
+// Страддл (#222): стол на этом телефоне на 4 гостей — форма с галочкой «Страддл» (09c), затем первая раздача (09d):
+// у UTG — 2 ББ, над столом «· страддл …», ход — у следующего после него. Своё хранилище;
+// npm run shots -- straddl — только он, на всех трёх размерах
+async function straddleStep(cdp: Cdp, size: Size): Promise<void> {
+  console.log(`Страддл, ${size.width} × ${size.height}`)
+  await screen('Страддл', size, async () => {
+    const d = await Device.open(cdp, size)
+    await themeOnly(d)
+    await d.goto('#/poker')
+    await d.waitText('Войти по ссылке')
+    await d.click('Открыть стол')
+    await d.waitText('Ведущий ходит за каждого')
+    for (const name of GUESTS.slice(0, 4)) {
+      await d.type('input[aria-label="Имя гостя"]', name)
+      await sleep(100)
+      await d.click('Добавить')
+      await sleep(100)
+    }
+    await d.waitText('За столом: 4')
+    await d.click('Страддл: UTG ставит 2 ББ вслепую')
+    await d.waitText('Ходит до флопа последним')
+    await d.shot('09c-straddl-forma')
+    await d.click('Начать')
+    await d.waitText('Удалить стол')
+    await d.click('Начать раздачу')
+    await d.waitFor('.dock.actions')
+    await d.waitText('· страддл')
+    await sleep(1500) // раздача долетела
+    await d.tableShot('09d-straddl-razdacha')
+  })
+}
+
 // История раздач (#239): стол с ботами на «Перерыве» после раздачи, где я сбросил, — список за столом
 // (строка: мои карты, позиция, итог, борд), затем тот же вечер в «Прошлых вечерах»: итог вечера (#242) и список,
 // раздача, где я сбросил (сверху — последняя), и она же «Текстом»; в конце — карточка «Прошлые вечера» в «Настройках»
@@ -1649,8 +1683,10 @@ async function main(): Promise<void> {
     const onlyNames = process.argv.includes('imena') // npm run shots -- imena: имена у мест казино на телефоне (#254)
     const onlyWatch = process.argv.includes('smotret') // npm run shots -- smotret: наблюдение за столом с ботами (#244)
     const onlyOwnBack = process.argv.includes('rubashka') // npm run shots -- rubashka: своя рубашка картинкой (#220)
+    const onlyStraddle = process.argv.includes('straddl') // npm run shots -- straddl: страддл на столе на телефоне (#222)
     const part =
-      onlyTrainer || onlyChoices || onlyHistory || onlyHud || onlyTimeBank || onlyGear || onlyNames || onlyWatch || onlyOwnBack
+      onlyTrainer || onlyChoices || onlyHistory || onlyHud || onlyTimeBank || onlyGear || onlyNames || onlyWatch || onlyOwnBack || onlyStraddle
+    if (onlyStraddle) for (const size of SIZES) await straddleStep(cdp, size)
     if (onlyOwnBack) await ownBackOnly(cdp)
     if (onlyNames) await namesOnly(cdp)
     if (onlyTimeBank) await timeBankOnly(cdp)
@@ -1662,6 +1698,7 @@ async function main(): Promise<void> {
     if (onlyHistory) await historyOnly(cdp)
     if (!onlyTable && !part) for (const size of SIZES) await scenario(cdp, size, theme, uchet)
     if (!onlyTable && !part) await namesOnly(cdp)
+    if (!onlyTable && !uchet && !part) for (const size of SIZES) await straddleStep(cdp, size)
     if (!uchet && !part) for (const size of SIZES) await wideTableStep(cdp, size)
     if (!onlyTable && !uchet && !part) await gearOnly(cdp)
     if (!onlyTable && !uchet && !part) await watchOnly(cdp)

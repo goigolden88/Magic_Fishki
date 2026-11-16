@@ -131,6 +131,21 @@ describe('HUD вечера: счётчики по ходам раздачи', ()
     expect(s.hand).toBeNull() // банк раздан сам
     expect(counts(s, 'p0')).toMatchObject({ hands: 1, vpip: 1, pfr: 1, steals: 1 })
   })
+
+  it('страддл (#222) — не VPIP и не PFR, но во вложенном; колл страддла — вход, без рейза', () => {
+    // Вчетвером: кнопка p0, SB p1, BB p2, страддл p3 — 20. p0 уравнивает, блайнды сбрасывают, страддл чекает
+    const four = newTable(['p0', 'p1', 'p2', 'p3'], { straddle: true })
+    const s = awardAll(play(four, [start('p0'), call('p0'), fold('p1'), fold('p2'), check('p3'), ...checkDown(['p3', 'p0'])], false), ['p0'])
+    expect(counts(s, 'p3')).toMatchObject({ hands: 1, vpip: 0, pfr: 0, raises: 0, calls: 0, flops: 1, net: -200 })
+    // Колл 2 ББ — VPIP без PFR; рейз над страддлом — первое повышение раздачи: кража с кнопки
+    expect(counts(s, 'p0')).toMatchObject({ vpip: 1, pfr: 0, calls: 1, stealChances: 1, steals: 0, net: 350 })
+    const raised = awardAll(play(four, [start('p0'), raise('p0', 60), fold('p1'), fold('p2'), fold('p3')], false), ['p0'])
+    expect(counts(raised, 'p0')).toMatchObject({ vpip: 1, pfr: 1, steals: 1, threeBetChances: 0 })
+    expect(counts(raised, 'p3')).toMatchObject({ vpip: 0, pfr: 0, threeBetChances: 1, threeBets: 0, net: -200 })
+    // Страддл повышает в свой ход — это уже рейз
+    const own = awardAll(play(four, [start('p0'), call('p0'), fold('p1'), fold('p2'), raise('p3', 60), fold('p0')], false), ['p3'])
+    expect(counts(own, 'p3')).toMatchObject({ vpip: 1, pfr: 1, raises: 1 })
+  })
 })
 
 // Банки торгов — все одному или делёж: winners — победители каждого банка

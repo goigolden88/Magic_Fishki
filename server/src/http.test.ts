@@ -137,6 +137,22 @@ describe('создание комнаты', () => {
     }
   })
 
+  it('страддл (#222): галочка доходит до стола; не «да» и не «нет» — отказ 400, комнаты нет', async () => {
+    const room = fakeRoom()
+    const { d } = deps('p', { init: (code, name, settings, roster, regularId) => initRoom(room.env, code, name, settings, 0, roster, regularId) })
+    expect(await createRoom(body('p', { settings: { straddle: true, ante: 2 } }), d)).toMatchObject({ status: 200, body: { code: 'KQ7MZP' } })
+    expect((await room.storage.get<RoomRecord>('room'))?.table.settings).toMatchObject({ straddle: true, ante: 2 })
+
+    const badRoom = fakeRoom()
+    const bad = deps('p', { init: (code, name, settings, roster, regularId) => initRoom(badRoom.env, code, name, settings, 0, roster, regularId) })
+    expect(await createRoom(body('p', { settings: { straddle: 'да' } }), bad.d)).toEqual({
+      status: 400,
+      body: { v: PROTOCOL_VERSION, error: 'Страддл — включён или выключен' },
+    })
+    expect(await badRoom.storage.get<RoomRecord>('room')).toBeUndefined()
+    expect(bad.calls.released).toEqual(['KQ7MZP'])
+  })
+
   it('стол не создался (нет имени) — место в реестре освобождается', async () => {
     const { d, calls } = deps('p', { init: async () => ({ ok: false, error: 'Нужно имя' }) })
     expect(await createRoom(body('p', { name: ' ' }), d)).toEqual({ status: 400, body: { v: PROTOCOL_VERSION, error: 'Нужно имя' } })

@@ -148,6 +148,14 @@ export function handText(saved: SavedHand): string {
       lines.push(`${name(id)}: posts ${label} ${amount}${allIn(left.get(id) === 0)}`)
     }
   }
+  // Страддл (#222) — записью журнала, после блайндов: ставка круга до первого хода
+  for (const e of log) {
+    if (e.type !== 'straddle') continue
+    put(e.playerId, e.bet - (streetBet.get(e.playerId) ?? 0))
+    streetBet.set(e.playerId, e.bet)
+    max = Math.max(max, e.bet)
+    lines.push(`${name(e.playerId)}: posts straddle ${e.bet}${allIn(e.allIn)}`)
+  }
 
   lines.push('*** HOLE CARDS ***')
   const mine = hero ? heroCards(saved, hero) : null
@@ -172,7 +180,7 @@ export function handText(saved: SavedHand): string {
   }
 
   for (const e of log) {
-    if (e.type === 'ante') continue
+    if (e.type === 'ante' || e.type === 'straddle') continue
     while (street < streets.indexOf(e.street)) nextStreet()
     const who = name(e.playerId)
     const before = streetBet.get(e.playerId) ?? 0
