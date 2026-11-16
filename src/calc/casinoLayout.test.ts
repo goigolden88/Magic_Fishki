@@ -6,6 +6,10 @@ import {
   layoutBoxes,
   MAX_CASINO_SEATS,
   MIN_WIDTH,
+  NAME_FONT,
+  NAME_FONT_MIN,
+  nameEm,
+  nameSeatWidth,
   overlaps,
   PHONE_COLS,
   PHONE_FIT,
@@ -281,6 +285,116 @@ describe('раскладка казино-стола', () => {
       expect(l.center.w).toBeCloseTo(l.cols * l.board.w + (l.cols - 1) * l.gap)
       expect(casinoLayout(kind, n, m, false, MIN_WIDTH)).toEqual(l)
     }
+  })
+
+  describe('имена у мест на телефоне (#254)', () => {
+    const LONG = ['Константин', 'Александра', 'Владислав', 'Станислава', 'Валентина', 'Маргарита', 'Евгения', 'Анастасия', 'Святослав', 'Елизавета']
+    const SHORT = ['Аня', 'Боря', 'Вика', 'Гоша', 'Даша', 'Егор', 'Женя', 'Зоя', 'Илья', 'Катя']
+    const PHONE_360 = phoneSpace(360, 18)
+
+    it('на 320 и 390 px, 2, 6 и 10 участников, холдем и омаха: ряд не шире сукна, места не наезжают, высота та же', () => {
+      for (const space of [MIN_WIDTH, PHONE_390])
+        for (const kind of KINDS)
+          for (const n of [2, 6, 10])
+            for (const names of [LONG, SHORT]) {
+              const m = Math.min(5, maxTables(kind, n))
+              const plain = casinoLayout(kind, n, m, false, space)
+              const l = casinoLayout(kind, n, m, false, space, names.slice(0, n))
+              const label = `${kind} ${n}×${m} на ${space}rem, ${names[0]}`
+              // ряды, места в ряду, высота места и сукна — как без имён
+              expect(l.top, label).toEqual(plain.top)
+              expect(l.bottom, label).toEqual(plain.bottom)
+              expect(l.seat, label).toEqual(plain.seat)
+              expect(l.height, label).toBe(plain.height)
+              expect(l.width, label).toBeLessThanOrEqual(space + 1e-6)
+              for (const row of [...l.top, ...l.bottom]) {
+                const w = row.map((id) => l.seats[id].w)
+                expect(new Set(w).size, `${label}: места ряда — поровну`).toBe(1)
+                expect(w[0], label).toBeGreaterThanOrEqual(l.seat.w) // карты руки входят
+                expect(w.reduce((a, b) => a + b, 0) + (row.length - 1) * l.gap, label).toBeLessThanOrEqual(space + 1e-6)
+              }
+              for (const s of l.seats) {
+                expect(s.font, label).toBeGreaterThanOrEqual(0.65)
+                expect(s.font, label).toBeLessThanOrEqual(0.85)
+              }
+              const { seats, center } = layoutBoxes(l)
+              expect(seats.filter(Boolean)).toHaveLength(n)
+              for (const b of [...seats, center]) {
+                expect(b.x, label).toBeGreaterThanOrEqual(0)
+                expect(b.x + b.w, label).toBeLessThanOrEqual(l.width + 1e-6)
+                expect(b.y + b.h, label).toBeLessThanOrEqual(l.height + 1e-6)
+              }
+              seats.forEach((a, i) => {
+                expect(overlaps(a, center), `${label}: место ${i} на столах`).toBe(false)
+                seats.forEach((b, k) => k > i && expect(overlaps(a, b), `${label}: места ${i} и ${k}`).toBe(false))
+              })
+            }
+    })
+
+    it('ширина места — по имени: длиннее имя — шире место; короткие имена — место под карты, как прежде', () => {
+      expect(nameSeatWidth('Константин', NAME_FONT)).toBeGreaterThan(nameSeatWidth('Костя', NAME_FONT))
+      expect(nameSeatWidth('Костя', NAME_FONT_MIN)).toBeLessThan(nameSeatWidth('Костя', NAME_FONT))
+      for (const kind of KINDS) {
+        const plain = casinoLayout(kind, 4, 2, false, PHONE_390)
+        const short = casinoLayout(kind, 4, 2, false, PHONE_390, SHORT.slice(0, 4))
+        expect(short.seats.map((s) => s.w)).toEqual([1, 2, 3, 4].map(() => plain.seat.w))
+        expect(short.seats.every((s) => s.font === NAME_FONT && s.full)).toBe(true)
+      }
+    })
+
+    it('есть свободное место в ряду — имя целиком прежним шрифтом', () => {
+      const l = casinoLayout('holdem', 2, 5, false, PHONE_390, ['Константин', 'Аня'])
+      expect(l.top).toEqual([[0, 1]])
+      const need = nameSeatWidth('Константин', NAME_FONT)
+      expect(l.seats[0]).toEqual({ w: need, font: NAME_FONT, full: true })
+      expect(l.seats[1]).toEqual({ w: need, font: NAME_FONT, full: true }) // ряд — поровну
+      expect(nameEm('Константин') * NAME_FONT).toBeLessThanOrEqual(need - 0.22) // без рамки 2px с боков
+      // оценка ширины букв — не меньше замера в Chrome (Golos Text, полужирный)
+      expect(nameEm('Константин')).toBeGreaterThanOrEqual(5.86)
+      expect(nameEm('Александра')).toBeGreaterThanOrEqual(6)
+      expect(nameEm('Владислав')).toBeGreaterThanOrEqual(5.38)
+    })
+
+    it('ряд полный — места делят его поровну, шрифт мельче, но не мельче 0,65rem: 4 имени по 10 букв на 360 и 390 px', () => {
+      for (const kind of KINDS)
+        for (const space of [PHONE_360, PHONE_390]) {
+          const l = casinoLayout(kind, 4, 5, false, space, LONG.slice(0, 4))
+          const label = `${kind} на ${space}rem`
+          for (const row of [...l.top, ...l.bottom]) {
+            const share = (space - (row.length - 1) * l.gap) / row.length
+            for (const id of row) {
+              const s = l.seats[id]
+              expect(s.full, `${label}: ${LONG[id]}`).toBe(true)
+              expect(s.font).toBeGreaterThanOrEqual(NAME_FONT_MIN)
+              // имя этим шрифтом входит в место
+              expect(nameSeatWidth(LONG[id], s.font), `${label}: ${LONG[id]}`).toBeLessThanOrEqual(s.w + 1e-6)
+              expect(s.w).toBeLessThanOrEqual(share + 1e-6)
+            }
+          }
+        }
+      // холдем на 390: один ряд из четырёх — каждому четверть сукна, шрифт мельче 0,85
+      const l = casinoLayout('holdem', 4, 5, false, PHONE_390, LONG.slice(0, 4))
+      expect(l.top).toEqual([[0, 1, 2, 3]])
+      expect(l.seats[0].font).toBeLessThan(NAME_FONT)
+      expect(l.seats[0].w).toBeCloseTo((PHONE_390 - 3 * l.gap) / 4, 1)
+    })
+
+    it('и шрифтом 0,65rem не входит — 0,65rem и многоточие: 10 длинных имён на 320 px', () => {
+      const l = casinoLayout('holdem', 10, 5, false, MIN_WIDTH, LONG)
+      for (const s of l.seats) expect(s).toMatchObject({ font: NAME_FONT_MIN, full: false })
+    })
+
+    it('широкое окно — как прежде: имена размеров не меняют', () => {
+      for (const { kind, n, m } of every()) {
+        const wide = casinoLayout(kind, n, m, true)
+        expect(casinoLayout(kind, n, m, true, PHONE_390, LONG.slice(0, n))).toEqual(wide)
+        expect(wide.seats.every((s) => s.w === wide.seat.w && s.font === NAME_FONT)).toBe(true)
+      }
+    })
+
+    it('имён не столько, сколько участников — ошибка', () => {
+      expect(() => casinoLayout('holdem', 3, 1, false, PHONE_390, ['Аня'])).toThrow('Имён')
+    })
   })
 
   it('больше 10 участников или ноль столов — ошибка', () => {

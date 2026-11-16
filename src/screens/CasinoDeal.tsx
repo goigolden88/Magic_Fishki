@@ -48,7 +48,14 @@ import {
   type Deal,
   type DealKind,
 } from '../calc/casinoDeal'
-import { casinoLayout, MAX_CASINO_SEATS, MIN_WIDTH, phoneSpace, type CasinoLayout } from '../calc/casinoLayout'
+import {
+  casinoLayout,
+  MAX_CASINO_SEATS,
+  MIN_WIDTH,
+  phoneSpace,
+  type CasinoLayout,
+  type SeatFit,
+} from '../calc/casinoLayout'
 import { topOdds, type CasinoOdds } from '../calc/casinoOdds'
 import { formatNumber, formatRub, parseChips, pluralForm } from '../calc/format'
 import { addCasino } from '../calc/gameMode'
@@ -726,7 +733,14 @@ function Felt(props: { kind: DealKind; seats: SeatData[]; boards: BoardData[]; l
   const { kind, seats, boards, look, fly = null } = props
   const wide = useWide()
   const space = usePhoneSpace()
-  const l = casinoLayout(kind, seats.length, boards.length, wide, space)
+  const l = casinoLayout(
+    kind,
+    seats.length,
+    boards.length,
+    wide,
+    space,
+    seats.map((s) => s.name),
+  )
   const ref = useRef<HTMLDivElement>(null)
   // До отрисовки: карты не мелькают на местах перед полётом
   useLayoutEffect(() => {
@@ -737,7 +751,7 @@ function Felt(props: { kind: DealKind; seats: SeatData[]; boards: BoardData[]; l
     rows.map((row, r) => (
       <div key={r} className="casino-row">
         {row.map((k) => (
-          <Seat key={seats[k].id} seat={seats[k]} index={k} />
+          <Seat key={seats[k].id} seat={seats[k]} index={k} fit={l.wide ? undefined : l.seats[k]} />
         ))}
       </div>
     ))
@@ -850,13 +864,18 @@ function ChanceLine({ top, more, all, expanded, onToggle }: Chances) {
 
 // Место: имя, карты лицом; победитель последнего открытого стола — рамка и подпись руки.
 // С шансами (#137) вместо подписи руки — ожидаемый итог раунда («≈ +45 ₽»), рука — в подсказке; все столы
-// открыты — итог точный, как в «Итоге раунда». index — номер места по часовой: по нему карты места в анимации раздачи
-function Seat({ seat, index }: { seat: SeatData; index: number }) {
+// открыты — итог точный, как в «Итоге раунда». index — номер места по часовой: по нему карты места в анимации раздачи.
+// fit — телефон (#254): ширина места и шрифт имени из casinoLayout — имя целиком; не вошло и шрифтом 0,65rem —
+// многоточие, полное имя — в подсказке и в тексте для чтения с экрана
+function Seat({ seat, index, fit }: { seat: SeatData; index: number; fit?: SeatFit }) {
   const net = seat.net
   const estimate = net === undefined ? 0 : seat.exact ? net : Math.round(net / 100) * 100
+  const style = fit && ({ '--seat-w': `${fit.w}rem`, '--name-font': `${fit.font}rem` } as CSSProperties)
   return (
-    <div className={seat.win ? 'casino-seat winner' : 'casino-seat'}>
-      <span className="seat-name">{seat.name}</span>
+    <div className={seat.win ? 'casino-seat winner' : 'casino-seat'} style={style || undefined}>
+      <span className="seat-name" title={fit ? seat.name : undefined}>
+        {seat.name}
+      </span>
       <span className="card-row casino-hand">
         {seat.cards.map((c, i) => (
           <PlayingCard key={i} card={c} fly={flyKey(seatGroup(index), i)} />
