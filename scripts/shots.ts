@@ -1077,8 +1077,8 @@ async function localTable(d: Device): Promise<void> {
 }
 
 // История раздач (#239): стол с ботами на «Перерыве» после раздачи, где я сбросил, — список за столом
-// (строка: мои карты, позиция, итог, борд), затем тот же вечер в «Прошлых вечерах»: список, раздача, где я сбросил
-// (сверху — последняя), и она же «Текстом»
+// (строка: мои карты, позиция, итог, борд), затем тот же вечер в «Прошлых вечерах»: итог вечера (#242) и список,
+// раздача, где я сбросил (сверху — последняя), и она же «Текстом»; в конце — карточка «Прошлые вечера» в «Настройках»
 async function historyStep(d: Device): Promise<void> {
   await screen('История раздач', d.size, async () => {
     await d.click('История раздач')
@@ -1088,6 +1088,7 @@ async function historyStep(d: Device): Promise<void> {
   await screen('Прошлые вечера: раздача', d.size, async () => {
     await d.goto('#/poker')
     await d.waitText('Прошлые вечера')
+    await d.shot('03h0-proshlye-vechera') // #242: строка вечера — с моим итогом
     const opened = await d.eval<boolean>(`(() => {
       const el = [...document.querySelectorAll('button.history-item')].find((b) => b.innerText.includes('Против ботов'))
       if (!el) return false
@@ -1104,6 +1105,17 @@ async function historyStep(d: Device): Promise<void> {
     await d.click('Текстом')
     await d.waitText('*** HOLE CARDS ***')
     await d.shot('03j-razdacha-tekstom')
+  })
+  // #242: «Итог вечера» над списком раздач — в 03h; здесь — удаление пачкой в «Настройках», «Копия данных»
+  await screen('Настройки: прошлые вечера', d.size, async () => {
+    await d.goto('#/settings')
+    await d.waitText('Удалить вечера против ботов (')
+    await d.eval(`(() => {
+      const b = [...document.querySelectorAll('button')].find((e) => e.innerText.startsWith('Удалить вечера против ботов'))
+      b.closest('.card').scrollIntoView({ block: 'center' })
+      return true
+    })()`)
+    await d.shot('03k-nastroyki-proshlye-vechera', false)
   })
 }
 

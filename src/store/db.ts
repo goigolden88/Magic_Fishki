@@ -1,6 +1,6 @@
 // Единственный вход в IndexedDB. База magic_fishki: хранилища games (ключ id), settings (одна запись)
 // и hands — раздачи прошлых вечеров покера (ключ [evening, number], #114), charts — свои чарты тренажёра (ключ id, #215).
-import { byNewest, type EveningSummary, type SavedHand } from '../calc/evenings'
+import { eveningSummaries, isBotsEvening, type EveningCounts, type EveningSummary, type SavedHand } from '../calc/evenings'
 import { byName, type OwnChart } from '../calc/ownCharts'
 import { linkRegulars, regularsFromNames, settingsWithDefaults, type Game, type Regular, type Settings } from '../model'
 import type { HistoryHand } from '../poker/history'
@@ -215,27 +215,33 @@ export async function restoreHands(hands: SavedHand[]): Promise<void> {
   })
 }
 
-// «Прошлые вечера», новые сверху: по первой записи каждого вечера и число его раздач — раздачи целиком не читаются
+// «Прошлые вечера», новые сверху: по первой записи каждого вечера, число его раздач и мой итог за вечер (#242) —
+// итог суммой по раздачам, поэтому записи читаются целиком
 export async function listEvenings(): Promise<EveningSummary[]> {
+  return eveningSummaries(await allHands())
+}
+
+// «Удалить» пачкой в «Настройках» (#242): все раздачи вечеров против ботов (onlyBots) или всех прошлых вечеров —
+// одной транзакцией. Игры учёта и чарты не трогаются. Вернёт, сколько вечеров и раздач удалено
+export async function deleteEvenings(onlyBots: boolean): Promise<EveningCounts> {
   const db = await open()
-  return new Promise<EveningSummary[]>((resolve, reject) => {
-    const tx = db.transaction(HANDS, 'readonly')
-    const index = tx.objectStore(HANDS).index(BY_EVENING)
-    const evenings: EveningSummary[] = []
-    const cursor = index.openCursor(null, 'nextunique')
+  return new Promise<EveningCounts>((resolve, reject) => {
+    const tx = db.transaction(HANDS, 'readwrite')
+    const evenings = new Set<string>()
+    let hands = 0
+    const cursor = tx.objectStore(HANDS).openCursor()
     cursor.onsuccess = () => {
       const c = cursor.result
       if (!c) return
-      const h = c.value as SavedHand
-      const evening: EveningSummary = { id: h.evening, code: h.code, startedAt: h.startedAt, hands: 0 }
-      evenings.push(evening)
-      const count = index.count(h.evening)
-      count.onsuccess = () => {
-        evening.hands = count.result
+      const evening = (c.value as SavedHand).evening
+      if (!onlyBots || isBotsEvening({ id: evening })) {
+        c.delete()
+        evenings.add(evening)
+        hands += 1
       }
       c.continue()
     }
-    tx.oncomplete = () => resolve(byNewest(evenings))
+    tx.oncomplete = () => resolve({ evenings: evenings.size, hands })
     tx.onerror = () => reject(tx.error)
     tx.onabort = () => reject(tx.error)
   })
