@@ -122,6 +122,66 @@ export function winners(variant: Variant, board: Card[], contenders: Contender[]
   return results.filter((r) => top && compareHands(r.hand, top) === 0).map((r) => r.id)
 }
 
+// Лоу хай/лоу (#227, «восьмёрка или лучше»): пять карт пяти разных рангов, все не старше 8; туз — младший (1),
+// стриты и флеши не мешают. Сравнение — от старшей карты вниз, меньше — лучше: лучший лоу — 5-4-3-2-A
+export type LowResult = {
+  cards: Card[] // пять карт лоу — от старшей к младшей, туз последним
+  value: number[] // ранги от старшего, туз — 1: меньше — лучше
+  name: string // «Лоу 8-6-4-3-A»
+}
+
+const LOW_MAX = 8
+
+// > 0 — лоу a лучше (младше), < 0 — b лучше, 0 — ничья
+export function compareLows(a: LowResult, b: LowResult): number {
+  for (let i = 0; i < Math.max(a.value.length, b.value.length); i++) {
+    const d = (b.value[i] ?? 0) - (a.value[i] ?? 0)
+    if (d !== 0) return d
+  }
+  return 0
+}
+
+// Лучший лоу из руки и стола по правилу варианта: «ровно N из руки» — ровно N своих и 5 − N со стола (выбор свой,
+// не тот, что у старшей руки), «любые» — любые пять. Лоу не собрать — null
+export function bestLow(variant: Variant, hand: Card[], board: Card[]): LowResult | null {
+  const ranks = deckRanks(variant)
+  const all = parseAll([...hand, ...board], ranks)
+  checkCounts(variant, hand.length, board.length)
+  // Годятся только карты не старше 8 (туз — младший); из одинаковых рангов хватит одной на ранг
+  const low = (cards: Parsed[]) => cards.filter((c) => lowRank(c.rank) <= LOW_MAX)
+  const own = low(all.slice(0, hand.length))
+  const table = low(all.slice(hand.length))
+  const fives =
+    variant.fromHand === 'any'
+      ? combinations([...own, ...table], 5)
+      : combinations(own, variant.fromHand).flatMap((h) => combinations(table, 5 - (variant.fromHand as number)).map((b) => [...h, ...b]))
+  let best: LowResult | null = null
+  for (const five of fives) {
+    const r = evaluateLow(five)
+    if (r && (!best || compareLows(r, best) > 0)) best = r
+  }
+  return best
+}
+
+// Лоу на одном столе — все с лучшим лоу (при ничьей — несколько), в порядке contenders; лоу ни у кого нет — пусто
+export function lowWinners(variant: Variant, board: Card[], contenders: Contender[]): string[] {
+  parseAll([...board, ...contenders.flatMap((c) => c.cards)], deckRanks(variant))
+  const results = contenders.map((c) => ({ id: c.id, low: bestLow(variant, c.cards, board) }))
+  let top: LowResult | null = null
+  for (const r of results) if (r.low && (!top || compareLows(r.low, top) > 0)) top = r.low
+  return results.filter((r) => top && r.low && compareLows(r.low, top) === 0).map((r) => r.id)
+}
+
+const lowRank = (rank: number) => (rank === 14 ? 1 : rank)
+
+function evaluateLow(five: Parsed[]): LowResult | null {
+  const sorted = [...five].sort((a, b) => lowRank(b.rank) - lowRank(a.rank))
+  const value = sorted.map((c) => lowRank(c.rank))
+  if (new Set(value).size !== 5) return null
+  const name = `Лоу ${sorted.map((c) => c.card[0]).join('-')}`
+  return { cards: sorted.map((c) => c.card), value, name }
+}
+
 function combinations<T>(items: T[], k: number): T[][] {
   if (k === 0) return [[]]
   const out: T[][] = []

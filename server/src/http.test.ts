@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ownGamesError, type OwnGame } from '../../src/poker/ownGame'
+import { HI_LO_DECK_ERROR, ownGamesError, type OwnGame } from '../../src/poker/ownGame'
 import { PROTOCOL_VERSION, VERSION_ERROR } from '../../src/poker/protocol'
 import { gameFor } from '../../src/poker/table'
 import { createRoom, NO_PASSWORD, STATUS_TEXT, WRONG_PASSWORD, type CreateDeps } from './http'
@@ -130,6 +130,9 @@ describe('создание комнаты', () => {
       [[{ ...omaha7, up: 7 }], 6, '„Омаха-7“: открытых карт — от 0 до 6, хотя бы одна закрытая'],
       [[{ ...omaha7, up: -1 }], 6, '„Омаха-7“: открытых карт — от 0 до 6, хотя бы одна закрытая'],
       [[{ ...omaha7, up: 0.5 }], 6, '„Омаха-7“: открытых карт — от 0 до 6, хотя бы одна закрытая'],
+      // Хай/лоу (#227) — только с колодой 52
+      [[{ ...omaha7, deck: 36, order: 'shortdeck', hiLo: true }], 4, HI_LO_DECK_ERROR],
+      [[{ ...omaha7, hiLo: 'да' }], 6, '„Омаха-7“: хай/лоу — да или нет'],
     ] as [unknown[], number, string][]) {
       expect(ownGamesError(games, maxSeats)).toBe(error)
       const bad = withRoom()
@@ -151,6 +154,17 @@ describe('создание комнаты', () => {
     const table = (await room.storage.get<RoomRecord>('room'))?.table
     expect(table?.settings.games).toEqual([open3])
     expect(gameFor(table!.settings)?.rounds[0].deal).toEqual([{ kind: 'hole', down: 2, up: 1 }])
+  })
+
+  it('хай/лоу своей игры (#227): описание доходит до стола, раздача — хай/лоу', async () => {
+    const room = fakeRoom()
+    const { d } = deps('p', { init: (code, name, settings, roster, regularId) => initRoom(room.env, code, name, settings, 0, roster, regularId) })
+    const o8: OwnGame = { id: 'own-o8', name: 'Омаха хай/лоу', hole: 4, fromHand: 2, deck: 52, order: 'standard', board: [3, 1, 1], limit: 'pot', hiLo: true }
+    const settings = { cards: 'phones', games: [o8], game: o8.id }
+    expect(await createRoom(body('p', { settings }), d)).toMatchObject({ status: 200, body: { code: 'KQ7MZP' } })
+    const table = (await room.storage.get<RoomRecord>('room'))?.table
+    expect(table?.settings.games).toEqual([o8])
+    expect(gameFor(table!.settings)?.hiLo).toBe(true)
   })
 
   it('страддл (#222): галочка доходит до стола; не «да» и не «нет» — отказ 400, комнаты нет', async () => {

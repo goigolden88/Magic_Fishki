@@ -56,9 +56,10 @@ export function ownGameFormOf(game: OwnGame): OwnGameForm {
 
 // Описание из формы: название — без пробелов по краям; открытых 0 — без поля up (как у игр до #226: такое
 // описание прочтут и старые телефоны)
+// Хай/лоу (#227) «нет» — тоже без поля: такое описание прочтут телефоны до #227
 export function ownGameOf(form: OwnGameForm, id: OwnGameId): OwnGame {
-  const { up, ...rest } = form
-  return { id, ...rest, ...(up ? { up } : {}), name: form.name.trim(), board: [...form.board] }
+  const { up, hiLo, ...rest } = form
+  return { id, ...rest, ...(up ? { up } : {}), ...(hiLo ? { hiLo: true } : {}), name: form.name.trim(), board: [...form.board] }
 }
 
 // Под каким полем строка ошибки: остальные поля — кнопками, неверными они не бывают
@@ -100,9 +101,23 @@ export function withHole(form: OwnGameForm, hole: number): OwnGameForm {
   return upOf(form) >= hole ? { ...form, hole, up: hole - 1, fromHand } : { ...form, hole, fromHand }
 }
 
-// Колода 36 — старшинство сначала как в шорт-деке, 52 — обычное; дальше его можно сменить
+// Колода 36 — старшинство сначала как в шорт-деке, 52 — обычное; дальше его можно сменить.
+// В 36 картах лоу не собрать (#227) — колода 36 снимает «Хай/лоу»
 export function withDeck(form: OwnGameForm, deck: OwnGameForm['deck']): OwnGameForm {
-  return { ...form, deck, order: deck === 36 ? 'shortdeck' : 'standard' }
+  const next: OwnGameForm = { ...form, deck, order: deck === 36 ? 'shortdeck' : 'standard' }
+  if (deck === 36) delete next.hiLo
+  return next
+}
+
+// «Хай/лоу (лоу — восьмёрка или ниже)» (#227): галочка — только с колодой 52
+export function canHiLo(form: Pick<OwnGameForm, 'deck'>): boolean {
+  return form.deck === 52
+}
+
+export function withHiLo(form: OwnGameForm, on: boolean): OwnGameForm {
+  if (on && !canHiLo(form)) return form
+  const { hiLo: _h, ...rest } = form
+  return on ? { ...rest, hiLo: true } : rest
 }
 
 // «+ круг» — ещё круг в одну карту: кругов не больше OWN_ROUNDS_MAX, карт стола — не больше OWN_BOARD_MAX
@@ -132,7 +147,8 @@ export function ownSeatsLine(form: OwnGameForm): string {
 }
 
 // Строка игры в списке и в форме комнаты: «5 карт, ровно 2 из руки · стол 3-1-1 · пот-лимит · до 9 игроков»;
-// с открытыми — «3 карты (1 открытая), любые из руки · …»; колода 36 и старшинство — только если они не обычные
+// с открытыми — «3 карты (1 открытая), любые из руки · …»; колода 36 и старшинство — только если они не обычные;
+// хай/лоу (#227) — «… · пот-лимит · хай/лоу · до 9 игроков»
 export function ownGameLine(form: OwnGameForm): string {
   const up = upOf(form)
   const open = up > 0 ? ` (${up} ${pluralForm(up, 'открытая', 'открытые', 'открытых')})` : ''
@@ -152,6 +168,7 @@ export function ownGameLine(form: OwnGameForm): string {
     `стол ${form.board.join('-')}`,
     ...(deck ? [deck] : []),
     form.limit === 'pot' ? 'пот-лимит' : 'без лимита',
+    ...(form.hiLo ? ['хай/лоу'] : []),
     `до ${seatsFor(ownGameOf(form, DRAFT_ID))} игроков`,
   ].join(' · ')
 }

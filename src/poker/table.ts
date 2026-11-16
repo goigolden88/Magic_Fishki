@@ -5,7 +5,7 @@
 // сообщениями и поднимает снова. Время — параметром now (мс), не из часов.
 // Карты на телефонах (Р-23): колоду тасует сервер и подаёт в handle; после торгов банки
 // раздаются сами по силе руки; каждому телефону — свой вид стола (viewFor)
-import { bestHand, winners as bestHands, type Card } from './cards'
+import { bestHand, bestLow, lowWinners, winners as bestHands, type Card } from './cards'
 import {
   cardsNeeded,
   GAMES,
@@ -200,13 +200,25 @@ export type HandRecord = {
   // «Прогнать несколько раз» (#167, Р-58): каждый борд — карты, что у дошедших на нём, их пятёрки и победители
   // каждого банка (по порядку банков). Первый — тот же, что board, hands и best. Прогон один — поля нет
   runs?: RunRecord[]
+  // Хай/лоу (#227), первый борд: у дошедших с лоу — «Лоу 8-6-4-3-A» (lows) и его пять карт (lowBest); у каждого
+  // банка — взявшие старшую половину (hi) и младшую (lo; пусто — лоу не было, весь банк хаю). У других игр
+  // и у записей до #227 полей нет
+  lows?: Record<string, string>
+  lowBest?: Record<string, Card[]>
+  split?: PotSplit[]
 }
 
+export type PotSplit = { hi: string[]; lo: string[] }
+
+// winners — у каждого банка лучшая старшая рука на этом борде; хай/лоу (#227) — ещё лоу борда, как у HandRecord
 export type RunRecord = {
   board: Card[]
   hands: Record<string, string>
   best: Record<string, Card[]>
   winners: string[][]
+  lows?: Record<string, string>
+  lowBest?: Record<string, Card[]>
+  split?: PotSplit[]
 }
 
 export type TableState = {
@@ -780,6 +792,7 @@ function settle(state: TableState, now: number): string | null {
   const cards = hand?.cards
   if (!hand || !cards || hand.stage !== 'showdown') return null
   const { variant } = cards.game
+  const hiLo = cards.game.hiLo === true
   const live = hand.seats.filter((s) => !s.folded).map((s) => s.id)
   const hole = (id: string) => cards.hole[id] as Card[] // на сервере все карты на месте
   const shown: Record<string, (Card | null)[]> = {}
@@ -796,8 +809,20 @@ function settle(state: TableState, now: number): string | null {
         hands[id] = result.name
         best[id] = result.cards
       }
-      const winners = hand.pots.map((pot) => bestHands(variant, board, pot.eligible.map((id) => ({ id, cards: hole(id) }))))
-      return { board, hands, best, winners }
+      const contenders = (ids: string[]) => ids.map((id) => ({ id, cards: hole(id) }))
+      const winners = hand.pots.map((pot) => bestHands(variant, board, contenders(pot.eligible)))
+      if (!hiLo) return { board, hands, best, winners }
+      // Хай/лоу (#227): лоу каждого дошедшего и взявшие лоу каждого банка — среди его претендентов
+      const lows: Record<string, string> = {}
+      const lowBest: Record<string, Card[]> = {}
+      for (const id of live) {
+        const low = bestLow(variant, hole(id), board)
+        if (!low) continue
+        lows[id] = low.name
+        lowBest[id] = low.cards
+      }
+      const split = hand.pots.map((pot, k) => ({ hi: winners[k], lo: lowWinners(variant, board, contenders(pot.eligible)) }))
+      return { board, hands, best, winners, lows, lowBest, split }
     })
     for (const id of live) shown[id] = hole(id)
   } else {
@@ -805,15 +830,16 @@ function settle(state: TableState, now: number): string | null {
     hidden = { playerId: live[0], cards: hole(live[0]) }
   }
   const [first] = runs
-  // Банк в итоге раздачи — его взявшие; бордов несколько — взявшие хоть на одном, по местам
-  const winners =
-    runs.length === 1 ? first.winners : hand.pots.map((pot, k) => pot.eligible.filter((id) => runs.some((r) => r.winners[k].includes(id))))
+  // Банк в итоге раздачи — взявшие хоть часть (хай/лоу — и лоу); бордов несколько — хоть на одном, по местам
+  const took = (r: RunRecord, k: number) => [...r.winners[k], ...(r.split?.[k].lo ?? [])]
+  const winners = hand.pots.map((pot, k) => pot.eligible.filter((id) => runs.some((r) => took(r, k).includes(id))))
   // Открытые по описанию карты остальных — их и так видели все
   for (const s of hand.seats) {
     const open = publicCards(cards, s.id)
     if (!shown[s.id] && open.some((c) => c !== null)) shown[s.id] = open
   }
-  const payouts = awardRuns(hand, runs.map((r) => r.winners))
+  const lows = runs.every((r) => r.split) ? runs.map((r) => (r.split as PotSplit[]).map((s) => s.lo)) : undefined
+  const payouts = awardRuns(hand, runs.map((r) => r.winners), lows)
   if (typeof payouts === 'string') return payouts
   const names = new Map(state.players.map((p) => [p.id, p.name]))
   const record: HandRecord = {
@@ -831,6 +857,7 @@ function settle(state: TableState, now: number): string | null {
     best: first.best,
     hidden,
     ...(runs.length > 1 ? { runs } : {}),
+    ...(first.split ? { lows: first.lows ?? {}, lowBest: first.lowBest ?? {}, split: first.split } : {}),
   }
   finishHand(state, hand, winners, payouts, now, record)
   return null

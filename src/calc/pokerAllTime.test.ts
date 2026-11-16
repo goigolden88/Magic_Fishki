@@ -4,7 +4,8 @@ import type { HandLogEntry, Street } from '../poker/hand'
 import { finishedHand, keepHand, type HistoryHand } from '../poker/history'
 import { EMPTY_HUD, HUD_FEW_HANDS, type HudCounts } from '../poker/hud'
 import { createTable, type HandRecord, type HandResult, type Settings, type TableState } from '../poker/table'
-import { award, call, check, fold, play, raise, start, type Step } from '../poker/testing'
+import type { OwnGame } from '../poker/ownGame'
+import { allin, award, call, check, fold, play, raise, stackedDeck, start, type Step } from '../poker/testing'
 import { localEvening, roomEvening, savedHands, type EveningTable, type SavedHand } from './evenings'
 import { allTimeHud, allTimeMore, handNet, moreView } from './pokerAllTime'
 import { countsView } from './pokerView'
@@ -87,6 +88,31 @@ function eveningB(): { run: Run; saved: SavedHand[] } {
   )
   return { run, saved: savedHands(localEvening('01B', run.state), run.history) }
 }
+
+describe('покер за всё время: хай/лоу своей игры (#227)', () => {
+  it('взявший только лоу — тоже взял банк: HUD как у стола, выигрыш на вскрытии засчитан обоим', () => {
+    const o8: OwnGame = { id: 'own-h8', name: 'Холдем хай/лоу', hole: 2, fromHand: 'any', deck: 52, order: 'standard', board: [3, 1, 1], limit: 'nolimit', hiLo: true }
+    let run = table(
+      [
+        { id: 'a0', name: 'Петя', regularId: PETYA.id },
+        { id: 'a1', name: 'Коля', regularId: KOLYA.id },
+      ],
+      { cards: 'phones', games: [o8], game: o8.id },
+    )
+    // Сдают с a1: у Коли лоу 7-4-3-2-A, у Пети тройка королей — банк пополам
+    const deck = stackedDeck([['Ac', '2c'], ['Kh', 'Ks']], ['Kd', '7h', '3s', '4d', '8c'])
+    run = go(run, [start('a0', deck), allin('a0'), call('a1')])
+    const saved = savedHands(roomEvening('KQ7MZP', run.state, 'a0'), run.history)
+    expect(saved[0].hand.pots).toEqual([{ amount: 2000, winners: ['a0', 'a1'] }])
+    expect(saved[0].hand.record?.split).toEqual([{ hi: ['a0'], lo: ['a1'] }])
+    expect(allTimeHud(PETYA, saved)).toEqual(sum(run.state.hud?.a0))
+    expect(allTimeHud(KOLYA, saved)).toEqual(sum(run.state.hud?.a1))
+    expect(allTimeHud(KOLYA, saved)).toMatchObject({ showdowns: 1, showdownWins: 1 })
+    expect(allTimeHud(PETYA, saved)).toMatchObject({ showdowns: 1, showdownWins: 1 })
+    // Кто сколько выиграл: банк 2 000 пополам — итог у обоих ноль
+    expect(handNet(saved[0].hand.record!, saved[0].hand.payouts)).toEqual({ a0: 0, a1: 0 })
+  })
+})
 
 describe('покер за всё время: HUD постоянного по сохранённым вечерам', () => {
   const a = eveningA()
