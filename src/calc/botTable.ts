@@ -8,7 +8,7 @@ import { PROTOCOL_VERSION, type BetAction } from '../poker/protocol'
 import { AUTO_START_MS, createTable, gameFor, handle, onTime, viewFor, type AutoStart, type Result, type TableState } from '../poker/table'
 import type { RandomBytes } from '../poker/tokens'
 import { BOT_LEVELS, BOT_STYLES, botMove, pickStyles, seededRandom, styleLabel, type BotLevel, type BotStyle, type Random } from './bot'
-import { actFor, hostDo, parseLocalTable, rebuyNow, seatPlayer, toActId } from './localTable'
+import { actFor, hostDo, parseLocalTable, pendingRebuy, rebuyNow, seatPlayer, toActId } from './localTable'
 import { readLabel } from './botHud'
 import { hudView, tableView, type TableView } from './pokerView'
 import type { QuickBets } from './quickBets'
@@ -115,9 +115,39 @@ export function botStyleOf(bt: BotTable, id: string): BotStyle {
   return bt.styles[id] ?? pickStyles(bt.level, 1, () => 0)[0]
 }
 
-// Мои фишки кончились (между раздачами) — «Докупиться» или «Закончить»
+// Мои фишки кончились (между раздачами) — «Докупиться» или «Закончить». В наблюдении (#244) — нет:
+// боты играют и при моём нуле, докуп — перед «Вернуться за стол»
 export function iAmBroke(bt: BotTable): boolean {
-  return !bt.table.hand && myChips(bt.table, bt.meId) === 0
+  return !bt.table.hand && !iWatch(bt) && myChips(bt.table, bt.meId) === 0
+}
+
+// Наблюдение (#244): «Отойти и смотреть» — я пропускаю раздачи, как отошедший в комнате (sittingOut), боты
+// играют без меня. Хранится в моём игроке стола — переживает перезапуск
+export function iWatch(bt: BotTable): boolean {
+  return sitsOut(bt.table, bt.meId)
+}
+
+// «Отойти и смотреть» нельзя — причина; можно — null. Без меня играть — хотя бы двоим ботам с фишками
+export function watchError(bt: BotTable): string | null {
+  const bots = bt.table.players.filter((p) => p.id !== bt.meId && p.chips > 0).length
+  return bots >= 2 ? null : 'Смотреть можно, когда за столом хотя бы два бота с фишками'
+}
+
+// «Вернуться за стол» нельзя — причина; можно — null. Фишки кончились — сначала «Докупиться»
+// (во время раздачи докуп ляжет в стек после неё — вернуться уже можно)
+export function backError(bt: BotTable): string | null {
+  const chips = myChips(bt.table, bt.meId) + pendingRebuy(bt.table, bt.meId)
+  return chips > 0 ? null : 'Фишки кончились — сначала докупитесь'
+}
+
+// «Отойти и смотреть» / «Вернуться за стол» — ход sitOut ведущего за меня. Во время раздачи меняется только
+// флаг: раздачу, где я в игре, доигрываю, пропускаю — со следующей; вернулся — в раздаче со следующей.
+// Отсчёт раздачи «сама» — как шёл; в наблюдении он идёт и при моих 0 фишках
+export function botWatch(bt: BotTable, watching: boolean, now: number): BotStep {
+  if (iWatch(bt) === watching) return { ok: true, bots: bt }
+  const error = watching ? watchError(bt) : backError(bt)
+  if (error) return { ok: false, error }
+  return after(bt, hostDo(bt.table, { type: 'sitOut', sittingOut: watching, playerId: bt.meId }, now), now)
 }
 
 // «Начать раздачу»: колода перемешана здесь, как на сервере комнаты; random — для тестов
@@ -135,6 +165,7 @@ export function botAutoStart(bt: BotTable): AutoStart {
 }
 
 // Когда начнётся раздача «сама»; null — не начнётся. Мои фишки кончились — боты без меня не играют
+// (в наблюдении — играют)
 export function botNextHandAt(bt: BotTable): number | null {
   const at = bt.table.nextHandAt
   return typeof at === 'number' && !bt.table.hand && !iAmBroke(bt) ? at : null
@@ -201,10 +232,11 @@ export function botStep(bt: BotTable, now: number, random: Random): BotStep {
   return after(bt, actFor(bt.table, move, now), now)
 }
 
-// Я сбросил (или меня нет в раздаче), а раздача идёт дальше между ботами — «Доиграть сразу» (#194)
+// Я сбросил (или меня нет в раздаче), а раздача идёт дальше между ботами — «Доиграть сразу» (#194).
+// В наблюдении (#244) — нет: раздачи идут с обычными паузами ботов, чтобы их было видно
 export function botsPlayOn(bt: BotTable): boolean {
   const hand = bt.table.hand
-  if (!hand || !botToAct(bt)) return false
+  if (!hand || !botToAct(bt) || iWatch(bt)) return false
   const me = hand.seats.find((s) => s.id === bt.meId)
   return !me || me.folded
 }
@@ -216,6 +248,7 @@ const FINISH_MAX_STEPS = 1000
 // в историю; олл-ин и вскрытие — движком, как после последнего хода. Конец — как у обычной раздачи
 // (докуп ботов, раздача «сама» взводится). Я в раздаче — отказ, стол как был
 export function finishBotHand(bt: BotTable, now: number, random: Random): BotStep {
+  if (iWatch(bt)) return { ok: false, error: 'Вы смотрите — раздача идёт с паузами' }
   if (!botsPlayOn(bt)) return { ok: false, error: 'Вы в раздаче — ходите сами' }
   let cur = bt
   for (let i = 0; cur.table.hand && botToAct(cur); i++) {
@@ -261,17 +294,23 @@ export function topUpAll(bt: BotTable, now: number): BotStep {
 }
 
 // После хода: между раздачами боты без фишек докупаются сами на стартовый стек; окончилась раздача — она и в историю.
-// Мои фишки кончились — раздача «сама» снята (#156): боты без меня не играют; докуп взводит её заново с полной паузы
+// Мои фишки кончились — раздача «сама» снята (#156): боты без меня не играют; докуп взводит её заново с полной паузы.
+// В наблюдении (#244) не снята: боты играют и при моём нуле
 function after(bt: BotTable, r: Result, now: number): BotStep {
   if (!r.ok) return r
   let table = r.state
   if (!table.hand) table = rebuyBots(table, bt.meId, now)
-  if (!table.hand && myChips(table, bt.meId) === 0 && table.nextHandAt != null) table = { ...table, nextHandAt: null }
+  const stop = !table.hand && !sitsOut(table, bt.meId) && myChips(table, bt.meId) === 0
+  if (stop && table.nextHandAt != null) table = { ...table, nextHandAt: null }
   return { ok: true, bots: { ...bt, table, history: keepHand(bt.history, finishedHand(bt.table, table)) } }
 }
 
 function myChips(table: TableState, meId: string): number {
   return table.players.find((p) => p.id === meId)?.chips ?? 0
+}
+
+function sitsOut(table: TableState, meId: string): boolean {
+  return table.players.find((p) => p.id === meId)?.sittingOut === true
 }
 
 function rebuyBots(table: TableState, meId: string, now: number): TableState {
