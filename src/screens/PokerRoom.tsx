@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent, type RefObject } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode, type RefObject } from 'react'
 import {
   BOARD_GROUP,
   boardGroup,
@@ -901,9 +901,10 @@ export function HandHistory(props: {
   title?: string
   back?: string
   initial?: number
+  top?: ReactNode // над списком раздач — итог прошлого вечера (#242)
   onClose: () => void
 }) {
-  const { hands, note = null, title = 'История раздач', back = 'Закрыть', initial, onClose } = props
+  const { hands, note = null, title = 'История раздач', back = 'Закрыть', initial, top, onClose } = props
   const [open, setOpen] = useState<number | null>(initial ?? null)
   const ref = useRef<HTMLElement>(null)
   const hand = hands?.find((h) => h.number === open) ?? null
@@ -928,6 +929,7 @@ export function HandHistory(props: {
       ) : (
         <>
           {note && <p className="warn">{note}</p>}
+          {top}
           {hands === null ? (
             !note && <p className="muted">Загружаем…</p>
           ) : list.length === 0 ? (

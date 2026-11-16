@@ -5,6 +5,8 @@ import type { Card } from '../poker/cards'
 import { limitFor, type TableState } from '../poker/table'
 import type { GameId, Limit } from '../poker/game'
 import type { HistoryHand } from '../poker/history'
+import { formatNumber } from './format'
+import { handNet, type Blinds } from './handResult'
 
 // Вечер — один стол: комната по коду, стол на этом телефоне или против ботов (code — null).
 // table — что нужно выгрузке (Р-54); у записей до неё поля нет
@@ -43,7 +45,8 @@ export type SavedHand = {
   mine?: Card[]
 }
 
-export type EveningSummary = Evening & { hands: number } // hands — сколько раздач записано
+// hands — сколько раздач записано; myNet — мой итог за вечер фишками (#242): меня в вечере нет — поля нет
+export type EveningSummary = Evening & { hands: number; myNet?: number }
 
 // Начало стола — первая запись журнала фишек: закуп ведущего при создании (createTable)
 function startOf(table: TableState): number {
@@ -92,7 +95,7 @@ export function botsEvening(botsId: string, table: TableState, me: string): Even
   return { id: `${BOTS_PREFIX}${botsId}`, code: null, startedAt: startOf(table), table: eveningTable(table, me) }
 }
 
-export function isBotsEvening(e: Evening): boolean {
+export function isBotsEvening(e: { id: string }): boolean {
   return e.id.startsWith(BOTS_PREFIX)
 }
 
@@ -130,6 +133,89 @@ export function eveningName(e: Evening): string {
 // Строка вечера: «Стол KQ7MZP · раздач 12», «Стол на телефоне · раздач 3» или «Против ботов · раздач 40»
 export function eveningLine(e: EveningSummary): string {
   return `${eveningName(e)} · раздач ${e.hands}`
+}
+
+// Блайнды живых карт (записи раздачи нет) — стола, если не турнир: там они растут (#239)
+export function handBlinds(s: SavedHand): Blinds | null {
+  return s.table && !s.table.tournament ? { sb: s.table.sb, bb: s.table.bb } : null
+}
+
+// Итог вечера по игрокам (#242): по каждому, кто сидел в раздачах (с ушедшими), — раздач сыграно и итог —
+// сумма итогов за раздачу (handNet, #239) фишками и в ББ (итог каждой раздачи — в её большом блайнде).
+// Имя — последнее за столом; me — игрок этого телефона. Сортировка — по итогу, больший сверху.
+// plus и minus — сумма выигравших и проигравших: игра сходится, когда plus + minus = 0.
+// unknown — раздачи, где итог не посчитать (живые карты в турнире: блайнды не записаны), — в итог не входят
+export type EveningPlayer = { id: string; name: string; hands: number; net: number; bb: number; me: boolean }
+export type EveningResult = { players: EveningPlayer[]; plus: number; minus: number; unknown: number }
+
+export function eveningResult(records: SavedHand[]): EveningResult {
+  const players = new Map<string, EveningPlayer>()
+  let unknown = 0
+  for (const s of [...records].sort((a, b) => a.number - b.number)) {
+    const h = s.hand
+    const blinds = handBlinds(s)
+    const bb = h.record?.bb ?? blinds?.bb ?? null
+    const me = s.table?.me ?? null
+    let known = true
+    for (const seat of h.record?.seats ?? h.live?.seats ?? []) {
+      const p = players.get(seat.id) ?? { id: seat.id, name: seat.name, hands: 0, net: 0, bb: 0, me: false }
+      p.name = seat.name
+      p.hands += 1
+      p.me ||= seat.id === me
+      const net = handNet(h, seat.id, blinds)
+      if (net === null) known = false
+      else {
+        p.net += net
+        if (bb) p.bb += net / bb
+      }
+      players.set(seat.id, p)
+    }
+    if (!known) unknown += 1
+  }
+  const list = [...players.values()].sort((a, b) => b.net - a.net || a.name.localeCompare(b.name, 'ru'))
+  const plus = list.reduce((sum, p) => sum + Math.max(0, p.net), 0)
+  const minus = list.reduce((sum, p) => sum + Math.min(0, p.net), 0)
+  return { players: list, plus, minus, unknown }
+}
+
+// Мой итог за вечер — строка игрока этого телефона из итога вечера; меня в вечере нет — null
+export function myEveningNet(records: SavedHand[]): number | null {
+  return eveningResult(records).players.find((p) => p.me)?.net ?? null
+}
+
+// Под таблицей итога — с основанием: «Сходится: +2 300 и −2 300»; сумма не ноль — «Не сходится…»;
+// раздачи без итога — сколько их и почему. Игроков нет — null
+export function eveningBalanceText(r: EveningResult): string | null {
+  if (r.players.length === 0) return null
+  const pair = `+${formatNumber(r.plus)} и −${formatNumber(-r.minus)}`
+  const diff = r.plus + r.minus
+  const head = diff === 0 ? `Сходится: ${pair}` : `Не сходится: ${pair}, разница ${formatNumber(Math.abs(diff))}`
+  return r.unknown > 0 ? `${head}. Без итога раздач: ${r.unknown} — блайнды не записаны` : head
+}
+
+// Строки «Прошлых вечеров» из записей раздач: вечер — по первой записи (меньший номер), число раздач и мой итог
+export function eveningSummaries(records: SavedHand[]): EveningSummary[] {
+  const groups = new Map<string, SavedHand[]>()
+  for (const r of records) {
+    const group = groups.get(r.evening)
+    if (group) group.push(r)
+    else groups.set(r.evening, [r])
+  }
+  return byNewest(
+    [...groups.values()].map((hands) => {
+      const first = hands.reduce((a, b) => (b.number < a.number ? b : a))
+      const net = myEveningNet(hands)
+      return { id: first.evening, code: first.code, startedAt: first.startedAt, hands: hands.length, ...(net !== null ? { myNet: net } : {}) }
+    }),
+  )
+}
+
+// Сколько вечеров и раздач против ботов и всего — «Удалить» пачкой в «Настройках» (#242)
+export type EveningCounts = { evenings: number; hands: number }
+
+export function eveningCounts(evenings: EveningSummary[], onlyBots: boolean): EveningCounts {
+  const picked = onlyBots ? evenings.filter(isBotsEvening) : evenings
+  return { evenings: picked.length, hands: picked.reduce((sum, e) => sum + e.hands, 0) }
 }
 
 // День вечера по часам телефона: YYYY-MM-DD
