@@ -6,6 +6,10 @@ import { hudView } from './pokerView'
 import {
   autoDealBotHand,
   autoFinishNow,
+  backError,
+  botWatch,
+  iWatch,
+  watchError,
   BOT_AUTO_START_DEFAULT,
   BOTS_DEFAULT,
   BOTS_MAX,
@@ -627,6 +631,137 @@ describe('стол против ботов: доиграть сразу', () => 
     expect(botTableView(done, 2000).paused).toBe(true)
     expect(botNextHandAt(done)).toBeNull()
     expect(botNextHandAt(ok(botPause(done, false, 5000)))).toBe(5000 + AUTO_START_MS.fast)
+  })
+})
+
+// Наблюдение: «Отойти и смотреть» (#244) — я пропускаю раздачи, боты играют без меня
+describe('стол против ботов: отойти и смотреть', () => {
+  const FAST = AUTO_START_MS.fast
+  // Раздача до конца: ходы ботов по одному, как по таймеру; мой ход — решением бота
+  function finish(bt: BotTable, now: number, random: Random): BotTable {
+    let t = bt
+    for (let moves = 0; t.table.hand; moves++) {
+      if (moves > 300) throw new Error('раздача не кончается')
+      t = botToAct(t) ? ok(botStep(t, now, random)) : play(t, random)
+    }
+    return t
+  }
+  const me = (bt: BotTable) => bt.table.players.find((p) => p.id === bt.meId)!
+  const inHand = (bt: BotTable) => bt.table.hand!.seats.some((s) => s.id === bt.meId)
+
+  it('отошёл — раздача без меня: моих карт и места в ней нет, мои фишки лежат, HUD растёт у ботов, мой — нет', () => {
+    const random = seededRandom(41)
+    let bt = finish(ok(dealBotHand(start({ bots: 3 }), 0, bytesOf(random))), 0, random)
+    const myHud = hudView(bt.table, bt.meId)
+    const botId = bt.table.players[1].id
+    const botHands = hudView(bt.table, botId)!.hands
+    const chips = me(bt).chips
+    const watching = ok(botWatch(bt, true, 1000))
+    expect(iWatch(watching)).toBe(true)
+    expect(iWatch(bt)).toBe(false)
+    expect(botTableView(watching, 1000).seats.find((s) => s.isMe)!.sittingOut).toBe(true)
+    bt = watching
+    for (let k = 0; k < 5; k++) {
+      bt = ok(dealBotHand(bt, 2000, bytesOf(random)))
+      expect(inHand(bt)).toBe(false)
+      expect(bt.table.hand!.cards!.hole[bt.meId]).toBeUndefined()
+      bt = finish(bt, 2000, random)
+    }
+    expect(me(bt).chips).toBe(chips)
+    expect(hudView(bt.table, bt.meId)).toEqual(myHud)
+    expect(hudView(bt.table, botId)!.hands).toBe(botHands + 5)
+    // Раздачи без меня — в истории того же стола, меня в них нет
+    expect(bt.history.map((h) => h.number)).toEqual([1, 2, 3, 4, 5, 6])
+    for (const h of bt.history.slice(1)) expect(h.record!.seats.some((s) => s.id === bt.meId)).toBe(false)
+    expect(chipsInPlay(bt)).toBe(boughtIn(bt))
+  })
+
+  it('отошёл посреди раздачи, где я в игре, — эту доигрываю, пропускаю со следующей', () => {
+    const random = seededRandom(42)
+    let bt = ok(botWatch(ok(dealBotHand(start({ bots: 3 }), 0, bytesOf(random))), true, 500))
+    expect(iWatch(bt)).toBe(true)
+    expect(inHand(bt)).toBe(true)
+    let myMoves = 0
+    for (let moves = 0; bt.table.hand; moves++) {
+      if (moves > 300) throw new Error('раздача не кончается')
+      if (!botToAct(bt)) myMoves++
+      bt = botToAct(bt) ? ok(botStep(bt, 0, random)) : play(bt, random)
+    }
+    expect(myMoves).toBeGreaterThan(0)
+    expect(bt.history[0].record!.seats.some((s) => s.id === bt.meId)).toBe(true)
+    expect(inHand(ok(dealBotHand(bt, 1000, bytesOf(random))))).toBe(false)
+  })
+
+  it('в наблюдении — обычные паузы ботов: ни «Доиграть сразу», ни доигрывания по галочке', () => {
+    const bt = ok(dealBotHand(ok(botWatch(start({ bots: 3, autoFinish: true }), true, 0)), 0, bytesOf(seededRandom(43))))
+    expect(botToAct(bt)).not.toBeNull()
+    expect(botsPlayOn(bt)).toBe(false)
+    expect(autoFinishNow(bt)).toBe(false)
+    expect(finishBotHand(bt, 0, seededRandom(43))).toEqual({ ok: false, error: 'Вы смотрите — раздача идёт с паузами' })
+  })
+
+  it('мои 0 фишек в наблюдении: отсчёт идёт, боты играют; вернуться — сначала докуп, вернулся — в раздаче со следующей', () => {
+    const random = seededRandom(44)
+    let bt = finish(ok(dealBotHand(start({ bots: 2, autoStart: 'fast' }), 0, bytesOf(random))), 0, random)
+    const [mine, ...bots] = bt.table.players
+    const broke = ok(botPause(ok(botPause({ ...bt, table: { ...bt.table, players: [{ ...mine, chips: 0 }, ...bots] } }, true, 1000)), false, 1000))
+    expect(iAmBroke(broke)).toBe(true)
+    expect(botNextHandAt(broke)).toBeNull()
+    // Отошёл с нулём — «Фишки кончились» не на экране, отсчёт идёт, раздачи — без меня
+    bt = ok(botWatch(broke, true, 2000))
+    expect(iAmBroke(bt)).toBe(false)
+    expect(botNextHandAt(bt)).toBe(2000 + FAST)
+    for (let k = 0, now = 10_000; k < 3; k++, now += 10_000) {
+      bt = ok(autoDealBotHand(bt, botNextHandAt(bt)!, bytesOf(random)))
+      expect(inHand(bt)).toBe(false)
+      bt = finish(bt, now, random)
+      expect(me(bt).chips).toBe(0)
+      expect(botNextHandAt(bt)).toBe(now + FAST)
+    }
+    expect(bt.history).toHaveLength(4)
+    // Вернуться с нулём — нельзя: сначала «Докупиться»
+    expect(backError(bt)).toBe('Фишки кончились — сначала докупитесь')
+    expect(botWatch(bt, false, 50_000)).toEqual({ ok: false, error: 'Фишки кончились — сначала докупитесь' })
+    bt = ok(myRebuy(bt, 50_000))
+    expect(iWatch(bt)).toBe(true)
+    expect(backError(bt)).toBeNull()
+    // Вернулся посреди раздачи — в ней меня нет, в следующей — есть
+    bt = ok(autoDealBotHand(bt, botNextHandAt(bt)!, bytesOf(random)))
+    bt = ok(botWatch(bt, false, 51_000))
+    expect(iWatch(bt)).toBe(false)
+    expect(inHand(bt)).toBe(false)
+    bt = finish(bt, 52_000, random)
+    expect(botNextHandAt(bt)).toBe(52_000 + FAST)
+    expect(inHand(ok(autoDealBotHand(bt, botNextHandAt(bt)!, bytesOf(random))))).toBe(true)
+  })
+
+  it('докупился в наблюдении во время раздачи — докуп ляжет после неё, вернуться уже можно', () => {
+    const random = seededRandom(45)
+    let bt = finish(ok(dealBotHand(start({ bots: 2 }), 0, bytesOf(random))), 0, random)
+    const [mine, ...bots] = bt.table.players
+    bt = ok(dealBotHand(ok(botWatch({ ...bt, table: { ...bt.table, players: [{ ...mine, chips: 0 }, ...bots] } }, true, 0)), 0, bytesOf(random)))
+    expect(backError(bt)).not.toBeNull()
+    bt = ok(botWatch(ok(myRebuy(bt, 0)), false, 0))
+    bt = finish(bt, 0, random)
+    expect(me(bt).chips).toBe(1000)
+    expect(inHand(ok(dealBotHand(bt, 0, bytesOf(random))))).toBe(true)
+  })
+
+  it('один бот — смотреть нельзя: причина, стол как был', () => {
+    const one = start({ bots: 1 })
+    expect(watchError(one)).toBe('Смотреть можно, когда за столом хотя бы два бота с фишками')
+    expect(botWatch(one, true, 0)).toEqual({ ok: false, error: 'Смотреть можно, когда за столом хотя бы два бота с фишками' })
+    expect(watchError(start({ bots: 2 }))).toBeNull()
+    // Уже так — стол как был
+    const bt = start()
+    expect(ok(botWatch(bt, false, 0))).toBe(bt)
+  })
+
+  it('наблюдение — в столе: переживает перезапуск', () => {
+    const bt = ok(botWatch(start({ autoStart: 'fast' }), true, 0))
+    const back = parseBotTable(JSON.stringify(bt))!
+    expect(iWatch(back)).toBe(true)
+    expect(back).toEqual(bt)
   })
 })
 
