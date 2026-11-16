@@ -264,7 +264,7 @@ function LocalTableCard(props: {
             {blindsLine(table, v)} · {v.handNumber > 0 ? `раздача ${v.handNumber} · ` : ''}
             {v.stageLabel}
           </p>
-          <PokerTable view={v} />
+          <PokerTable view={v} table={table} />
         </div>
 
         <div className="table-below">

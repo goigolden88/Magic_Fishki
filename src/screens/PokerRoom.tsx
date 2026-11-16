@@ -37,6 +37,7 @@ import {
   historyList,
   lastHandRecord,
   lastHandWins,
+  liveHandView,
   myTurnMark,
   tableView,
   toggleWinner,
@@ -78,6 +79,7 @@ import { HudCard, HudFields, HudLine, useHudDetailed } from './Hud'
 import { noteOf, type NoteLabels, type PlayerNote } from '../calc/playerNotes'
 import { NoteDot, NotePop, useNotes } from './PlayerNote'
 import { LookFields } from './LookFields'
+import { LiveHandField } from './RoomFields'
 import { LookGear } from './TableGear'
 import { playFlights, useLandOnHide } from './cardFly'
 import {
@@ -404,6 +406,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
           {host && <p className="muted server-line">Сервер: {host}</p>}
           <PokerTable
             view={v}
+            table={table}
             open={open}
             live={live}
             onSeat={room.online ? (seat) => room.send({ type: 'moveSeat', seat }) : undefined}
@@ -1175,9 +1178,19 @@ function ShowCard(props: {
 // HUD вечера (#79) — строкой у места, касание строки — подробно поверх стола
 // live — стол меняется на глазах: раздачу и улицы можно проигрывать (#133); первый стол после (пере)подключения — нет.
 // Заметки (Р-56, #165) — только этого телефона: точка у места, касание точки — заметка, касание имени — правка.
-// Касание своего места — имени или стека — суммы ББ ↔ фишки (Р-64); моего места нет (стол на одном телефоне) — касание банка
-export function PokerTable(props: { view: TableView; open?: boolean; live?: boolean; onSeat?: (seat: number) => void }) {
-  const { view: v, open = false, live = true, onSeat } = props
+// Касание своего места — имени или стека — суммы ББ ↔ фишки (Р-64); моего места нет (стол на одном телефоне) — касание банка.
+// table — стол в виде этого телефона: касание банка открывает «Ход раздачи» (#258), если настройка стола не выкл;
+// выкл (или стола не дали) — банк как до #258
+export function PokerTable(props: {
+  view: TableView
+  table?: TableState
+  open?: boolean
+  live?: boolean
+  onSeat?: (seat: number) => void
+}) {
+  const { view: v, table, open = false, live = true, onSeat } = props
+  const [logOpen, setLogOpen] = useState(false)
+  const handLog = table !== undefined && table.settings.liveHand !== false
   const [hudOf, setHudOf] = useState<string | null>(null)
   const [noteFor, setNoteFor] = useState<{ name: string; edit: boolean } | null>(null)
   const { notes, labels } = useNotes()
@@ -1203,14 +1216,24 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
     </>
   )
   // Рамка стола (Р-63): на широком окне стол — по центру неё, своего размера из «Настроек»; на телефоне — во всю рамку
-  return (
+  const feltBox = (
     <div className="felt-box">
       <div className="felt-wrap" ref={wrap}>
         <div className="felt" />
         <div className="felt-center" data-fly-origin>
           <div className="muted">{v.stageLabel}</div>
           {v.stage !== null &&
-            (mine ? (
+            (handLog ? (
+              <button
+                type="button"
+                className="pot-total"
+                aria-label="Банк — ход раздачи"
+                aria-haspopup="dialog"
+                onClick={() => setLogOpen(true)}
+              >
+                {pot}
+              </button>
+            ) : mine ? (
               <div className="pot-total">{pot}</div>
             ) : (
               <button
@@ -1293,6 +1316,97 @@ export function PokerTable(props: { view: TableView; open?: boolean; live?: bool
           </div>
         )}
       </div>
+    </div>
+  )
+  // «Ход раздачи» — вне рамки стола: на широком окне рамка — контейнер размера, и fixed внутри неё держался бы за рамку
+  return (
+    <>
+      {feltBox}
+      {logOpen && table && <HandLogPop table={table} onClose={() => setLogOpen(false)} />}
+    </>
+  )
+}
+
+// «Ход раздачи» (#258) — поверх стола: улицы текущей раздачи вживую (liveHandView), последний ход — внизу, на виду.
+// Раздача кончилась при открытой панели — она целиком, с пометкой «раздача закончена», до закрытия (у живых карт
+// журнала прошлой в столе нет — держится последний стол этой раздачи). Суммы: в фишках / в ББ — та же настройка,
+// что касание своего места (Р-64). Закрыть — «✕», Esc, касание вне панели
+function HandLogPop({ table, onClose }: { table: TableState; onClose: () => void }) {
+  const inBB = useBigBlinds()
+  const pinned = useRef<number | null>(null) // раздача, открытая касанием
+  const kept = useRef<TableState | null>(null) // последний стол с ней
+  const current = liveHandView(table)
+  if (pinned.current === null && current) pinned.current = current.number
+  if (current && current.number === pinned.current) kept.current = table
+  const source = kept.current ?? table
+  const view = liveHandView(source, inBB)
+  const ended = view !== null && (view.ended || source !== table)
+  const unit = inBB && view ? view.bb : null
+  const body = useRef<HTMLDivElement>(null)
+  const last = view ? JSON.stringify(view.streets) : ''
+  useLayoutEffect(() => {
+    const el = body.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [last])
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+  return (
+    <div className="log-shade" onClick={onClose}>
+      <section className="card log-pop" role="dialog" aria-label="Ход раздачи" onClick={(e) => e.stopPropagation()}>
+        <div className="log-head">
+          <h2 className="grow">
+            Ход раздачи{view ? ` ${view.number}` : ''}
+            {ended && <span className="muted log-ended"> · раздача закончена</span>}
+          </h2>
+          <button type="button" className="log-close" aria-label="Закрыть" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <div className="log-units" role="group" aria-label="Суммы">
+          <span className="muted">Суммы:</span>
+          <button type="button" aria-pressed={!inBB} onClick={() => saveBigBlinds(false)}>
+            в фишках
+          </button>
+          <button type="button" aria-pressed={inBB} onClick={() => saveBigBlinds(true)}>
+            в ББ
+          </button>
+        </div>
+        <div className="log-body" ref={body}>
+          {view === null ? (
+            <p className="muted">Раздачи сейчас нет.</p>
+          ) : (
+            <>
+              {view.streets.map((s) => (
+                <div key={s.label} className="history-street">
+                  <div className="run-row">
+                    <strong>{s.label}</strong>
+                    {s.board.length > 0 && <CardRow cards={s.board} size="small" />}
+                    {s.pot !== null && <span className="muted">банк {stackText(s.pot, unit)}</span>}
+                  </div>
+                  {s.moves.length > 0 && (
+                    <ol className="log-moves">
+                      {s.moves.map((m, k) => (
+                        <li key={k}>{m}</li>
+                      ))}
+                    </ol>
+                  )}
+                </div>
+              ))}
+              {view.boards?.map((b, k) => (
+                <div key={k} className="run-row">
+                  <CardRow cards={b} size="small" />
+                  <span className="muted">{k + 1}-й борд</span>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      </section>
     </div>
   )
 }
@@ -2019,7 +2133,7 @@ export function MoveSeat(props: { view: TableView; seat: number; online: boolean
 // «Настройки стола» ведущего между раздачами (#75): время на ход, запас времени (#223) и раздача «сама» — со следующей раздачи.
 // Сохранили — форма заново из стола (key)
 // Кэш (#78) — ещё и анте; турнир до «Начать турнир» — призы по местам: тогда видно, сколько пришло.
-// Кому виден HUD (#79) — здесь же
+// Кому виден HUD (#79) и ход раздачи по касанию банка (#258) — здесь же
 function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableState; view: TableView }) {
   const saved = timerSettings(table.settings)
   const [form, setForm] = useState<TimerForm>(() => timerForm(saved.turnSeconds, saved.autoStart, saved.timeBank))
@@ -2027,6 +2141,8 @@ function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableS
   const [anteText, setAnteText] = useState(String(savedAnte))
   const savedHud = table.settings.publicHud === true
   const [publicHud, setPublicHud] = useState(savedHud)
+  const savedLog = table.settings.liveHand !== false // ход раздачи по касанию банка (#258); нет поля — вкл
+  const [liveHand, setLiveHand] = useState(savedLog)
   const savedPrizes = table.settings.tournament?.prizes ?? null
   const [prizesOwn, setPrizesOwn] = useState(savedPrizes !== null)
   const [prizes, setPrizes] = useState<string[]>(() => (savedPrizes ?? []).map(String))
@@ -2046,7 +2162,8 @@ function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableS
       form.autoStart !== saved.autoStart ||
       ante !== savedAnte ||
       prizesChanged ||
-      publicHud !== savedHud)
+      publicHud !== savedHud ||
+      liveHand !== savedLog)
 
   function save() {
     if (!turn.ok || ante === null) return
@@ -2056,6 +2173,7 @@ function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableS
       timeBank: bank,
       autoStart: form.autoStart,
       publicHud,
+      liveHand,
       ...(t ? {} : { ante }),
       ...(prizesChanged && newPrizes !== undefined ? { prizes: newPrizes } : {}),
     })
@@ -2087,6 +2205,7 @@ function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableS
         />
       )}
       <HudFields all={publicHud} onChange={setPublicHud} />
+      <LiveHandField on={liveHand} onChange={setLiveHand} />
       <button type="button" className="big primary wide" disabled={!changed || !ok || !room.online} onClick={save}>
         Сохранить
       </button>

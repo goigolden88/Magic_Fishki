@@ -801,7 +801,9 @@ export function liveHandView(table: TableState, inBB = false): LiveHandView | nu
   if (hand) {
     const names = new Map(table.players.map((p) => [p.id, p.name]))
     const seats = hand.seats.map((s) => ({ id: s.id, name: names.get(s.id) ?? 'Ушёл', chips: s.chips + s.committed }))
-    const h: HistoryHand = { number: hand.number, pots: hand.pots, payouts: {}, live: { seats, button: hand.button, log: hand.log } }
+    // Банков раздачи до конца торгов нет — handMoney считает банк улиц по журналу и блайндам
+    const pots = hand.pots.map((p) => ({ amount: p.amount, winners: [] }))
+    const h: HistoryHand = { number: hand.number, pots, payouts: {}, live: { seats, button: hand.button, log: hand.log } }
     const cards = hand.cards
     const boards = cards?.boards && cards.boards.length > 1 ? cards.boards : null
     const money = handMoney(h, { sb: hand.sb, bb: hand.bb })

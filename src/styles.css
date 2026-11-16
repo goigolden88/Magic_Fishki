@@ -2008,6 +2008,103 @@ textarea.note-input {
   }
 }
 
+/* «Ход раздачи» по касанию банка (#258): на телефоне — снизу поверх стола, не выше половины окна: стол виден над ней;
+   на широком окне — слева сверху, у края: свои карты и панель хода (внизу, справа) не закрывает.
+   Ходы листаются внутри, последний — внизу на виду */
+.log-shade {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0.5rem;
+  /* от гаммы не зависит: стол под панелью притушен чуть-чуть */
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.log-pop {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: min(100%, 34rem);
+  max-height: 52dvh;
+  margin: 0;
+  border: 2px solid var(--gold);
+  box-shadow: 0 0.4rem 1.5rem var(--pop-shadow);
+}
+
+.log-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.log-head h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.log-ended {
+  font-size: 0.9rem;
+  font-weight: 400;
+}
+
+.log-close {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0;
+  font-size: 1.2rem;
+}
+
+.log-units {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.log-units button {
+  min-height: 2.5rem;
+  padding: 0.2rem 0.8rem;
+}
+
+.log-units button[aria-pressed='true'] {
+  border-color: var(--gold);
+  font-weight: 600;
+}
+
+.log-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.log-body .history-street {
+  margin: 0 0 0.5rem;
+}
+
+.log-moves {
+  margin: 0.2rem 0 0;
+  padding-left: 1.4rem;
+  font-size: 0.95rem;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 1024px) and (min-aspect-ratio: 1/1) {
+  .log-shade {
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 3.5rem 0.75rem 0.75rem;
+  }
+
+  .log-pop {
+    width: clamp(18rem, 26vw, 26rem);
+    max-height: 58dvh;
+  }
+}
+
 .hud-name {
   font-size: 1.05rem;
   overflow-wrap: anywhere;

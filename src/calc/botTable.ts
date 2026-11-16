@@ -202,6 +202,13 @@ export function setBotAutoStart(bt: BotTable, mode: AutoStart, now: number): Bot
   return after(bt, hostDo(bt.table, { type: 'tableSettings', autoStart: mode }, now), now)
 }
 
+// «Ход раздачи по касанию банка» в «⚙ Стол» (#258): настройка стола (tableSettings), как «Следующая раздача сама» —
+// между раздачами; нет поля — вкл
+export function setBotLiveHand(bt: BotTable, on: boolean, now: number): BotStep {
+  if ((bt.table.settings.liveHand !== false) === on) return { ok: true, bots: bt }
+  return after(bt, hostDo(bt.table, { type: 'tableSettings', liveHand: on }, now), now)
+}
+
 // Стол снова на экране (приложение открыли заново или вернулись к нему): ждавшая раздача «сама» не начинается
 // мгновенно — отсчёт заново с полной паузы
 export function resumeBotTable(bt: BotTable, now: number): BotTable {
