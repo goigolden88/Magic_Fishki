@@ -1156,10 +1156,10 @@ async function historyStep(d: Device): Promise<void> {
     await d.waitFor('.history-hand .history-pos')
     await d.shot('03g-istoriya-razdach', false)
   })
-  await screen('Прошлые вечера: раздача', d.size, async () => {
+  // Вечер «Против ботов» в «Прошлых вечерах»: открыть; hand — и последнюю раздачу (сверху)
+  async function openEvening(hand: boolean): Promise<void> {
     await d.goto('#/poker')
     await d.waitText('Прошлые вечера')
-    await d.shot('03h0-proshlye-vechera') // #242: строка вечера — с моим итогом
     const opened = await d.eval<boolean>(`(() => {
       const el = [...document.querySelectorAll('button.history-item')].find((b) => b.innerText.includes('Против ботов'))
       if (!el) return false
@@ -1168,11 +1168,28 @@ async function historyStep(d: Device): Promise<void> {
     })()`)
     if (!opened) throw new Error('нет вечера «Против ботов» в «Прошлых вечерах»')
     await d.waitFor('.history-hand .history-pos')
+    if (!hand) return
+    await d.eval(`document.querySelector('.history-hand').click()`)
+    await d.waitText('Вам сдано')
+    await d.waitText('Ваш итог за раздачу')
+  }
+  await screen('Прошлые вечера: раздача', d.size, async () => {
+    await d.goto('#/poker')
+    await d.waitText('Прошлые вечера')
+    await d.shot('03h0-proshlye-vechera') // #242: строка вечера — с моим итогом
+    await openEvening(false)
     await d.shot('03h-proshlye-vechera-spisok')
     await d.eval(`document.querySelector('.history-hand').click()`)
     await d.waitText('Вам сдано')
     await d.waitText('Ваш итог за раздачу')
     await d.shot('03i-razdacha-pas')
+    // #221: «В калькулятор» — тренажёр с моими картами, бордом и сторонами соперников
+    await d.click('В калькулятор')
+    await d.waitText('Добавить сторону')
+    await d.waitFor('.trainer-side .card-slots .playing-card')
+    await waitGone(d, 'Считаем…')
+    await d.shot('03i2-razdacha-v-kalkulyator')
+    await openEvening(true)
     await d.click('Текстом')
     await d.waitText('*** HOLE CARDS ***')
     await d.shot('03j-razdacha-tekstom')
