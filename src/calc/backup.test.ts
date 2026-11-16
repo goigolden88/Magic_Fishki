@@ -564,20 +564,28 @@ describe('файл-копия формата 8: свои игры', () => {
   })
   const withGames = (games: OwnGame[]) => makeBackup([], SETTINGS, NOW, [], {}, {}, undefined, undefined, [], games)
 
-  it('формат 9 (#226); свои игры, и с открытыми картами, — в копии и читаются обратно без потерь', () => {
-    expect(BACKUP_FORMAT).toBe(9)
-    const backup = withGames([ownGame('a'), ownGame('b', 'Шорт-5'), { ...ownGame('c', 'С открытой'), hole: 3, up: 1, fromHand: 'any' }])
+  it('формат 10 (#227); свои игры, и с открытыми картами, и хай/лоу, — в копии и читаются обратно без потерь', () => {
+    expect(BACKUP_FORMAT).toBe(10)
+    const backup = withGames([
+      ownGame('a'),
+      ownGame('b', 'Шорт-5'),
+      { ...ownGame('c', 'С открытой'), hole: 3, up: 1, fromHand: 'any' },
+      { ...ownGame('d', 'Омаха хай/лоу'), hole: 4, hiLo: true },
+    ])
     const text = backupText(backup)
-    expect(JSON.parse(text).format).toBe(9)
-    expect(JSON.parse(text).ownGames).toHaveLength(3)
+    expect(JSON.parse(text).format).toBe(10)
+    expect(JSON.parse(text).ownGames).toHaveLength(4)
     expect(JSON.parse(text).ownGames[2].up).toBe(1)
+    expect(JSON.parse(text).ownGames[3].hiLo).toBe(true)
     expect(parse(text)).toEqual({ ok: true, backup })
   })
 
-  it('копия формата 8 со своими играми читается как раньше', () => {
+  it('копии форматов 8 и 9 со своими играми читаются как раньше', () => {
     const backup = withGames([ownGame('a')])
-    const parsed = parse(JSON.stringify({ ...backup, format: 8 }))
-    expect(parsed.ok && parsed.backup.ownGames).toEqual([ownGame('a')])
+    for (const format of [8, 9]) {
+      const parsed = parse(JSON.stringify({ ...backup, format }))
+      expect(parsed.ok && parsed.backup.ownGames).toEqual([ownGame('a')])
+    }
   })
 
   it('копии прежних форматов (без своих игр) читаются как раньше — своих игр нет', () => {

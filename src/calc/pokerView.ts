@@ -1,7 +1,8 @@
 // Экран стола: что показать каждому по состоянию стола. Правил не держит — только читает
 // стол (src/poker/) и решает, какие кнопки показать и с какими суммами; отказ всё равно
 // скажет сервер. Время — параметром now, как у стола
-import { bestHand, type Card } from '../poker/cards'
+import { bestHand, bestLow, type Card } from '../poker/cards'
+import { splitFives, splitLines, splitText, withLow } from './hiLoView'
 import { publicCards } from '../poker/game'
 import { formatDate } from '../dates'
 import { potLimit, type HandLogEntry, type Stage, type Street } from '../poker/hand'
@@ -201,7 +202,8 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
       return {
         cards: cards ? (s && !s.folded ? publicCards(cards, p.id) : null) : (record?.shown[p.id] ?? null),
         // Прогнали несколько раз (#167) — у каждого борда своя рука: подписи — у бордов, не у мест
-        handName: record?.runs ? null : (record?.hands[p.id] ?? null),
+        // Хай/лоу (#227) — старшая рука и лоу: «Тройка, короли · лоу 7-4-3-2-A»
+        handName: record?.runs ? null : withLow(record?.hands[p.id] ?? null, record?.lows?.[p.id]),
         best: fives.get(p.id) ?? null,
         id: p.id,
         seat: p.seat,
@@ -233,9 +235,13 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
   // «ровно N из руки» — со стола нужно 5 − N, а первый круг стола может быть меньше трёх карт
   const fromHand = cards?.game.variant.fromHand
   const boardNeed = Math.max(3, typeof fromHand === 'number' ? 5 - fromHand : 0)
+  // Хай/лоу (#227) — и мой лоу: «Флеш, старший туз · лоу 7-5-3-2-A»
   const myHand =
     cards && myCards && mySeat && !mySeat.folded && cards.board.length >= boardNeed
-      ? bestHand(cards.game.variant, myCards, cards.board).name
+      ? withLow(
+          bestHand(cards.game.variant, myCards, cards.board).name,
+          cards.game.hiLo ? bestLow(cards.game.variant, myCards, cards.board)?.name : null,
+        )
       : null
   const hidden = record?.hidden?.playerId === meId ? record.hidden : null
   const maxSeats = table.settings.maxSeats
@@ -512,6 +518,8 @@ function fivesOf(last: HandResult): Map<string, Card[]> {
   const best = last.record?.best
   const out = new Map<string, Card[]>()
   if (!best || last.record?.runs) return out
+  // Хай/лоу (#227): взявший только лоу — его пятёрка лоу
+  if (last.record?.split) return splitFives(last.record)
   for (const pot of last.pots) for (const id of pot.winners) if (best[id]) out.set(id, best[id])
   return out
 }
@@ -526,6 +534,8 @@ export type LastHandView = {
   odds: string | null
   // Прогнали несколько раз (#167): все борды с победителями (board — первый); прогон один — поля нет
   runs?: RunBoardView[]
+  // Хай/лоу (#227), прогон один: делёж каждого банка строкой (splitLines); не хай/лоу и несколько бордов — поля нет
+  split?: string[]
 }
 
 // Прошлая раздача с картами на телефонах — вся запись: места, карты, ходы, кто что взял.
@@ -535,25 +545,36 @@ export function lastHandRecord(table: TableState): LastHandView | null {
   const record = last?.record
   if (!last || !record || table.hand) return null
   const fives = fivesOf(last)
-  const runs = runBoards(record, potLabels(last.pots.length))
+  const labels = potLabels(last.pots.length)
+  const runs = runBoards(record, labels)
+  const split = runs ? null : splitOf(record, labels)
   return {
     number: last.number,
     board: record.board,
     players: record.seats.map((s) => ({
       name: s.name,
       cards: record.shown[s.id] ?? null,
-      hand: runs ? null : (record.hands[s.id] ?? null),
+      hand: runs ? null : withLow(record.hands[s.id] ?? null, record.lows?.[s.id]),
       best: fives.get(s.id) ?? null,
       won: last.payouts[s.id] ?? 0,
     })),
     rounds: roundsOf(record.log, record.seats),
     odds: oddsLine(record),
     ...(runs ? { runs } : {}),
+    ...(split ? { split } : {}),
   }
 }
 
-// Шансы каждого дошедшего до вскрытия в момент ва-банка — строкой; улица — та, где закрылись торги
+// Хай/лоу (#227): делёж банков записи строками — по именам мест
+function splitOf(record: HandRecord, labels: string[]): string[] | null {
+  const names = new Map(record.seats.map((s) => [s.id, s.name]))
+  return splitLines(record, (id) => names.get(id) ?? 'Ушёл', labels)
+}
+
+// Шансы каждого дошедшего до вскрытия в момент ва-банка — строкой; улица — та, где закрылись торги.
+// Хай/лоу (#227) — шансов нет: они считают только старшую руку
 function oddsLine(record: HandRecord): string | null {
+  if (record.game?.hiLo) return null
   const odds = allInOdds(record)
   if (!odds) return null
   const players = odds.players.map((p) => `${p.name} ${p.percent}${NBSP}%`).join(', ')
@@ -601,7 +622,8 @@ export type HistoryHandView = LastHandView & {
   meIndex: number | null
   mine: MyHandView | null
   streets: HistoryStreet[]
-  pots: { label: string; amount: number; winners: string[] }[]
+  // split — хай/лоу (#227), прогон один: «Хай — Аня (…), лоу — Боря (…)»; иначе поля нет
+  pots: { label: string; amount: number; winners: string[]; split?: string }[]
   text: string
 }
 
@@ -661,12 +683,16 @@ export function historyHandView(s: SavedHand): HistoryHandView {
   const hero = heroOf(s)
   const h = handFor(s.hand, hero ?? s.hand.record?.hidden?.playerId ?? null)
   const names = namesOf(h)
+  const record = h.record
+  // Хай/лоу (#227), прогон один — у банка ещё делёж: кто взял хай, кто лоу
+  const split = record?.split && !(record.runs && record.runs.length > 1) ? record.split : null
+  const nameOf = (id: string) => names.get(id) ?? 'Ушёл'
   const pots = h.pots.map((p, k) => ({
     label: potLabel(k, h.pots.length),
     amount: p.amount,
-    winners: p.winners.map((id) => names.get(id) ?? 'Ушёл'),
+    winners: p.winners.map(nameOf),
+    ...(split?.[k] && record ? { split: splitText(split[k], record.hands, record.lows ?? {}, nameOf) } : {}),
   }))
-  const record = h.record
   const seats = record?.seats ?? h.live?.seats ?? []
   const hidden = record?.hidden ?? null
   const fives = fivesOf(h)
@@ -679,7 +705,7 @@ export function historyHandView(s: SavedHand): HistoryHandView {
     players: seats.map((x) => ({
       name: x.name,
       cards: hidden?.playerId === x.id ? hidden.cards : (record?.shown[x.id] ?? null),
-      hand: runs ? null : (record?.hands[x.id] ?? null),
+      hand: runs ? null : withLow(record?.hands[x.id] ?? null, record?.lows?.[x.id]),
       best: fives.get(x.id) ?? null,
       won: h.payouts[x.id] ?? 0,
     })),
@@ -707,7 +733,9 @@ function headOf(s: SavedHand): string {
   // Своя игра (#224) — её названием; лимит — стола, если игра та же, иначе без лимита (как в выгрузке)
   const own = isOwnGameId(id) ? record?.game.name : undefined
   const limit = own !== undefined && t?.game !== id ? 'nolimit' : (t?.limit ?? (id === 'omaha' ? 'pot' : 'nolimit'))
-  const game = `${own ?? GAME_LABELS[id] ?? GAME_LABELS.holdem}, ${limit === 'pot' ? 'пот-лимит' : 'без лимита'}`
+  // Хай/лоу (#227) — «…, хай/лоу»
+  const hiLo = record?.game.hiLo ? ', хай/лоу' : ''
+  const game = `${own ?? GAME_LABELS[id] ?? GAME_LABELS.holdem}, ${limit === 'pot' ? 'пот-лимит' : 'без лимита'}${hiLo}`
   const blinds = record ? { sb: record.sb, bb: record.bb, ante: record.ante ?? 0 } : t && !t.tournament ? t : null
   const log = record?.log ?? s.hand.live?.log ?? []
   const straddle = Array.isArray(log) ? log.find((e) => e.type === 'straddle') : undefined

@@ -7,6 +7,7 @@ import type { HandLogEntry, Street } from '../poker/hand'
 import { handFor } from '../poker/history'
 import { isOwnGameId } from '../poker/ownGame'
 import { eveningName, type SavedHand } from './evenings'
+import { withLow } from './hiLoView'
 
 const GAME_NAMES: Record<GameId, string> = { holdem: "Hold'em", omaha: 'Omaha', shortdeck: "6+ Hold'em" }
 const LIMIT_NAMES: Record<Limit, string> = { nolimit: 'No Limit', pot: 'Pot Limit' }
@@ -105,9 +106,11 @@ export function handText(saved: SavedHand): string {
       ? { sb: t.sb, bb: t.bb }
       : null
 
+  // Хай/лоу (#227) — имя игры, как у покер-румов: «Omaha Hi/Lo» (ровно 2 из руки), иначе «Hold'em Hi/Lo»
+  const gameName = record?.game.hiLo ? `${record.game.variant?.fromHand === 2 ? 'Omaha' : "Hold'em"} Hi/Lo` : (ownName ?? GAME_NAMES[game])
   const lines: string[] = []
   lines.push(
-    `PokerStars Hand #${handId(saved)}: ${ownName ?? GAME_NAMES[game]} ${LIMIT_NAMES[limit]}${blinds ? ` (${blinds.sb}/${blinds.bb})` : ''} - ${dateText(saved.startedAt)}`,
+    `PokerStars Hand #${handId(saved)}: ${gameName} ${LIMIT_NAMES[limit]}${blinds ? ` (${blinds.sb}/${blinds.bb})` : ''} - ${dateText(saved.startedAt)}`,
   )
   lines.push(`Table '${eveningName({ id: saved.evening, code: saved.code, startedAt: saved.startedAt })}' ${t?.maxSeats ?? 9}-max Seat #${button + 1} is the button`)
   seats.forEach((s, i) => lines.push(`Seat ${i + 1}: ${s.name} (${s.chips} in chips)`))
@@ -221,14 +224,17 @@ export function handText(saved: SavedHand): string {
   const shown = record?.shown ?? {}
   const shownOf = (id: string) => (shown[id] ?? []).filter((c): c is Card => c !== null)
   const atShowdown = seats.filter((s) => hands[s.id] !== undefined)
+  // Хай/лоу (#227) — рука с лоу: «(Тройка, короли · лоу 7-4-3-2-A)»
   if (runs) {
     runs.forEach((run, b) => {
       lines.push(`*** ${RUN_ORDINALS[b]} SHOW DOWN ***`)
-      for (const s of atShowdown) lines.push(`${s.name}: shows ${cardsText(shownOf(s.id))} (${run.hands[s.id] ?? hands[s.id]})`)
+      for (const s of atShowdown) {
+        lines.push(`${s.name}: shows ${cardsText(shownOf(s.id))} (${withLow(run.hands[s.id] ?? hands[s.id], run.lows?.[s.id])})`)
+      }
     })
   } else if (atShowdown.length > 0) {
     lines.push('*** SHOW DOWN ***')
-    for (const s of atShowdown) lines.push(`${s.name}: shows ${cardsText(shownOf(s.id))} (${hands[s.id]})`)
+    for (const s of atShowdown) lines.push(`${s.name}: shows ${cardsText(shownOf(s.id))} (${withLow(hands[s.id], record?.lows?.[s.id])})`)
   }
   for (const s of seats) {
     const won = h.payouts[s.id] ?? 0

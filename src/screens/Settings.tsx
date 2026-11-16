@@ -30,6 +30,7 @@ import { RoomFields, roomChoiceOf, roomFormOf, type RoomForm } from './RoomField
 import {
   canAddOwnGame,
   canAddRound,
+  canHiLo,
   canRemoveRound,
   fromHandAllowed,
   fromHandChoices,
@@ -46,6 +47,7 @@ import {
   removeOwnGame,
   upChoices,
   withDeck,
+  withHiLo,
   withHole,
   withoutRound,
   withRound,
@@ -1151,6 +1153,24 @@ function OwnGameEditor(props: {
             </Pick>
           ))}
         </div>
+      </fieldset>
+
+      <fieldset className="players-pick">
+        <legend className="muted">Хай/лоу</legend>
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={form.hiLo === true}
+            disabled={!canHiLo(form)}
+            onChange={(e) => setForm(withHiLo(form, e.target.checked))}
+          />
+          Хай/лоу (лоу — восьмёрка или ниже)
+        </label>
+        <p className="muted">
+          {canHiLo(form)
+            ? 'Банк пополам: старшей руке и лучшему лоу — пяти разным картам не старше восьмёрки. Лоу нет — весь банк старшей.'
+            : 'Только с колодой 52: в 36 картах лоу не собрать.'}
+        </p>
       </fieldset>
 
       <p>{ownSeatsLine(form)}</p>

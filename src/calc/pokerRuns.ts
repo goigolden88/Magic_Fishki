@@ -2,6 +2,7 @@
 // Правила выбора — в src/poker/table.ts, деление банков — awardRuns (src/poker/hand.ts)
 import type { Card } from '../poker/cards'
 import type { HandRecord, TableState } from '../poker/table'
+import { splitFives, splitLines } from './hiLoView'
 
 // Идёт выбор. canChoose — я в олл-ине и выбираю: кнопки 1…max; answer — мой выбор (null — нет);
 // waiting — кто ещё не ответил, по именам
@@ -41,6 +42,12 @@ export function runBoards(record: HandRecord | undefined, potLabels: string[]): 
   const names = new Map(record.seats.map((s) => [s.id, s.name]))
   const nameOf = (id: string) => names.get(id) ?? 'Ушёл'
   return runs.map((run, b) => {
+    // Хай/лоу (#227): у борда — делёж каждого банка, подсветка — пятёрки взявших и хай, и лоу
+    const split = splitLines(run, nameOf, potLabels)
+    if (split) {
+      const fives = [...splitFives(run).values()]
+      return { label: `Борд ${b + 1}`, cards: run.board, win: run.board.filter((c) => fives.some((f) => f.includes(c))), winners: split.join('; ') }
+    }
     const ids = [...new Set(run.winners.flat())]
     const who = (list: string[]) => list.map((id) => `${nameOf(id)} — ${run.hands[id] ?? ''}`.replace(/ — $/, '')).join(', ')
     const same = run.winners.every((w) => w.join() === run.winners[0].join())

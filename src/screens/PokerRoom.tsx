@@ -690,10 +690,10 @@ export function blindsLine(table: TableState, v: TableView): string {
   const hand = table.hand
   const t = v.tournament
   const blinds = hand ? { sb: hand.sb, bb: hand.bb, ante: hand.ante ?? 0 } : t ? t.blinds : { ...table.settings, ante: v.ante }
-  // Своя игра (#224) — названием и лимитом
+  // Своя игра (#224) — названием и лимитом; хай/лоу (#227) — «…, хай/лоу»
   const own = ownGameOf(table.settings)
   const game = own
-    ? `${own.name}, ${own.limit === 'pot' ? 'пот-лимит' : 'без лимита'} · `
+    ? `${own.name}, ${own.limit === 'pot' ? 'пот-лимит' : 'без лимита'}${own.hiLo ? ', хай/лоу' : ''} · `
     : table.settings.game === 'omaha'
       ? `Омаха, ${limitFor(table.settings) === 'pot' ? 'пот-лимит' : 'без лимита'} · `
       : table.settings.game === 'shortdeck'
@@ -790,7 +790,8 @@ function PlayerRow({ player: p, extra }: { player: LastHandView['players'][numbe
   )
 }
 
-// Прошлая раздача: стол, места с картами и комбинациями, кто сколько взял, шансы на ва-банке (#116), ходы по улицам
+// Прошлая раздача: стол, места с картами и комбинациями, кто сколько взял, делёж хай/лоу (#227), шансы на ва-банке
+// (#116), ходы по улицам
 function HandBody({ view: v }: { view: LastHandView }) {
   return (
     <>
@@ -800,6 +801,9 @@ function HandBody({ view: v }: { view: LastHandView }) {
           <PlayerRow key={i} player={p} />
         ))}
       </ul>
+      {v.split?.map((line) => (
+        <p key={line}>{line}</p>
+      ))}
       {v.odds && <p>{v.odds}</p>}
       {v.rounds.length > 0 && (
         <details>
@@ -889,6 +893,7 @@ function HistoryBody({ view: v, trainer }: { view: HistoryHandView; trainer: str
       {v.pots.map((pot) => (
         <p key={pot.label} className="muted">
           {pot.label} {formatNumber(pot.amount)} — {pot.winners.join(', ')}
+          {pot.split && <> · {pot.split}</>}
         </p>
       ))}
       {v.mine && v.mine.net !== null && (
