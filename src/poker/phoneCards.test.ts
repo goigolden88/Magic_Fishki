@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { allInOdds, equity, percents } from '../calc/allInOdds'
+import { HOLDEM, type Card } from './cards'
 import { HOLDEM_GAME, deckFor } from './game'
+import type { OwnGame } from './ownGame'
 import { PROTOCOL_VERSION } from './protocol'
 import { handle, viewFor, type TableState } from './table'
 import { allin, call, check, fold, MODES, newTable, play, raise, stackedDeck, start, type Step } from './testing'
@@ -210,6 +213,78 @@ describe.each(MODES)('карты на телефонах (%s)', (_, roundtrip) =
     const t = newTable(['p0', 'p1'], PHONES)
     const s = play(t, [{ from: 'p0', msg: { type: 'setStack', playerId: 'p1', chips: 500 } }], roundtrip)
     expect(s.chipLog.at(-1)).toMatchObject({ kind: 'set', playerId: 'p1', from: 1000, to: 500 })
+  })
+})
+
+// Своя игра с открытыми (#226): «3 карты, из них 1 открытая» — третья карта каждого видна всем
+const OPEN3: OwnGame = { id: 'own-open3', name: 'Три с открытой', hole: 3, up: 1, fromHand: 'any', deck: 52, order: 'standard', board: [3, 1, 1], limit: 'nolimit' }
+const OPEN = { cards: 'phones' as const, games: [OPEN3], game: OPEN3.id }
+
+describe.each(MODES)('открытые карты своей игры (%s)', (_, roundtrip) => {
+  // Кнопка p0 (ходит первой на троих), сдача с p1: p1, p2, p0 — по две закрытые, затем по одной открытой
+  const P1: Card[] = ['Ah', 'Ad', '7c']
+  const P2: Card[] = ['Qc', 'Jc', '9d']
+  const P0: Card[] = ['9h', '9c', 'Ac']
+  const BOARD: Card[] = ['Kh', '8s', '3d', '2c', '6h']
+  const dealt = () => play(newTable(['p0', 'p1', 'p2'], OPEN), [start('p0', stackedDeck([P1, P2, P0], BOARD))], roundtrip)
+
+  it('соперник видит у моего места открытую картой, закрытые — рубашкой; хозяин — все; колоды нет', () => {
+    const s = dealt()
+    expect(s.hand?.cards?.hole).toEqual({ p1: P1, p2: P2, p0: P0 })
+    expect(s.hand?.cards?.open).toEqual({ p0: [2], p1: [2], p2: [2] })
+    for (const me of ['p0', 'p1', 'p2', null]) {
+      const view = viewFor(s, me)
+      expect(view.hand?.cards?.deck).toEqual([])
+      expect(leaks(view, s, me ?? '').filter((c) => ![P0[2], P1[2], P2[2]].includes(c))).toEqual([])
+      for (const [id, hand] of [['p0', P0], ['p1', P1], ['p2', P2]] as [string, Card[]][]) {
+        expect(view.hand?.cards?.hole[id]).toEqual(id === me ? hand : [null, null, hand[2]])
+      }
+    }
+    // Закрытые соперников — ни строчкой
+    const text = JSON.stringify(viewFor(s, 'p1'))
+    for (const c of ['9h', '9c', 'Qc', 'Jc']) expect(text).not.toContain(`"${c}"`)
+  })
+
+  it('сбросивший: его открытая — в записи раздачи, закрытые — нет; на ва-банке открытые сбросивших — вне колоды досдачи', () => {
+    // p0 повышает, p1 отвечает, p2 сбрасывает; флоп — чек, на тёрне ва-банк и колл
+    const steps: Step[] = [raise('p0', 40), call('p1'), fold('p2'), check('p1'), check('p0'), allin('p1'), call('p0')]
+    const s = play(dealt(), steps, roundtrip)
+    expect(s.hand).toBeNull()
+    const record = s.lastHand!.record!
+    expect(record.shown).toEqual({ p0: P0, p1: P1, p2: [null, null, '9d'] })
+    expect(record.hidden).toBeNull()
+    expect(JSON.stringify(s)).not.toContain('"Qc"')
+    expect(JSON.stringify(s)).not.toContain('"Jc"')
+    // Ва-банк на тёрне: у p0 (две девятки и туз) против тузов p1 выигрывает только девятка на ривере (последний туз даст
+    // p1 тройку). Девятка бубен — открытая
+    // у сбросившего p2: в колоде досдачи из 41 карты одна девятка — 1/41 ≈ 2 %, а не 2/42 ≈ 5 %
+    const odds = allInOdds(record)
+    expect(odds?.street).toBe('turn')
+    expect(odds?.players).toEqual([
+      { id: 'p0', name: 'P0', percent: 2 },
+      { id: 'p1', name: 'P1', percent: 98 },
+    ])
+    expect(percents(equity(HOLDEM, [P0, P1], BOARD.slice(0, 4), 5)!)).toEqual([5, 95])
+  })
+
+  it('взял банк без вскрытия: открытые — в записи, закрытые — у взявшего, «Показать» открывает остальные', () => {
+    // Все сбросили перед p0: его открытая и открытые сбросивших — видели все
+    let s = play(dealt(), [raise('p0', 40), fold('p1'), fold('p2')], roundtrip)
+    const record = s.lastHand!.record!
+    expect(record.shown).toEqual({ p0: [null, null, 'Ac'], p1: [null, null, '7c'], p2: [null, null, '9d'] })
+    expect(record.hidden).toEqual({ playerId: 'p0', cards: P0 })
+    const theirs = JSON.stringify(viewFor(s, 'p1'))
+    expect(theirs).not.toContain('"9h"')
+    expect(theirs).not.toContain('"9c"')
+    expect(theirs).toContain('"Ac"')
+    expect(viewFor(s, 'p0').lastHand?.record?.hidden?.cards).toEqual(P0)
+    // Показать одну закрытую — открытая на месте; вторую — открыто всё
+    s = play(s, [{ from: 'p0', msg: { type: 'show', cards: [0] } }], roundtrip)
+    expect(s.lastHand?.record?.shown.p0).toEqual(['9h', null, 'Ac'])
+    expect(s.lastHand?.record?.hidden).not.toBeNull()
+    s = play(s, [{ from: 'p0', msg: { type: 'show', cards: [1] } }], roundtrip)
+    expect(s.lastHand?.record?.shown.p0).toEqual(P0)
+    expect(s.lastHand?.record?.hidden).toBeNull()
   })
 })
 

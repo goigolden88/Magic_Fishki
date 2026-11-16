@@ -14,6 +14,7 @@ import {
   ownSeatsLine,
   putOwnGame,
   removeOwnGame,
+  upChoices,
   withDeck,
   withHole,
   withoutRound,
@@ -85,6 +86,24 @@ describe('форма своей игры (#225)', () => {
     expect(ownGameLine({ ...OMAHA6, hole: 2, deck: 36, order: 'standard' })).toContain('колода 36, обычное старшинство')
     expect(ownGameLine({ ...OMAHA6, order: 'shortdeck' })).toContain('старшинство как в шорт-деке')
     expect(ownSeatsLine(OMAHA6)).toBe('За столом — до 7 игроков')
+  })
+
+  it('«из них открытых» (#226): кнопки 0…карт − 1; меньше карт — открытых меньше; 0 — без поля; строка с открытыми', () => {
+    expect(upChoices({ hole: 3 })).toEqual([0, 1, 2])
+    expect(upChoices({ hole: 2 })).toEqual([0, 1])
+    expect(withHole({ ...OMAHA6, up: 5 }, 3)).toMatchObject({ hole: 3, up: 2 })
+    expect(withHole({ ...OMAHA6, up: 1 }, 3)).toMatchObject({ hole: 3, up: 1 })
+    expect(withHole(OMAHA6, 3)).not.toHaveProperty('up')
+    // 0 открытых — описание без поля up, как у игр до #226
+    expect(ownGameOf({ ...OMAHA6, up: 0 }, 'own-a1')).not.toHaveProperty('up')
+    const game = ownGameOf({ ...OWN_GAME_NEW, name: 'Три с открытой', hole: 3, up: 1 }, 'own-a2')
+    expect(game.up).toBe(1)
+    expect(ownGameError(game)).toBeNull()
+    expect(ownGameFormOf(game).up).toBe(1)
+    expect(ownGameLine(game)).toBe('3 карты (1 открытая), любые из руки · стол 3-1-1 · без лимита · до 10 игроков')
+    expect(ownGameLine({ ...OMAHA6, up: 2 })).toBe('6 карт (2 открытые), ровно 2 из руки · стол 3-1-1 · пот-лимит · до 7 игроков')
+    expect(ownGameLine({ ...OMAHA6, hole: 7, up: 5 })).toContain('7 карт (5 открытых),')
+    expect(ownGameLine({ ...OMAHA6, up: 0 })).toBe(ownGameLine(OMAHA6))
   })
 
   it('список: та же игра — на своём месте, новая — в конец, не больше восьми', () => {

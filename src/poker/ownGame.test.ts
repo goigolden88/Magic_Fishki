@@ -60,6 +60,17 @@ describe('своя игра: описание в GameDef', () => {
     expect(ownGameDef(OWN_SHORT).variant).toEqual(SHORT_DECK)
   })
 
+  it('открытые (#226): «3 карты, из них 1 открытая» — сначала закрытые по кругу, затем открытые', () => {
+    const three: OwnGame = { ...OWN_HOLDEM, id: 'own-3', name: 'Три', hole: 3, up: 1 }
+    expect(ownGameDef(three).rounds[0]).toEqual({ street: 'preflop', deal: [{ kind: 'hole', down: 2, up: 1 }] })
+    expect(ownGameDef({ ...three, up: 0 }).rounds[0].deal).toEqual([{ kind: 'hole', down: 3, up: 0 }])
+    // Хедз-ап: кнопка p0, сдача с p1 — p1, p0 по две закрытые, затем по одной открытой
+    const t = newTable(['p0', 'p1'], own(three))
+    const s = play(t, [start('p0', stackedDeck([['2c', '3c', '4c'], ['2d', '3d', '4d']]))], false)
+    expect(s.hand?.cards?.hole).toEqual({ p1: ['2c', '3c', '4c'], p0: ['2d', '3d', '4d'] })
+    expect(s.hand?.cards?.open).toEqual({ p0: [2], p1: [2] })
+  })
+
   it.each(MODES)('сдают и считают руки так же, как встроенные: та же колода — те же карты, победители и выплаты (%s)', (_, rt) => {
     const pairs: [OwnGame, GameDef, Partial<Settings>][] = [
       [OWN_HOLDEM, HOLDEM_GAME, { game: 'holdem' }],
@@ -159,6 +170,18 @@ describe('своя игра: отказы описания', () => {
     expect(bad({ board: [2, 3] })).toBeNull()
   })
 
+  it('открытых (#226): меньше 0, не меньше карт на руках, не целое — отказ; 0 и нет поля — годится', () => {
+    expect(bad({ up: -1 })).toBe('„Своя омаха“: открытых карт — от 0 до 3, хотя бы одна закрытая')
+    expect(bad({ up: 4 })).toBe('„Своя омаха“: открытых карт — от 0 до 3, хотя бы одна закрытая')
+    expect(bad({ up: 5 })).toBe('„Своя омаха“: открытых карт — от 0 до 3, хотя бы одна закрытая')
+    expect(bad({ up: 1.5 })).toBe('„Своя омаха“: открытых карт — от 0 до 3, хотя бы одна закрытая')
+    expect(bad({ up: '1' })).toBe('„Своя омаха“: открытых карт — от 0 до 3, хотя бы одна закрытая')
+    expect(bad({ up: null })).toBe('„Своя омаха“: открытых карт — от 0 до 3, хотя бы одна закрытая')
+    expect(bad({ up: 0 })).toBeNull()
+    expect(bad({ up: 3 })).toBeNull()
+    expect(ownGameError(OWN_OMAHA)).toBeNull()
+  })
+
   it('название пустое, из пробелов, длиннее 24 знаков', () => {
     expect(bad({ name: '' })).toBe('У своей игры нет названия')
     expect(bad({ name: '   ' })).toBe('У своей игры нет названия')
@@ -174,7 +197,7 @@ describe('своя игра: отказы описания', () => {
   })
 
   it('лишние и битые поля, id без приставки', () => {
-    expect(bad({ up: 1 })).toBe('В описании своей игры лишнее поле «up»')
+    expect(bad({ flip: 1 })).toBe('В описании своей игры лишнее поле «flip»')
     expect(bad({ hole: '4' })).toBe('„Своя омаха“: карт на руках — от 2 до 7')
     expect(bad({ board: '3,1,1' })).toBe('„Своя омаха“: кругов карт стола — от 1 до 3')
     expect(bad({ board: [3, '1', 1] })).toBe('„Своя омаха“: в круге стола — от 1 до 3 карт')

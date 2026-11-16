@@ -30,7 +30,9 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 // 19 — свои игры (#224, Р-85): настройка games при создании (описания игр), game — и id своей игры;
 //      «Микс» предлагает и свою игру стола (mixPropose), описание своей игры — в раздаче и в записи (game.name)
 // 20 — страддл (#222, Р-91): настройка straddle при создании, страддл в раздаче (straddle) и в журнале ('straddle')
-export const PROTOCOL_VERSION = 20
+// 21 — открытые карманные карты своей игры (#226): поле up в описании (settings.games); сообщения те же, но
+//      телефон до 21 открытые карты как «видны всем» не покажет
+export const PROTOCOL_VERSION = 21
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 

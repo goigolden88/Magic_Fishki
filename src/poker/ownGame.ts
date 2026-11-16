@@ -17,6 +17,9 @@ export type OwnGame = {
   id: OwnGameId
   name: string // своё название, до OWN_NAME_MAX знаков
   hole: number // карт на руках, OWN_HOLE_MIN…OWN_HOLE_MAX
+  // Из них открытых (#226): видят все за столом; 0…hole − 1 (хотя бы одна закрытая). Нет поля — 0: так пишется и 0,
+  // чтобы описание без открытых читали телефоны и копии до #226
+  up?: number
   fromHand: 'any' | number // «любые» из руки и стола или «ровно N» из руки (N от 1 до меньшего из hole и 5)
   deck: 52 | 36
   order: OwnOrder // старшинство комбинаций
@@ -39,7 +42,7 @@ export const OWN_GAMES_MAX = 8
 // Мест за столом — не больше, сколько бы карт ни хватало
 export const SEATS_MAX = 10
 
-const FIELDS = ['id', 'name', 'hole', 'fromHand', 'deck', 'order', 'board', 'limit']
+const FIELDS = ['id', 'name', 'hole', 'up', 'fromHand', 'deck', 'order', 'board', 'limit']
 // Круги стола по порядку — имена кругов торгов после раздачи рук
 const BOARD_STREETS: Street[] = ['flop', 'turn', 'river']
 
@@ -60,6 +63,9 @@ export function ownGameError(x: unknown): string | null {
   if (!isInt(g.hole) || g.hole < OWN_HOLE_MIN || g.hole > OWN_HOLE_MAX) {
     return `${name}: карт на руках — от ${OWN_HOLE_MIN} до ${OWN_HOLE_MAX}`
   }
+  if (g.up !== undefined && (!isInt(g.up) || g.up < 0 || g.up >= g.hole)) {
+    return `${name}: открытых карт — от 0 до ${g.hole - 1}, хотя бы одна закрытая`
+  }
   if (g.deck !== 52 && g.deck !== 36) return `${name}: колода — 52 или 36 карт`
   if (g.order !== 'standard' && g.order !== 'shortdeck') return `${name}: старшинство — обычное или как в шорт-деке`
   if (g.limit !== 'nolimit' && g.limit !== 'pot') return `${name}: лимит — без лимита или пот-лимит`
@@ -79,15 +85,22 @@ export function ownGameError(x: unknown): string | null {
   return null
 }
 
-// Описание (уже проверенное ownGameError) — в GameDef: раздача рук, затем круги стола
+// Сколько из карт на руках открытых: нет поля — 0
+export function upOf(game: Pick<OwnGame, 'up'>): number {
+  return game.up ?? 0
+}
+
+// Описание (уже проверенное ownGameError) — в GameDef: раздача рук (сначала закрытые по кругу, затем открытые —
+// dealRound), затем круги стола
 export function ownGameDef(game: OwnGame): GameDef {
   const variant: Variant = {
     deck: game.deck,
     fromHand: game.fromHand,
     order: game.order === 'shortdeck' ? SHORT_DECK.order : HOLDEM.order,
   }
+  const up = upOf(game)
   const rounds: GameRound[] = [
-    { street: 'preflop', deal: [{ kind: 'hole', down: game.hole, up: 0 }] },
+    { street: 'preflop', deal: [{ kind: 'hole', down: game.hole - up, up }] },
     ...game.board.map((count, i) => ({ street: BOARD_STREETS[i], deal: [{ kind: 'board' as const, count }] })),
   ]
   return { id: game.id, name: game.name, variant, rounds }
