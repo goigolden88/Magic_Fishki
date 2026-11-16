@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { startBotTable } from '../calc/botTable'
 import { startLocalTable, type LocalTable } from '../calc/localTable'
+import type { OwnGame } from '../poker/ownGame'
 
 // Память браузера: обычная или та, что не принимает записей (приватный режим)
 function fakeStorage(broken = false) {
@@ -226,6 +227,33 @@ describe('стол на этом телефоне в памяти устройс
     s = await reload()
     expect(s.loadBigBlinds()).toBe(true)
     expect(storage.data.get('fishki.poker.bigBlinds')).toBe('on')
+  })
+
+  it('свои игры (#224): помнятся после перезапуска; битое значение — пустой список; пустой — следов нет', async () => {
+    const storage = fakeStorage()
+    vi.stubGlobal('localStorage', storage)
+    let s = await reload()
+    expect(s.loadOwnGames()).toEqual([])
+    const games: OwnGame[] = [
+      { id: 'own-o6', name: 'Омаха-6', hole: 6, fromHand: 2, deck: 52, order: 'standard', board: [3, 1, 1], limit: 'pot' },
+      { id: 'own-s', name: 'Шорт-3', hole: 3, fromHand: 'any', deck: 36, order: 'shortdeck', board: [3, 2], limit: 'nolimit' },
+    ]
+    s.saveOwnGames(games)
+    s = await reload()
+    expect(s.loadOwnGames()).toEqual(games)
+    expect(JSON.parse(storage.data.get('fishki.poker.ownGames') ?? '')).toEqual(games)
+
+    // Одна описана неверно — мимо, остальные на месте
+    storage.data.set('fishki.poker.ownGames', JSON.stringify([games[0], { ...games[1], hole: 9 }]))
+    s = await reload()
+    expect(s.loadOwnGames()).toEqual([games[0]])
+    for (const bad of ['не JSON', '{"a":1}', '"строка"', 'null']) {
+      storage.data.set('fishki.poker.ownGames', bad)
+      s = await reload()
+      expect(s.loadOwnGames()).toEqual([])
+    }
+    s.saveOwnGames([])
+    expect(storage.data.has('fishki.poker.ownGames')).toBe(false)
   })
 
   it('память работает — проверка говорит «да» и следов не оставляет', async () => {
