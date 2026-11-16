@@ -86,17 +86,40 @@ export const ROOM_DEFAULTS: Omit<RoomChoice, 'startingStack'> = {
   publicHud: false,
 }
 
+// Игра «Покера» с оглядкой на свои игры (#224, #225): своя — только с картами на телефонах и пока она есть
+// на телефоне (own); иначе — холдем
+export function roomGameChoice(cards: CardsMode, variant: GameChoice, own: OwnGame[]): GameChoice {
+  if (!isOwnGameId(variant.game)) return variant
+  return cards === 'phones' && own.some((g) => g.id === variant.game) ? variant : DEFAULT_GAME
+}
+
 // Свои игры в комнату (#224, Р-85): только карты на телефонах; с «Миксом» — все свои (выбранная — первой), иначе —
-// выбранная. Выбранной уже нет на телефоне (own) — холдем. Мест — сколько хватит карт на каждую (seatsFor)
+// выбранная. Выбранной уже нет на телефоне (own) — ни одной
+export function roomOwnGames(c: Pick<RoomChoice, 'cards' | 'variant' | 'mix'>, own: OwnGame[]): OwnGame[] {
+  if (c.cards !== 'phones') return []
+  const chosen = isOwnGameId(c.variant.game) ? own.find((g) => g.id === c.variant.game) : undefined
+  const mixed = c.mix ? own.filter((g) => g !== chosen) : []
+  return [...(chosen ? [chosen] : []), ...mixed].slice(0, OWN_GAMES_MAX)
+}
+
+// Мест за столом — меньшее из обычного и того, на сколько хватит карт каждой своей игры (seatsFor)
+export function roomMaxSeats(games: OwnGame[]): number {
+  return Math.min(DEFAULT_SETTINGS.maxSeats, ...games.map(seatsFor))
+}
+
+// Строка в форме комнаты (#225): «За столом не больше 6 — из-за „Омаха-7“»; мест обычное число — null
+export function ownSeatsNote(games: OwnGame[]): string | null {
+  const seats = roomMaxSeats(games)
+  if (seats >= DEFAULT_SETTINGS.maxSeats) return null
+  const tight = games.find((g) => seatsFor(g) === seats)
+  return tight ? `За столом не больше ${seats} — из-за „${tight.name}“` : null
+}
+
 function ownSettings(c: RoomChoice, own: OwnGame[]): Partial<Settings> {
-  const phones = c.cards === 'phones'
-  const id = c.variant.game
-  const chosen = phones && isOwnGameId(id) ? (own.find((g) => g.id === id) ?? null) : null
-  const variant = isOwnGameId(id) && !chosen ? DEFAULT_GAME : c.variant
-  const mixed = c.mix && phones ? own.filter((g) => g !== chosen) : []
-  const games = [...(chosen ? [chosen] : []), ...mixed].slice(0, OWN_GAMES_MAX)
+  const variant = roomGameChoice(c.cards, c.variant, own)
+  const games = roomOwnGames(c, own)
   if (games.length === 0) return gameSettings(variant)
-  return { ...gameSettings(variant), games, maxSeats: Math.min(DEFAULT_SETTINGS.maxSeats, ...games.map(seatsFor)) }
+  return { ...gameSettings(variant), games, maxSeats: roomMaxSeats(games) }
 }
 
 // Настройки стола для запроса create; own — свои игры телефона (#224)
