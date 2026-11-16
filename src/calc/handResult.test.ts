@@ -3,7 +3,16 @@ import type { Card } from '../poker/cards'
 import { finishedHand, keepHand, type HistoryHand } from '../poker/history'
 import type { Settings, TableState } from '../poker/table'
 import { allin, award, call, check, fold, newTable, play, raise, stackedDeck, start, type Step } from '../poker/testing'
-import { botsEvening, localEvening, roomEvening, savedHands } from './evenings'
+import {
+  botsEvening,
+  eveningBalanceText,
+  eveningResult,
+  eveningSummaries,
+  localEvening,
+  myEveningNet,
+  roomEvening,
+  savedHands,
+} from './evenings'
 import { handMoney, handNet, handPosition, handPositions } from './handResult'
 import { historyHandView, historyList } from './pokerView'
 
@@ -151,5 +160,72 @@ describe('история раздач: моя рука (#239)', () => {
     ])
     expect(v.text).toContain('Dealt to P1 [Qc Jd]')
     expect(v.text).toContain('Seat 2: P1 (small blind) folded on the Flop')
+  })
+
+  it('стол на одном телефоне (#242): карты взявшего банк без вскрытия видны — как в тексте той же раздачи', () => {
+    const [shared] = savedHands(localEvening('1', after), [hand])
+    const v = historyHandView(shared)
+    expect(v.players.map((p) => p.cards)).toEqual([['Ks', 'Kh'], null, null]) // сдача с P1: у P0 — третья пара
+    expect(v.text).toContain('Dealt to P0 [Ks Kh]')
+    // За столом комнаты у другого игрока — по-прежнему не видны
+    const [other] = savedHands(evening, [hand])
+    expect(historyHandView(other).players[0].cards).toBeNull()
+  })
+})
+
+describe('итог вечера по игрокам (#242)', () => {
+  // Три раздачи: все сбросили большому блайнду; P2 уходит; вдвоём — сплит; вдвоём — малый блайнд сбросил
+  const before = newTable(['p0', 'p1', 'p2'], PHONES)
+  const first = playHand(before, [start('p0', ANY), fold('p0'), fold('p1')])
+  const two = play(first.after, [{ from: 'p0', msg: { type: 'remove', playerId: 'p2' }, now: 3 }], false)
+  const splitDeck = deckOf([['2c', '3d'], ['4c', '5d']], ['As', 'Ks', 'Qs', 'Js', 'Ts'])
+  const splitSteps = [start('p0', splitDeck), call('p1'), check('p0')]
+  for (let k = 0; k < 3; k++) splitSteps.push(check('p0'), check('p1'))
+  const split = playHand(two, splitSteps)
+  const last = playHand(split.after, [start('p0', ANY), fold('p0')])
+  const hands = [first.hand, split.hand, last.hand]
+
+  it('сумма итогов за раздачу (handNet) у каждого, с ушедшим; больший сверху, моя строка отмечена; сходится', () => {
+    expect(split.hand.pots.map((p) => [p.amount, [...p.winners].sort()])).toEqual([[20, ['p0', 'p1']]]) // сплит
+    const records = savedHands(roomEvening('KQ7MZP', last.after, 'p1'), hands)
+    const r = eveningResult(records)
+    expect(r.players).toEqual([
+      { id: 'p2', name: 'P2', hands: 1, net: 5, bb: 0.5, me: false },
+      { id: 'p1', name: 'P1', hands: 3, net: 0, bb: 0, me: true },
+      { id: 'p0', name: 'P0', hands: 3, net: -5, bb: -0.5, me: false },
+    ])
+    for (const p of r.players) {
+      expect(p.net).toBe(hands.reduce((sum, h) => sum + (handNet(h, p.id) ?? 0), 0))
+    }
+    // За столом остались P0 и P1 — их итог тот же, что изменение стеков
+    expect(chipsOf(last.after).p0 - chipsOf(before).p0).toBe(-5)
+    expect(chipsOf(last.after).p1 - chipsOf(before).p1).toBe(0)
+    expect({ plus: r.plus, minus: r.minus, unknown: r.unknown }).toEqual({ plus: 5, minus: -5, unknown: 0 })
+    expect(eveningBalanceText(r)).toBe('Сходится: +5 и −5')
+  })
+
+  it('строка вечера: мой итог — и ноль; меня в вечере нет — без итога', () => {
+    const mine = eveningSummaries(savedHands(roomEvening('KQ7MZP', last.after, 'p0'), hands))
+    expect(mine).toEqual([{ id: mine[0].id, code: 'KQ7MZP', startedAt: mine[0].startedAt, hands: 3, myNet: -5 }])
+    expect(eveningSummaries(savedHands(roomEvening('KQ7MZP', last.after, 'p1'), hands))[0].myNet).toBe(0)
+    expect(eveningSummaries(savedHands(roomEvening('KQ7MZP', last.after, 'p9'), hands))[0]).not.toHaveProperty('myNet')
+    expect(eveningSummaries(savedHands(localEvening('1', last.after), hands))[0]).not.toHaveProperty('myNet')
+    expect(myEveningNet(savedHands(botsEvening('b1', last.after, 'p2'), hands))).toBe(5)
+  })
+
+  it('живые карты в турнире — блайндов нет: раздача без итога, сказано под таблицей', () => {
+    const live = newTable(['p0', 'p1', 'p2'])
+    const { after, hand: liveHand } = playHand(live, [start('p0'), fold('p0'), fold('p1'), award('p0', [['p2']])])
+    const [record] = savedHands(localEvening('1', after), [liveHand])
+    const tournament = { ...record, table: { ...record.table!, tournament: true } }
+    const r = eveningResult([tournament])
+    expect(r.unknown).toBe(1)
+    expect(r.players.map((p) => [p.id, p.hands, p.net])).toEqual([
+      ['p0', 1, 0],
+      ['p1', 1, 0],
+      ['p2', 1, 0],
+    ])
+    expect(eveningBalanceText(r)).toBe('Сходится: +0 и −0. Без итога раздач: 1 — блайнды не записаны')
+    expect(eveningResult([record]).unknown).toBe(0)
   })
 })

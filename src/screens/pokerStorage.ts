@@ -1,4 +1,5 @@
 import { parseBotTable, type BotTable } from '../calc/botTable'
+import { botsEvening } from '../calc/evenings'
 import { isLastGame, parseLastGame, type LastGame, type LastGameKind } from '../calc/lastGame'
 import { parseLocalTable, type LocalTable } from '../calc/localTable'
 import { serverBase, type SavedSeat } from '../calc/pokerLink'
@@ -252,6 +253,15 @@ export function saveBotTable(bots: BotTable): boolean {
   } catch {
     return false
   }
+}
+
+// Удалили вечер идущего стола с ботами (#242): его «История раздач» — тоже, иначе при следующем заходе за стол
+// стёртые раздачи записались бы заново. Стол и фишки на месте, следующие раздачи пишутся в тот же вечер.
+// deleted — удалён ли вечер по id
+export function forgetBotHistory(deleted: (eveningId: string) => boolean): void {
+  const bots = loadBotTable()
+  if (!bots || bots.history.length === 0 || !deleted(botsEvening(bots.id, bots.table, bots.meId).id)) return
+  saveBotTable({ ...bots, history: [] })
 }
 
 export function clearBotTable() {

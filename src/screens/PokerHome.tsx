@@ -11,8 +11,8 @@ import {
   startBotTable,
   type BotGame,
 } from '../calc/botTable'
-import { eveningDay, eveningLine, type EveningSummary, type SavedHand } from '../calc/evenings'
-import { parseChips } from '../calc/format'
+import { eveningBalanceText, eveningDay, eveningLine, eveningResult, type EveningSummary, type SavedHand } from '../calc/evenings'
+import { formatChips, formatNumber, formatTenths, parseChips } from '../calc/format'
 import { lastGameText } from '../calc/lastGame'
 import { LOCAL_MAX_SEATS, localStartError, startLocalTable } from '../calc/localTable'
 import { allPicked, toggleAll } from '../calc/pick'
@@ -48,6 +48,7 @@ import { HandHistory } from './PokerRoom'
 import {
   clearBotTable,
   clearLocalTable,
+  forgetBotHistory,
   loadBotTable,
   loadLastGame,
   loadLocalTable,
@@ -330,8 +331,8 @@ function continueOf(): { title: string; line: string; href: string } | null {
   return { ...lastGameText(last, null, day), href: roomHash(last.code, undefined, seat.server ?? last.server) }
 }
 
-// «Прошлые вечера» (#114): копия раздач на этом телефоне — строка на вечер (дата, стол, раздач);
-// касание — его раздачи той же карточкой, что «История раздач» за столом; «Удалить» — с вопросом.
+// «Прошлые вечера» (#114): копия раздач на этом телефоне — строка на вечер (дата, стол, раздач, мой итог — #242);
+// касание — итог вечера по игрокам и его раздачи той же карточкой, что «История раздач» за столом; «Удалить» — с вопросом.
 // «Выгрузить» у вечера и «Выгрузить все» под списком — файл текстом покер-румов (Р-54).
 // Вечеров нет или память браузера не читается — раздела нет (и «Выгрузить все» нет)
 function PastEvenings() {
@@ -370,6 +371,7 @@ function PastEvenings() {
     if (!confirm(`Удалить вечер ${formatDate(eveningDay(evening))}? Его раздачи сотрутся с этого телефона.`)) return
     try {
       await deleteEvening(evening.id)
+      forgetBotHistory((id) => id === evening.id) // идущий стол с ботами не запишет стёртое заново (#242)
       setOpen(null)
       setError(null)
       reload()
@@ -385,6 +387,7 @@ function PastEvenings() {
           hands={open.hands}
           title={`${formatDate(eveningDay(open.evening))} · ${eveningLine(open.evening)}`}
           back="← Вечера"
+          top={<EveningResultTable hands={open.hands} />}
           onClose={() => setOpen(null)}
         />
         {error && <p className="warn">{error}</p>}
@@ -408,6 +411,8 @@ function PastEvenings() {
             <button type="button" className="history-item grow" onClick={() => void show(e)}>
               <span className="history-number">{formatDate(eveningDay(e))}</span>
               <span className="history-wins">{eveningLine(e)}</span>
+              {/* #242: мой итог за вечер; меня в вечере нет — без итога */}
+              {e.myNet !== undefined && <span className={`num ${signClass(e.myNet)}`}>{formatChips(e.myNet, true)}</span>}
             </button>
             <button type="button" className="big danger-text" onClick={() => void remove(e)}>
               Удалить
@@ -420,6 +425,50 @@ function PastEvenings() {
       </button>
       {error && <p className="warn">{error}</p>}
     </section>
+  )
+}
+
+function signClass(n: number): string {
+  return n > 0 ? 'plus' : n < 0 ? 'minus' : ''
+}
+
+// Итог вечера (#242) — над списком раздач: кто как сыграл (я, боты, игроки комнаты, ушедшие тоже) — раздач,
+// итог фишками и в ББ, больший сверху, моя строка выделена; под таблицей — сходится ли: сумма итогов ноль
+function EveningResultTable({ hands }: { hands: SavedHand[] }) {
+  const result = eveningResult(hands)
+  const balance = eveningBalanceText(result)
+  if (result.players.length === 0) return null
+  return (
+    <div className="evening-result">
+      <h3 className="history-sub">Итог вечера</h3>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Игрок</th>
+            <th scope="col" className="num">
+              Раздач
+            </th>
+            <th scope="col" className="num">
+              Фишки
+            </th>
+            <th scope="col" className="num">
+              ББ
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {result.players.map((p) => (
+            <tr key={p.id} className={p.me ? 'history-me' : undefined}>
+              <td>{p.me ? `${p.name} (вы)` : p.name}</td>
+              <td className="num">{formatNumber(p.hands)}</td>
+              <td className={`num ${signClass(p.net)}`}>{formatChips(p.net, true)}</td>
+              <td className={`num ${signClass(Math.round(p.bb * 10))}`}>{formatTenths(p.bb, true)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {balance && <p className="muted">{balance}</p>}
+    </div>
   )
 }
 

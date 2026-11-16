@@ -1,9 +1,24 @@
 import 'fake-indexeddb/auto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { savedHands, type Evening } from '../calc/evenings'
+import type { OwnChart } from '../calc/ownCharts'
 import type { Game } from '../model'
 import type { HistoryHand } from '../poker/history'
-import { allHands, deleteEvening, eveningHands, eveningRecords, getGame, getSettings, listEvenings, listGames, saveHands } from './db'
+import {
+  allHands,
+  deleteEvening,
+  deleteEvenings,
+  eveningHands,
+  eveningRecords,
+  getGame,
+  getSettings,
+  listCharts,
+  listEvenings,
+  listGames,
+  saveChart,
+  saveGame,
+  saveHands,
+} from './db'
 
 function request<T>(req: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -118,6 +133,36 @@ describe('раздачи прошлых вечеров', () => {
       [FRIDAY.id, 1],
       [FRIDAY.id, 2],
     ])
+  })
+
+  it('удалить пачкой (#242): вечера против ботов — только они; все прошлые вечера — все; игры и чарты целы', async () => {
+    const BOTS_A: Evening = { id: 'bots-01A', code: null, startedAt: Date.UTC(2026, 9, 25, 19) }
+    const BOTS_B: Evening = { id: 'bots-01B', code: null, startedAt: Date.UTC(2026, 9, 26, 19) }
+    await saveHands(savedHands(FRIDAY, [hand(1), hand(2)]))
+    await saveHands(savedHands(SATURDAY, [hand(1)]))
+    await saveHands(savedHands(BOTS_A, [hand(1), hand(2), hand(3)]))
+    await saveHands(savedHands(BOTS_B, [hand(1)]))
+    const GAME: Game = { id: '01G', name: 'Пятница', date: '2026-10-23', rate: 0.5, players: [], entries: [], closed: true, updatedAt: '' }
+    const CHART: OwnChart = { id: 'c1', name: 'UTG', base: 'UTG|', actions: ['fold'], cells: {}, updatedAt: '' }
+    await saveGame(GAME)
+    await saveChart(CHART)
+
+    expect(await deleteEvenings(true)).toEqual({ evenings: 2, hands: 4 })
+    expect(await listEvenings()).toEqual([
+      { ...SATURDAY, hands: 1 },
+      { ...FRIDAY, hands: 2 },
+    ])
+    expect(await eveningHands(FRIDAY.id)).toEqual([hand(1), hand(2)])
+    expect(await deleteEvenings(true)).toEqual({ evenings: 0, hands: 0 })
+
+    expect(await deleteEvenings(false)).toEqual({ evenings: 2, hands: 3 })
+    expect(await listEvenings()).toEqual([])
+    expect((await listGames()).map((g) => g.id)).toEqual([GAME.id])
+    expect((await listCharts()).map((c) => c.id)).toEqual([CHART.id])
+
+    // Стол с ботами ещё идёт — следующие раздачи пишутся заново в тот же вечер
+    await saveHands(savedHands(BOTS_A, [hand(4)]))
+    expect(await listEvenings()).toEqual([{ ...BOTS_A, hands: 1 }])
   })
 
   it('пусто — вечеров нет', async () => {

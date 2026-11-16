@@ -10,7 +10,7 @@ import { buildPots } from '../poker/pots'
 import { handFor, type HistoryHand } from '../poker/history'
 import { blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type HandRecord, type HandResult, type TableState } from '../poker/table'
 import { allInOdds } from './allInOdds'
-import type { SavedHand } from './evenings'
+import { handBlinds as tableBlinds, type SavedHand } from './evenings'
 import { handMoney, handNet, handPositions, positionLabels } from './handResult'
 import { handText } from './handText'
 import { runBoards, type RunBoardView } from './pokerRuns'
@@ -608,11 +608,6 @@ function heroCards(s: SavedHand, hero: string): Card[] | null {
   return shown && shown.length > 0 && shown.every((c) => c !== null) ? (shown as Card[]) : null
 }
 
-// Блайнды живых карт (записи нет) — стола, если не турнир: там они растут
-function tableBlinds(s: SavedHand): { sb: number; bb: number } | null {
-  return s.table && !s.table.tournament ? { sb: s.table.sb, bb: s.table.bb } : null
-}
-
 function myHandOf(s: SavedHand): MyHandView | null {
   const hero = heroOf(s)
   const h = s.hand
@@ -644,10 +639,11 @@ export function historyList(hands: SavedHand[]): HistoryItem[] {
 }
 
 // Раздача по тапу. Запись — в виде моего телефона (handFor): взял банк без вскрытия я и не показал — мои карты
-// видны только мне
+// видны только мне. Стол на одном телефоне (#242) — телефон общий, игрока у него нет: карты взявшего без
+// вскрытия видны, как до #239 и как в тексте выгрузки (handText)
 export function historyHandView(s: SavedHand): HistoryHandView {
   const hero = heroOf(s)
-  const h = handFor(s.hand, hero)
+  const h = handFor(s.hand, hero ?? s.hand.record?.hidden?.playerId ?? null)
   const names = namesOf(h)
   const pots = h.pots.map((p, k) => ({
     label: potLabel(k, h.pots.length),

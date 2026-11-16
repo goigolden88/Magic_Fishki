@@ -27,18 +27,20 @@ import {
 import { QUICK_ROOM_DEFAULT, quickRoomError, quickRoomLine, quickRoomSettings, type QuickRoom } from '../calc/quickRoom'
 import { RoomFields, roomChoiceOf, roomFormOf, type RoomForm } from './RoomFields'
 import { demoGames, hasDemo } from '../calc/demo'
-import { formatNumber, formatRate, parseChips, parseRate } from '../calc/format'
+import { formatNumber, formatRate, parseChips, parseRate, pluralForm } from '../calc/format'
 import { today } from '../dates'
 import { MAX_WINDOW, MIN_WINDOW, moveItem, type Game, type Regular, type Settings } from '../model'
-import type { SavedHand } from '../calc/evenings'
+import { eveningCounts, isBotsEvening, type EveningCounts, type EveningSummary, type SavedHand } from '../calc/evenings'
 import type { OwnChart } from '../calc/ownCharts'
 import {
   allHands,
   chartIds,
   deleteDemoGames,
+  deleteEvenings,
   getSettings,
   handKeys,
   listCharts,
+  listEvenings,
   listGames,
   restoreCharts,
   restoreGames,
@@ -54,6 +56,7 @@ import { DECK_LABELS, deckOf, FACE_LABELS, faceOf, MY_BACK_LABELS, MY_FELT_LABEL
 import { PlayingCard, useBetStep, useBigBlinds } from './PokerRoom'
 import { BET_STEP_DEFAULT, BET_STEP_LABELS } from '../calc/pokerLayout'
 import {
+  forgetBotHistory,
   loadBetStepChoice,
   loadBigBlindsChoice,
   loadCardAnim,
@@ -210,6 +213,8 @@ export function SettingsScreen() {
               setRestored((n) => n + 1)
             }}
           />
+          {/* #242: удалить разом вечера против ботов или все прошлые вечера; восстановление из копии перечитывает числа */}
+          <EveningsCard key={`evenings-${restored}`} />
 
           <h2 className="group-title">Демо-данные</h2>
           <DemoCard />
@@ -1137,6 +1142,83 @@ function NoteColorsCard() {
 
 // Демо-данные (Р-04): выдуманные игры, чтобы показать приложение; удаляются только они.
 // Уже есть — «Добавить» неактивна: второй раз не удваивает
+// «Прошлые вечера» (#242): удалить пачкой — вечера против ботов или все прошлые вечера покера, с вопросом,
+// который называет числа. Игры учёта не трогаются (у них удаление своё). Нет таких вечеров — кнопка неактивна
+function EveningsCard() {
+  const [evenings, setEvenings] = useState<EveningSummary[] | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<Note | null>(null)
+
+  function reload() {
+    listEvenings().then(setEvenings, () => setEvenings([]))
+  }
+
+  useEffect(reload, [])
+
+  async function remove(onlyBots: boolean) {
+    if (!evenings) return
+    const c = eveningCounts(evenings, onlyBots)
+    if (c.evenings === 0) return
+    if (!confirm(`Удалить ${eveningsText(c)} с этого телефона? Вернуть можно только из файл-копии`)) return
+    setBusy(true)
+    try {
+      const done = await deleteEvenings(onlyBots)
+      forgetBotHistory((id) => !onlyBots || isBotsEvening({ id })) // идущий стол с ботами не запишет стёртое заново
+      setNote({ ok: true, text: `Удалено: ${eveningsText(done)}. Игры учёта на месте` })
+    } catch {
+      setNote({ ok: false, text: 'Не удалось удалить — попробуйте ещё раз' })
+    } finally {
+      setBusy(false)
+      reload()
+    }
+  }
+
+  const bots = evenings && eveningCounts(evenings, true)
+  const all = evenings && eveningCounts(evenings, false)
+  return (
+    <section className="card">
+      <h3>Прошлые вечера</h3>
+      <p className="muted">Раздачи покера на этом телефоне — из «Играть» → «Прошлые вечера». Игры учёта не удаляются.</p>
+      <EveningsButton
+        label="Удалить вечера против ботов"
+        counts={bots}
+        busy={busy}
+        onClick={() => void remove(true)}
+      />
+
+      <EveningsButton label="Удалить все прошлые вечера" counts={all} busy={busy} onClick={() => void remove(false)} />
+      {note && <p className={note.ok ? 'ok' : 'warn'}>{note.text}</p>}
+    </section>
+  )
+}
+
+// Кнопка удаления пачкой: в подписи — сколько вечеров и раздач; нет таких — неактивна, рядом «нет вечеров»
+function EveningsButton(props: { label: string; counts: EveningCounts | null; busy: boolean; onClick: () => void }) {
+  const { label, counts, busy, onClick } = props
+  const none = counts !== null && counts.evenings === 0
+  return (
+    <div className="row">
+      <button type="button" className="big danger-text grow" disabled={counts === null || none || busy} onClick={onClick}>
+        {counts && !none ? `${label} (${eveningsWord(counts)}, ${handsWord(counts)})` : label}
+      </button>
+      {none && <span className="muted">нет вечеров</span>}
+    </div>
+  )
+}
+
+// «12 вечеров», «340 раздач», «12 вечеров (340 раздач)»
+function eveningsWord(c: EveningCounts): string {
+  return `${formatNumber(c.evenings)} ${pluralForm(c.evenings, 'вечер', 'вечера', 'вечеров')}`
+}
+
+function handsWord(c: EveningCounts): string {
+  return `${formatNumber(c.hands)} ${pluralForm(c.hands, 'раздача', 'раздачи', 'раздач')}`
+}
+
+function eveningsText(c: EveningCounts): string {
+  return `${eveningsWord(c)} (${handsWord(c)})`
+}
+
 function DemoCard() {
   const [demo, setDemo] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
