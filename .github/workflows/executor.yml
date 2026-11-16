@@ -35,6 +35,8 @@ jobs:
       node-version: "24"
       chrome: true
       project-tools: "Bash(npm ci),Bash(npm test:*),Bash(npm run:*),Bash(npm install:*)"
+      # Обычные задачи «Фишек» — ≈ 146 ходов в среднем, 100 не хватало (Ш-229 Штаба).
+      max-turns: 150
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
 
@@ -70,5 +72,7 @@ jobs:
       node-version: "24"
       chrome: true
       project-tools: "Bash(npm ci),Bash(npm test:*),Bash(npm run:*),Bash(npm install:*)"
+      # Тот же предел для очереди, разбуженной слиянием (Ш-229 Штаба).
+      queue-turns: 150
     secrets:
       CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
