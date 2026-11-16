@@ -2009,7 +2009,7 @@ textarea.note-input {
 }
 
 /* «Ход раздачи» по касанию банка (#258): на телефоне — снизу поверх стола, не выше половины окна: стол виден над ней;
-   на широком окне — слева сверху, у края: свои карты и панель хода (внизу, справа) не закрывает.
+   на широком окне — слева сверху, у края, узкой колонкой: своё место (левее центра) и панель хода (справа) не закрывает.
    Ходы листаются внутри, последний — внизу на виду */
 .log-shade {
   position: fixed;
@@ -2069,11 +2069,6 @@ textarea.note-input {
   padding: 0.2rem 0.8rem;
 }
 
-.log-units button[aria-pressed='true'] {
-  border-color: var(--gold);
-  font-weight: 600;
-}
-
 .log-body {
   flex: 1;
   min-height: 0;
@@ -2101,7 +2096,7 @@ textarea.note-input {
 
   .log-pop {
     width: clamp(18rem, 26vw, 26rem);
-    max-height: 58dvh;
+    max-height: 75dvh;
   }
 }
 

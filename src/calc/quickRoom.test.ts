@@ -153,6 +153,16 @@ describe('своя «Быстрая комната» (Р-62)', () => {
     expect(parseQuickRoom({ ...banked, timeBank: 20 })).toBeNull()
   })
 
+  it('ход раздачи по касанию банка (#258): выкл — в настройки и обратно из копии; вкл и без поля — поля нет', () => {
+    const off: QuickRoom = { ...ROOM, liveHand: false }
+    expect(quickRoomSettings(1000, off)).toMatchObject({ liveHand: false })
+    expect(quickRoomSettings(1000, ROOM)).not.toHaveProperty('liveHand')
+    expect(quickRoomSettings(1000, { ...ROOM, liveHand: true })).not.toHaveProperty('liveHand')
+    expect(parseQuickRoom(JSON.parse(JSON.stringify(off)))).toEqual(off)
+    expect(parseQuickRoom({ ...ROOM, liveHand: true })).toEqual(ROOM)
+    expect(parseQuickRoom({ ...ROOM, liveHand: 'нет' })).toBeNull()
+  })
+
   it('сохранить нельзя: блайнды не годятся, стек меньше большого блайнда', () => {
     expect(quickRoomError({ sb: 5, bb: 10, startingStack: 1000 })).toBeNull()
     expect(quickRoomError({ sb: 10, bb: 10, startingStack: 10 })).toBeNull()

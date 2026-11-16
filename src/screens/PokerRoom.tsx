@@ -1369,10 +1369,10 @@ function HandLogPop({ table, onClose }: { table: TableState; onClose: () => void
         </div>
         <div className="log-units" role="group" aria-label="Суммы">
           <span className="muted">Суммы:</span>
-          <button type="button" aria-pressed={!inBB} onClick={() => saveBigBlinds(false)}>
+          <button type="button" className={inBB ? '' : 'primary'} aria-pressed={!inBB} onClick={() => saveBigBlinds(false)}>
             в фишках
           </button>
-          <button type="button" aria-pressed={inBB} onClick={() => saveBigBlinds(true)}>
+          <button type="button" className={inBB ? 'primary' : ''} aria-pressed={inBB} onClick={() => saveBigBlinds(true)}>
             в ББ
           </button>
         </div>
