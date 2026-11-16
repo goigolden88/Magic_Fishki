@@ -60,6 +60,9 @@ export type Settings = {
   // В турнире sb и bb — стартовые блайнды, startingStack — стартовый стек, ante не действует
   format?: TableFormat
   ante?: number // анте кэша с каждого, фишек; 0 — нет
+  // Страддл кэша (#222, Р-91): UTG каждую раздачу вслепую ставит 2 ББ; задаётся только при создании стола.
+  // В турнире не действует; у столов до него поля нет — без страддла
+  straddle?: boolean
   tournament?: TournamentSettings // структура турнира; есть, когда format — 'tournament'
   // HUD вечера (#79): true — видят все, иначе каждый только свой. У столов до него поля нет — только свой
   publicHud?: boolean
@@ -622,7 +625,8 @@ function start(state: TableState, deck: Card[] | undefined, now: number): string
   state.buttonSeat = playing[button].seat
   state.handCount++
   const { sb, bb, ante } = blindsNow(state, now)
-  state.hand = startHand(state.handCount, playing, button, sb, bb, deal, ante, limitFor(state.settings))
+  const straddle = state.settings.format !== 'tournament' && state.settings.straddle === true
+  state.hand = startHand(state.handCount, playing, button, sb, bb, deal, ante, limitFor(state.settings), straddle)
   return null
 }
 
@@ -1137,6 +1141,7 @@ function settingsError(s: Settings): string | null {
     return 'Рубашка карт — классика, синяя, зелёная или гео'
   }
   if (s.ante !== undefined && (!Number.isInteger(s.ante) || s.ante < 0)) return 'Анте — целое число фишек, не меньше нуля'
+  if (s.straddle !== undefined && typeof s.straddle !== 'boolean') return 'Страддл — включён или выключен'
   if (s.publicHud !== undefined && typeof s.publicHud !== 'boolean') return 'HUD видят — все или каждый только свою'
   // Свои игры (#224): верные описания, каждой хватает карт на все места; только карты на телефонах
   if (s.games !== undefined) {

@@ -29,7 +29,8 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 //      идущий запас в сроке хода (turn.bank)
 // 19 — свои игры (#224, Р-85): настройка games при создании (описания игр), game — и id своей игры;
 //      «Микс» предлагает и свою игру стола (mixPropose), описание своей игры — в раздаче и в записи (game.name)
-export const PROTOCOL_VERSION = 19
+// 20 — страддл (#222, Р-91): настройка straddle при создании, страддл в раздаче (straddle) и в журнале ('straddle')
+export const PROTOCOL_VERSION = 20
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 

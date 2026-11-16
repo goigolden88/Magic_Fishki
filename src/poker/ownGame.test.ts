@@ -195,7 +195,7 @@ describe('своя игра: отказы описания', () => {
 
 describe('своя игра: версия протокола', () => {
   it('19 — старое приложение (18) за стол не пускают: «обновите приложение»', () => {
-    expect(PROTOCOL_VERSION).toBe(19)
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(19) // свои игры — с версии 19; 20 — страддл (#222)
     const r = handle(newTable(['p0', 'p1'], own(OWN_HOLDEM)), 'p0', { v: 18, type: 'start' }, 0, deckFor(HOLDEM_GAME))
     expect(r).toEqual({ ok: false, error: VERSION_ERROR })
   })
