@@ -1,5 +1,16 @@
-import { useState, type ReactNode } from 'react'
-import { DECK_LABELS, deckOf, FACE_LABELS, faceOf, MY_BACK_LABELS, MY_FELT_LABELS, type MyLook } from '../calc/pokerLook'
+import { useRef, useState, type ReactNode } from 'react'
+import {
+  DECK_LABELS,
+  deckOf,
+  FACE_LABELS,
+  faceOf,
+  MY_BACK_LABELS,
+  MY_FELT_LABELS,
+  drawnBack,
+  OWN_BACK,
+  type MyLook,
+} from '../calc/pokerLook'
+import { compressOwnBack, setOwnBack } from './ownBackImage'
 import {
   DOCK_SIZE_DEFAULT,
   DOCK_SIZE_LABELS,
@@ -8,20 +19,58 @@ import {
   TABLE_SIZE_MIN,
   TABLE_SIZE_STEP,
 } from '../calc/tableFit'
-import { PlayingCard } from './PokerRoom'
-import { loadDockSizeChoice, loadTableSizeChoice, saveDockSize, saveMyLook, saveTableSize } from './pokerStorage'
+import { PlayingCard, useLookVersion } from './PokerRoom'
+import {
+  hasOwnBack,
+  loadDockSizeChoice,
+  loadTableSizeChoice,
+  saveDockSize,
+  saveMyLook,
+  saveTableSize,
+} from './pokerStorage'
 import { useWide } from './useWide'
 
-// Поля личного «Вида стола» (Р-61) — одни на «Настройки» и «⚙» за столом (#243): сукно, рубашка, колода, лицо карт;
+// Поля личного «Вида стола» (Р-61) — одни на «Настройки» и «⚙» за столом (#243): сукно, рубашка (и своя картинкой, #220),
+// колода, лицо карт;
 // на широком окне (Р-63) — размер стола покера и панели ставок. Сохраняется сразу (saveMyLook) и действует
 // на всех столах этого телефона; onChange — новый вид для того, кто его показывает
 export function MyLookFields({ look, onChange }: { look: MyLook; onChange: (look: MyLook) => void }) {
   const wide = useWide()
+  useLookVersion() // своя картинка появилась или удалена — «Своя» и «Удалить» показываются сразу
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [ownError, setOwnError] = useState('')
+  const own = hasOwnBack()
+  const back = drawnBack(look, own) // «Своя» без картинки — «Как у стола»
 
   function update(change: Partial<MyLook>) {
     const next = { ...look, ...change }
     saveMyLook(next)
     onChange(next)
+  }
+
+  // Своя рубашка (#220): файл сжимается здесь же; новый заменяет прежний; ошибка — строкой, прежняя рубашка остаётся
+  async function pickOwn(file: File) {
+    setBusy(true)
+    setOwnError('')
+    try {
+      const r = await compressOwnBack(file)
+      if (!r.ok) setOwnError(r.error)
+      else if (!setOwnBack(r.url)) setOwnError('Не хватило места на устройстве — рубашка не сохранена')
+      else update({ cardBack: OWN_BACK })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // Удалили — картинки нет, рубашка «Как у стола»; выбранная встроенная остаётся
+  function removeOwn() {
+    setOwnError('')
+    if (!setOwnBack(null)) {
+      setOwnError('Не удалось удалить — попробуйте ещё раз')
+      return
+    }
+    if (look.cardBack === OWN_BACK) update({ cardBack: null })
   }
 
   return (
@@ -43,18 +92,47 @@ export function MyLookFields({ look, onChange }: { look: MyLook; onChange: (look
       <fieldset className="players-pick">
         <legend className="muted">Рубашка</legend>
         <div className="amounts">
-          <LookChoice on={look.cardBack === null} onPick={() => update({ cardBack: null })}>
+          <LookChoice on={back === null} onPick={() => update({ cardBack: null })}>
             Как у стола
           </LookChoice>
-          {MY_BACK_LABELS.map(([back, label]) => (
-            <LookChoice key={back} on={look.cardBack === back} onPick={() => update({ cardBack: back })}>
-              <span className={`look-back back-${back}`} aria-hidden="true">
+          {MY_BACK_LABELS.map(([id, label]) => (
+            <LookChoice key={id} on={back === id} onPick={() => update({ cardBack: id })}>
+              <span className={`look-back back-${id}`} aria-hidden="true">
                 <span className="playing-card small back" />
               </span>
               {label}
             </LookChoice>
           ))}
+          {own && (
+            <LookChoice on={back === OWN_BACK} onPick={() => update({ cardBack: OWN_BACK })}>
+              <span className="look-back back-own" aria-hidden="true">
+                <span className="playing-card small back" />
+              </span>
+              Своя
+            </LookChoice>
+          )}
+          <button type="button" className="big" disabled={busy} onClick={() => fileRef.current?.click()}>
+            {busy ? 'Сжимаю…' : 'Своя картинка…'}
+          </button>
         </div>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          className="own-back-file"
+          aria-label="Картинка для своей рубашки"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            e.target.value = '' // тот же файл ещё раз — снова сработает
+            if (file) void pickOwn(file)
+          }}
+        />
+        {ownError && <p className="warn">{ownError}</p>}
+        {own && (
+          <button type="button" className="big wide danger-text" onClick={removeOwn}>
+            Удалить свою рубашку
+          </button>
+        )}
       </fieldset>
       <fieldset className="players-pick">
         <legend className="muted">Колода</legend>

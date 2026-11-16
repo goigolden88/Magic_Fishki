@@ -17,7 +17,7 @@ import { isOwnChart, type OwnChart } from './ownCharts'
 import { daysAgoText } from './format'
 import { parseLabels, parseNotes, type NoteLabels, type PlayerNotes } from './playerNotes'
 import { parseBetStep, type BetStep } from './pokerLayout'
-import { MY_LOOK_DEFAULT, parseMyLook, type MyLook } from './pokerLook'
+import { backupLook, MY_LOOK_DEFAULT, parseMyLook, type MyLook } from './pokerLook'
 import { parseQuickBets, type QuickBets } from './quickBets'
 import { parseQuickRoom, type QuickRoom } from './quickRoom'
 import { parseDockSize, parseTableSize, type DockSize } from './tableFit'
@@ -33,6 +33,7 @@ import { parseTheme, type Theme } from './theme'
 // приложения; формат прежний: поля необязательные.
 // С #192 колода вида может быть null — не выбрана (четыре цвета); старое приложение читает её как «две масти».
 // С #219 в look — ещё лицо карт (face), формат прежний: поле необязательное, старое приложение его не прочтёт.
+// Своя рубашка картинкой (#220) в копию не идёт: в look вместо «Своей» — null, «Как у стола».
 // Формат 7 (Р-77): ещё свои чарты тренажёра — записи хранилища charts как есть; у 1–6 их нет — пусто
 // Формат 8 (Р-85): ещё свои игры покера — описания из памяти телефона (ownGames); у 1–7 их нет — пусто
 export const BACKUP_APP = 'magic_fishki'
@@ -142,7 +143,7 @@ export function makeBackup(
     hands,
     notes,
     noteLabels,
-    look,
+    look: backupLook(look), // своей картинки рубашки в копии нет (#220): «Своя» — «Как у стола»
     poker,
     charts,
     ownGames,
@@ -317,8 +318,9 @@ export function parseBackup(text: string, makeId: () => string): ParsedBackup {
     notes = parsedNotes
     noteLabels = parsedLabels
   }
-  // Вид стола (Р-61): значение не из готовых — «Как у стола», копия из-за него не отвергается
-  const look = data.format >= 5 ? parseMyLook(data.look) : MY_LOOK_DEFAULT
+  // Вид стола (Р-61): значение не из готовых — «Как у стола», копия из-за него не отвергается;
+  // «Своя» рубашка (#220) — тоже «Как у стола»: картинки в копии нет
+  const look = data.format >= 5 ? backupLook(parseMyLook(data.look)) : MY_LOOK_DEFAULT
   // Покер-рум (Р-62): у копий 1–5 его нет — не задан
   const poker = data.format >= 6 ? parsePokerPrefs(data.poker) : POKER_PREFS_NONE
   // Свои чарты (Р-77): у копий 1–6 их нет — пусто
