@@ -24,6 +24,7 @@ import {
   chartFileName,
   chartFileText,
   chartName,
+  chartPrompt,
   emptyCells,
   NAME_MAX,
   newChartActions,
@@ -36,7 +37,7 @@ import {
   type ChartDraft,
   type OwnChart,
 } from '../calc/ownCharts'
-import { CLASSES, parseRange } from '../calc/rangeText'
+import { CLASSES, parseRange, RANGE_EXAMPLE } from '../calc/rangeText'
 import { CHARTS_GAME, CHARTS_ROUNDING } from '../calc/trainerView'
 import { deleteChart, listCharts, saveChart } from '../store/db'
 import { ulid } from '../ulid'
@@ -221,6 +222,10 @@ function Editor(props: {
       )}
 
       <h2>Загрузить текстом</h2>
+      <p className="muted chart-note">
+        Диапазон через запятую: <code>77+</code> — пара и старше, <code>A9s+</code> — кикер вверх, <code>KTs-K8s</code> — отрезок,{' '}
+        <code>AKs:0.5</code> — доля руки; ложится на выбранное действие, остальное — пас. Например: <code>{RANGE_EXAMPLE}</code>
+      </p>
       <div className="chart-actions-pick" role="group" aria-label="Действие для диапазона">
         {draft.actions.slice(1).map((a, j) => (
           <button key={a} type="button" className={action === j + 1 ? 'big primary' : 'big'} aria-pressed={action === j + 1} onClick={() => setAction(j + 1)}>
@@ -232,7 +237,7 @@ function Editor(props: {
         className="paste chart-paste"
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder="77+, A9s+, AKs:0.5"
+        placeholder={RANGE_EXAMPLE}
         aria-label="Диапазон текстом"
         spellCheck={false}
         autoCapitalize="characters"
@@ -330,6 +335,8 @@ function MyCharts(props: {
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null)
   const [adding, setAdding] = useState(false)
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
+  const [answer, setAnswer] = useState('')
+  const [copyNote, setCopyNote] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
   async function rename() {
@@ -358,6 +365,26 @@ function MyCharts(props: {
     }
   }
 
+  // Файл и ответ ИИ разбираются одинаково (#253): нет id и времени — их ставит приложение. Записано — true
+  async function take(text: string): Promise<boolean> {
+    const parsed = parseChartFile(text, { id: ulid(), now: new Date().toISOString() })
+    if (!parsed.ok) {
+      setNote({ ok: false, text: `${parsed.error}. Чарты не изменились.` })
+      return false
+    }
+    // Такой id уже есть — загруженный становится новым чартом рядом, свой не перезаписывается
+    const taken = (charts ?? []).some((c) => c.id === parsed.chart.id)
+    try {
+      const saved = await saveChart(taken ? { ...parsed.chart, id: ulid() } : parsed.chart)
+      setNote({ ok: true, text: `Чарт «${saved.name}» загружен` })
+      await onChanged(saved.id)
+      return true
+    } catch {
+      setNote({ ok: false, text: 'Не удалось записать чарт — попробуйте ещё раз' })
+      return false
+    }
+  }
+
   async function load(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     e.target.value = '' // тот же файл можно выбрать снова
@@ -368,17 +395,22 @@ function MyCharts(props: {
     } catch {
       return setNote({ ok: false, text: 'Файл не читается' })
     }
-    const parsed = parseChartFile(text)
-    if (!parsed.ok) return setNote({ ok: false, text: `${parsed.error}. Чарты не изменились.` })
-    // Такой id уже есть — загруженный становится новым чартом рядом, свой не перезаписывается
-    const taken = (charts ?? []).some((c) => c.id === parsed.chart.id)
+    await take(text)
+  }
+
+  async function pasteAnswer() {
+    if (await take(answer)) setAnswer('')
+  }
+
+  // Как «Скопировать» итога игры: заметка на 3 с
+  async function copyPrompt() {
     try {
-      const saved = await saveChart(taken ? { ...parsed.chart, id: ulid() } : parsed.chart)
-      setNote({ ok: true, text: `Чарт «${saved.name}» загружен` })
-      await onChanged(saved.id)
+      await navigator.clipboard.writeText(chartPrompt())
+      setCopyNote('Скопировано')
     } catch {
-      setNote({ ok: false, text: 'Не удалось записать чарт — попробуйте ещё раз' })
+      setCopyNote('Не удалось скопировать')
     }
+    setTimeout(() => setCopyNote(null), 3000)
   }
 
   return (
@@ -445,6 +477,36 @@ function MyCharts(props: {
         Загрузить файл
       </button>
       <input ref={fileInput} type="file" accept=".json,.txt,application/json,text/plain" hidden onChange={(e) => void load(e)} />
+      <p className="muted chart-note">
+        Файл <code>.json</code>, который даёт «Выгрузить» у своего чарта, или ответ ИИ.
+      </p>
+
+      <h2>Чарт картинкой или таблицей</h2>
+      <p className="muted chart-note">
+        «Промпт для ИИ» — отдайте его своему ИИ вместе с картинкой или таблицей чарта, а ответ вставьте ниже.
+      </p>
+      <button type="button" className="big wide" onClick={() => void copyPrompt()}>
+        Промпт для ИИ
+      </button>
+      {copyNote && (
+        <p className="muted" role="status">
+          {copyNote}
+        </p>
+      )}
+      <label className="field chart-answer">
+        Вставить ответ ИИ
+        <textarea
+          className="paste chart-paste"
+          value={answer}
+          onChange={(e) => setAnswer(e.target.value)}
+          placeholder="{ … }"
+          spellCheck={false}
+          autoCapitalize="off"
+        />
+      </label>
+      <button type="button" className="big wide" disabled={charts === null || answer.trim() === ''} onClick={() => void pasteAnswer()}>
+        Загрузить
+      </button>
       {note && <p className={note.ok ? 'muted' : 'warn'}>{note.text}</p>}
     </section>
   )
