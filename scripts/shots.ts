@@ -39,6 +39,8 @@
 // (05a); шаги, которым нужны карточки свёрнутого раздела, разворачивают его касанием заголовка (openSettings).
 // Страддл (#222): стол на этом телефоне на 4 гостей — форма с галочкой (09c) и первая раздача со страддлом (09d);
 // npm run shots -- straddl — только он.
+// Свои игры (#225): «Настройки» → «Добавить игру», правка (05c) и список (05d), форма «Новая комната» со своей игрой
+// (03h-novaya-komnata-svoya-igra); npm run shots -- svoi — только они.
 // Chrome — google-chrome, google-chrome-stable или chromium; свой путь — переменная CHROME
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -928,6 +930,9 @@ async function pokerSteps(d: Device): Promise<void> {
     await sleep(500)
     await d.tableShot('09b-stol-na-telefone-pererejz')
   })
+
+  // Свои игры (#225) — последними: до них формы комнаты — без своих игр
+  await ownGamesStep(d)
 }
 
 // Форма «Новая комната» без сервера (#238): карты на телефонах, омаха и «Микс» — видны все ряды кнопок выбора;
@@ -950,6 +955,67 @@ async function roomFormStep(d: Device): Promise<void> {
     await d.click('Отмена')
     await d.waitText('Сесть за стол')
   })
+}
+
+// «Свои игры» (#225): «Настройки» → «Добавить игру», омаха на шесть карт пот-лимит → «Сохранить» → карточка со
+// списком; затем форма «Новая комната» с выбранной своей игрой и строкой мест. Кнопки выбора не вылезают (choicesFit)
+async function ownGamesStep(d: Device): Promise<void> {
+  await screen('Свои игры', d.size, async () => {
+    await openSettings(d, 'Покер онлайн и стол')
+    await d.waitText('Своих игр нет')
+    await d.click('Добавить игру')
+    await d.waitFor('.own-editor input')
+    await d.type('.own-editor input', 'Омаха-6')
+    // Надписи «6», «Ровно 2», «Пот-лимит» есть и в других карточках — касание внутри редактора
+    for (const label of ['6', 'Ровно 2', 'Пот-лимит']) await ownEditorClick(d, label)
+    await d.waitText('За столом — до 7 игроков')
+    await choicesFit(d, 'Свои игры')
+    await d.shot('05c-svoya-igra-pravka')
+    const saved = await d.eval<boolean>(`(() => {
+      const form = document.querySelector('.own-editor')
+      if (!form) return false
+      form.requestSubmit()
+      return true
+    })()`)
+    if (!saved) throw new Error('нет редактора своей игры')
+    await d.waitText('6 карт, ровно 2 из руки · стол 3-1-1 · пот-лимит · до 7 игроков')
+    await d.shot('05d-svoi-igry')
+  })
+  await screen('Новая комната: своя игра', d.size, async () => {
+    await d.goto('#/poker')
+    await d.waitText('Войти по ссылке')
+    await d.click('Настроить…')
+    await d.waitText('Новая комната')
+    await d.click('На телефонах')
+    await d.click('Омаха-6')
+    await d.waitText('За столом не больше 7 — из-за „Омаха-6“')
+    await choicesFit(d, 'Новая комната: своя игра')
+    await d.shot('03h-novaya-komnata-svoya-igra')
+    await d.click('Отмена')
+    await d.waitText('Сесть за стол')
+  })
+}
+
+// Кнопка в редакторе своей игры (#225) по точной надписи
+async function ownEditorClick(d: Device, label: string): Promise<void> {
+  const done = await d.eval<boolean>(`(() => {
+    const button = [...document.querySelectorAll('.own-editor button')].find((b) => b.innerText.trim() === ${JSON.stringify(label)})
+    if (!button || button.disabled) return false
+    button.click()
+    return true
+  })()`)
+  if (!done) throw new Error(`нет кнопки «${label}» в редакторе своей игры`)
+  await sleep(100)
+}
+
+// npm run shots -- svoi (#225): только «Свои игры» и форма комнаты со своей игрой — на 390, 1366 и 1920
+async function ownGamesOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES) {
+    console.log(`Свои игры, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await themeOnly(d)
+    await ownGamesStep(d)
+  }
 }
 
 // Кнопка «Запаса времени» (#223): те же надписи «30 с», «60 с» есть и у «Времени на ход» — ищем в своём ряду
@@ -1684,8 +1750,20 @@ async function main(): Promise<void> {
     const onlyWatch = process.argv.includes('smotret') // npm run shots -- smotret: наблюдение за столом с ботами (#244)
     const onlyOwnBack = process.argv.includes('rubashka') // npm run shots -- rubashka: своя рубашка картинкой (#220)
     const onlyStraddle = process.argv.includes('straddl') // npm run shots -- straddl: страддл на столе на телефоне (#222)
+    const onlyOwnGames = process.argv.includes('svoi') // npm run shots -- svoi: свои игры (#225)
     const part =
-      onlyTrainer || onlyChoices || onlyHistory || onlyHud || onlyTimeBank || onlyGear || onlyNames || onlyWatch || onlyOwnBack || onlyStraddle
+      onlyTrainer ||
+      onlyChoices ||
+      onlyHistory ||
+      onlyHud ||
+      onlyTimeBank ||
+      onlyGear ||
+      onlyNames ||
+      onlyWatch ||
+      onlyOwnBack ||
+      onlyStraddle ||
+      onlyOwnGames
+    if (onlyOwnGames) await ownGamesOnly(cdp)
     if (onlyStraddle) for (const size of SIZES) await straddleStep(cdp, size)
     if (onlyOwnBack) await ownBackOnly(cdp)
     if (onlyNames) await namesOnly(cdp)

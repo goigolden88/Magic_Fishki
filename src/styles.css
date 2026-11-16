@@ -1829,7 +1829,10 @@ textarea.note-input {
   outline: 2px solid var(--accent);
 }
 
+/* Строка игры — цветом текста: приглушённый на фоне кнопки не читается (контраст ниже 4,5 : 1) */
 .own-games .muted {
+  color: var(--text);
+  font-weight: 400;
   font-size: 0.95rem;
   overflow-wrap: anywhere;
 }
