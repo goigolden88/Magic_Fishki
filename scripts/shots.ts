@@ -41,12 +41,14 @@
 // npm run shots -- straddl — только он.
 // Свои игры (#225): «Настройки» → «Добавить игру», правка (05c) и список (05d), форма «Новая комната» со своей игрой
 // (03h-novaya-komnata-svoya-igra); npm run shots -- svoi — только они.
+// Открытые карты своей игры (#226): правка «Три с открытой» (05e), список (05f) и стол против ботов, собранный
+// правилами стола из готового состояния, — три карты, одна открытая (09e), и семь, две открытые (09f); входят в svoi.
 // Chrome — google-chrome, google-chrome-stable или chromium; свой путь — переменная CHROME
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { build, preview } from 'vite'
+import { build, preview, runnerImport } from 'vite'
 import { chipIcon } from './icons.ts'
 
 const OUT = 'shots'
@@ -931,8 +933,10 @@ async function pokerSteps(d: Device): Promise<void> {
     await d.tableShot('09b-stol-na-telefone-pererejz')
   })
 
-  // Свои игры (#225) — последними: до них формы комнаты — без своих игр
+  // Свои игры (#225) — последними: до них формы комнаты — без своих игр; затем стол с открытыми картами (#226) —
+  // он заменяет стол с ботами в памяти
   await ownGamesStep(d)
+  await openCardsStep(d)
 }
 
 // Форма «Новая комната» без сервера (#238): карты на телефонах, омаха и «Микс» — видны все ряды кнопок выбора;
@@ -980,6 +984,24 @@ async function ownGamesStep(d: Device): Promise<void> {
     if (!saved) throw new Error('нет редактора своей игры')
     await d.waitText('6 карт, ровно 2 из руки · стол 3-1-1 · пот-лимит · до 7 игроков')
     await d.shot('05d-svoi-igry')
+    // Открытые карты (#226): три карты, из них одна открытая
+    await d.click('Добавить игру')
+    await d.waitFor('.own-editor input')
+    await d.type('.own-editor input', 'Три с открытой')
+    // «3» — первая такая кнопка в «Картах на руках», «1» — в «Из них открытых» (карт на руках — от двух)
+    for (const label of ['3', '1']) await ownEditorClick(d, label)
+    await d.waitText('1 из 3 — лицом для всех за столом')
+    await choicesFit(d, 'Свои игры: открытые')
+    await d.shot('05e-svoya-igra-otkrytye')
+    const savedOpen = await d.eval<boolean>(`(() => {
+      const form = document.querySelector('.own-editor')
+      if (!form) return false
+      form.requestSubmit()
+      return true
+    })()`)
+    if (!savedOpen) throw new Error('нет редактора своей игры')
+    await d.waitText('3 карты (1 открытая), любые из руки · стол 3-1-1 · без лимита · до 10 игроков')
+    await d.shot('05f-svoi-igry-otkrytye')
   })
   await screen('Новая комната: своя игра', d.size, async () => {
     await d.goto('#/poker')
@@ -1008,14 +1030,82 @@ async function ownEditorClick(d: Device, label: string): Promise<void> {
   await sleep(100)
 }
 
-// npm run shots -- svoi (#225): только «Свои игры» и форма комнаты со своей игрой — на 390, 1366 и 1920
+// npm run shots -- svoi (#225): только «Свои игры», форма комнаты со своей игрой и стол с открытыми картами (#226) —
+// на 390, 1366 и 1920
 async function ownGamesOnly(cdp: Cdp): Promise<void> {
   for (const size of SIZES) {
     console.log(`Свои игры, ${size.width} × ${size.height}`)
     const d = await Device.open(cdp, size)
     await themeOnly(d)
     await ownGamesStep(d)
+    await openCardsStep(d)
   }
+}
+
+// Открытые карты своей игры (#226) за столом. Своя игра идёт только в комнате (сервер), а боты и стол на этом
+// телефоне своих игр не знают — поэтому стол собирают сами правила стола (createTable, handle из src/poker через
+// runnerImport Vite) и кладут в память «Против ботов»: я и три бота, раздача своей игры, мой ход до флопа.
+// Стол ботов читает в настройках только холдем и омаху (parseBotTable) — в настройках холдем, а карты раздачи —
+// своей игры. На снимке: у ботов открытые лицом, закрытые рубашкой; у меня открытые — лицом с пометкой «видна всем»,
+// закрытые — рубашкой («держите палец»). Три карты, одна открытая (09e) и семь, две открытые (09f)
+const OPEN_TABLES = [
+  { name: 'Три с открытой', hole: 3, up: 1, file: '09e-otkrytye-karty' },
+  { name: 'Семь, две открытые', hole: 7, up: 2, file: '09f-otkrytye-karty-7' },
+]
+
+async function openCardsStep(d: Device): Promise<void> {
+  for (const game of OPEN_TABLES) {
+    await screen(`Стол: ${game.name}`, d.size, async () => {
+      const text = await openCardsTable(game)
+      await d.goto('#/poker')
+      await d.waitText('Войти по ссылке')
+      await d.eval(`(localStorage.setItem('fishki.poker.bots', ${JSON.stringify(text)}), true)`)
+      await d.goto('#/poker/bots')
+      await d.reload()
+      await d.waitFor('.dock.actions')
+      await d.waitFor('.seat.me .playing-card.seen')
+      await sleep(1500) // раздача долетела
+      await d.tableShot(game.file)
+    })
+  }
+}
+
+// Стол против ботов (BotTable строкой) в мой ход: своя игра с открытыми, колода перемешана всякий раз одинаково
+async function openCardsTable(game: { name: string; hole: number; up: number }): Promise<string> {
+  const load = async (file: string) =>
+    (await runnerImport<Record<string, any>>(join(process.cwd(), 'src/poker', file), { configFile: false, logLevel: 'silent' })).module
+  const table = await load('table.ts')
+  const rules = await load('game.ts')
+  const own = await load('ownGame.ts')
+  const { PROTOCOL_VERSION } = await load('protocol.ts')
+  const mine = { id: 'own-shots', name: game.name, hole: game.hole, up: game.up, fromHand: 'any', deck: 52, order: 'standard', board: [3, 1, 1], limit: 'nolimit' }
+  const now = Date.now()
+  const settings = { sb: 5, bb: 10, startingStack: 1000, maxSeats: 4, cards: 'phones', autoStart: 'off', games: [mine], game: mine.id }
+  const created = table.createTable('me', 'Вы', settings, now)
+  if (!created.ok) throw new Error(created.error)
+  let state = created.state
+  const send = (from: string, body: Record<string, unknown>, deck?: string[]) => {
+    const r = table.handle(state, from, { v: PROTOCOL_VERSION, ...body }, now, deck)
+    if (!r.ok) throw new Error(`${from} ${String(body.type)}: ${r.error}`)
+    state = r.state
+  }
+  ;['Бот Север', 'Бот Юг', 'Бот Запад'].forEach((name, i) => send(`bot${i + 1}`, { type: 'sit', name }))
+  // Перемешать всякий раз одинаково: свой простой счётчик вместо случайности
+  let seed = game.hole * 7919
+  const bytes = (b: Uint8Array) => {
+    for (let i = 0; i < b.length; i++) b[i] = (seed = (seed * 1103515245 + 12345) >>> 0) >>> 24
+    return b
+  }
+  send('me', { type: 'start' }, rules.shuffle(rules.deckFor(own.ownGameDef(mine)), bytes))
+  // До моего хода боты уравнивают или чекают
+  for (let i = 0; i < 10 && state.hand && state.hand.seats[state.hand.toAct].id !== 'me'; i++) {
+    const seat = state.hand.seats[state.hand.toAct]
+    send(seat.id, { type: 'act', action: { type: seat.bet < state.hand.currentBet ? 'call' : 'check' } })
+  }
+  if (state.hand?.seats[state.hand.toAct].id !== 'me') throw new Error('не дошёл мой ход')
+  state.settings.game = 'holdem'
+  delete state.settings.games
+  return JSON.stringify({ id: 'shots-open', table: state, meId: 'me', level: 'amateur', open: false, showStyles: true, autoFinish: false, hudAll: false, history: [] })
 }
 
 // Кнопка «Запаса времени» (#223): те же надписи «30 с», «60 с» есть и у «Времени на ход» — ищем в своём ряду

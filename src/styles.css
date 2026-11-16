@@ -2355,6 +2355,11 @@ input.own-back-file {
   font-size: 0.55rem;
 }
 
+/* Открытые карты своей игры (#226) среди рубашек: сжимаются рубашки, карты лицом — почти нет, чтобы читались */
+.seat.many .card-row:not(.best-row) .playing-card.small:not(.back) {
+  flex-shrink: 0.2;
+}
+
 .seat.me.many {
   width: max(var(--seat-w) * 1.3, 7.5rem);
 }
