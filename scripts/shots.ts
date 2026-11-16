@@ -791,6 +791,21 @@ async function trainerStep(d: Device): Promise<void> {
     await d.waitText('Переименовать')
     await d.waitText('Выгрузить')
     await d.shot('02g-trenazher-moi-charty')
+    // Ответ ИИ (#253): текст вокруг и обёртка ```json, голый чарт без id и времени, доли 0,33 × 3 — «Загрузить»
+    const aiAnswer = [
+      'Вот чарт:',
+      '```json',
+      JSON.stringify({ name: 'SB против BTN (ИИ)', actions: ['fold', 'call', 'raise 9bb'], cells: { AA: [0, 0, 1], AKs: [0, 0.5, 0.5], KQs: [0.33, 0.33, 0.33], '22': [0.5, 0.5, 0] } }),
+      '```',
+    ].join('\n')
+    await d.eval(`(() => {
+      const el = document.querySelector('.chart-answer textarea')
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(el, ${JSON.stringify(aiAnswer)})
+      el.dispatchEvent(new Event('input', { bubbles: true }))
+    })()`)
+    await d.eval(`[...document.querySelectorAll('.chart-mine button')].find((b) => b.textContent.trim() === 'Загрузить').click()`)
+    await d.waitText('загружен')
+    await d.shot('02h-trenazher-otvet-ii')
     await d.goto('#/poker') // дальше сценарий идёт с «Играть»
     await d.waitText('Сесть за стол')
   })

@@ -1141,6 +1141,17 @@ a.button-link.primary {
   font-size: 0.85rem;
 }
 
+/* Запись диапазона и имя файла в подсказке (#253): моноширинно, тем же размером, переносом по месту */
+.chart-note code {
+  font-size: 1em;
+  overflow-wrap: anywhere;
+}
+
+/* «Вставить ответ ИИ» — отступ от кнопки «Промпт для ИИ» */
+.chart-answer {
+  margin: 0.6rem 0;
+}
+
 .chart-source {
   overflow-wrap: anywhere;
 }

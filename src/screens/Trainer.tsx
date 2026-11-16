@@ -2,7 +2,7 @@ import { useMemo, useRef, useState, type CSSProperties, type PointerEvent as Rea
 import type { Card } from '../poker/cards'
 import { deckOf, suitClass } from '../calc/pokerLook'
 import { cardFace } from '../calc/pokerView'
-import { CLASSES, emptyRange, parseRange, rangeText } from '../calc/rangeText'
+import { CLASSES, emptyRange, parseRange, RANGE_EXAMPLE, rangeText } from '../calc/rangeText'
 import { TRAINER_PATH, type TrainerStart } from '../calc/trainerFromHand'
 import {
   BOARD_MAX,
@@ -350,7 +350,7 @@ function RangeEditor({ side, onChange }: { side: Side; onChange: (make: (s: Side
           className="range-text"
           value={side.text}
           onChange={(e) => typed(e.target.value)}
-          placeholder="77+, A9s+, AJo+, AKs:0.5"
+          placeholder={RANGE_EXAMPLE}
           autoCapitalize="characters"
           autoComplete="off"
           spellCheck={false}
