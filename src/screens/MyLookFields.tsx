@@ -119,7 +119,7 @@ export function MyLookFields({ look, onChange }: { look: MyLook; onChange: (look
           ref={fileRef}
           type="file"
           accept="image/*"
-          hidden
+          className="own-back-file"
           aria-label="Картинка для своей рубашки"
           onChange={(e) => {
             const file = e.target.files?.[0]

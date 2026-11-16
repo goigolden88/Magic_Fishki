@@ -33,12 +33,15 @@
 // npm run shots -- gear — только он.
 // Имена у мест казино (#254): четыре гостя с именами 8–12 букв, холдем и омаха, на 360 и 390 px (снимки 04f, 04g),
 // имя с многоточием — сбой; npm run shots -- imena — только они.
+// Своя рубашка (#220): картинка в поле выбора файла через DevTools — «Вид стола» со «Своей» (08d) и казино до «Раздать»
+// (04f-kazino-svoya-rubashka), потом «Удалить свою рубашку»; npm run shots -- rubashka — только она.
 // Chrome — google-chrome, google-chrome-stable или chromium; свой путь — переменная CHROME
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { build, preview } from 'vite'
+import { chipIcon } from './icons.ts'
 
 const OUT = 'shots'
 const PORT = 4173
@@ -56,6 +59,7 @@ type Theme = 'night' | 'club' | 'day'
 const THEME_BUTTONS: Record<Theme, string> = { night: 'Ночь', club: 'Клуб', day: 'День' } // кнопки «Оформления»
 const FONTS = ['Golos Text', 'Geologica'] // шрифты приложения (src/fonts, #218): текст и заголовки
 let runTheme: Theme = 'night' // гамма всего сценария (SHOTS_THEME)
+let ownBackPicture = '' // файл картинки для своей рубашки (#220): пишет main во временную папку
 const reported = new Set<string>() // замеры контраста, уже выведенные: гамма, что, цвета
 
 // ─── Замер контраста (#211) ──────────────────────────────────────────────────
@@ -376,6 +380,14 @@ class Device {
       return true
     })()`)
     if (!done) throw new Error(`нет кнопки «${text}»`)
+  }
+
+  // Выбрать файл в поле <input type="file"> (#220) — как человек в окне выбора файла: через DevTools
+  async setFile(selector: string, path: string): Promise<void> {
+    const { root } = await this.cdp.send<{ root: { nodeId: number } }>('DOM.getDocument', {}, this.session)
+    const { nodeId } = await this.cdp.send<{ nodeId: number }>('DOM.querySelector', { nodeId: root.nodeId, selector }, this.session)
+    if (!nodeId) throw new Error(`нет поля ${selector}`)
+    await this.cdp.send('DOM.setFileInputFiles', { files: [path], nodeId }, this.session)
   }
 
   // Вписать текст в поле: значение — через свойство поля и событие input, иначе React его не заметит
@@ -1044,6 +1056,8 @@ async function casinoAndHelpSteps(d: Device): Promise<void> {
     await d.waitFor('.deck-sample .playing-card:not(.face-classic):not(.face-color)')
   })
 
+  await ownBackStep(d)
+
   await screen('Справка', size, async () => {
     await d.goto('#/help')
     await d.waitFor('details.card.help')
@@ -1116,6 +1130,60 @@ async function namesFit(d: Device): Promise<void> {
   for (const s of r) console.log(`  имя «${s.name}»: шрифт ${s.font} px, текст ${s.text} px (${s.em} em), место ${s.box} px`)
   const cut = r.filter((s) => s.text > s.box + 0.01)
   if (cut.length > 0) throw new Error(`имена с многоточием: ${cut.map((s) => s.name).join(', ')}`)
+}
+
+// Своя рубашка (#220): «Вид стола» → картинка в поле выбора файла (фишка-иконка, PNG 512 px) → выбрана «Своя»
+// с образцом; затем новое казино до «Раздать» — места и столы её рубашкой. Потом «Удалить свою рубашку», и дальше
+// сценарий идёт со встроенной. npm run shots -- rubashka — только этот шаг
+async function ownBackStep(d: Device): Promise<void> {
+  const size = d.size
+  await screen('Своя рубашка', size, async () => {
+    await d.goto('#/settings')
+    await d.waitText('Выбрать вид стола')
+    await d.click('Выбрать вид стола')
+    await d.waitText('Своя картинка…')
+    await d.setFile('input[type="file"]', ownBackPicture)
+    await d.waitText('Удалить свою рубашку')
+    await d.waitFor('button[aria-pressed="true"] .look-back.back-own')
+    const saved = await d.eval<string>(`localStorage.getItem('fishki.poker.ownBack') || ''`)
+    const kb = (Math.round((saved.length * 3) / 4 / 100) / 10).toString().replace('.', ',')
+    console.log(`  своя рубашка: ${saved.slice(5, saved.indexOf(';'))}, ${saved.length} знаков (≈ ${kb} КБ)`)
+    await choicesFit(d, 'Вид стола, своя рубашка')
+    await d.shot('08d-vid-stola-svoya-rubashka')
+
+    await d.goto('#/poker')
+    await d.waitText('Войти по ссылке')
+    await d.click('В казино')
+    await d.waitText('Новая игра — только казино')
+    await d.click('Новая игра — только казино')
+    await d.waitFor('input[aria-label="Имя гостя"]')
+    for (const name of GUESTS.slice(0, 4)) {
+      await d.type('input[aria-label="Имя гостя"]', name)
+      await sleep(100)
+      await d.click('Добавить')
+      await sleep(100)
+    }
+    await d.click('Начать')
+    await d.waitText('карты раздаёт программа, всё в открытую')
+    await d.waitFor('.back-own .playing-card.back')
+    await d.shot('04f-kazino-svoya-rubashka')
+
+    await d.goto('#/settings')
+    await d.waitText('Выбрать вид стола')
+    await d.click('Выбрать вид стола')
+    await d.waitText('Удалить свою рубашку')
+    await d.click('Удалить свою рубашку')
+    await waitGone(d, 'Удалить свою рубашку')
+  })
+}
+
+async function ownBackOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES) {
+    console.log(`Своя рубашка, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await themeOnly(d)
+    await ownBackStep(d)
+  }
 }
 
 // «Настройки» → «Вид стола» → «Лицо карт»: выбрать касанием
@@ -1526,6 +1594,10 @@ async function main(): Promise<void> {
 
   const site = await preview({ preview: { port: PORT, strictPort: true }, logLevel: 'warn' })
   const profile = await mkdtemp(join(tmpdir(), 'fishki-shots-'))
+  // Картинка для своей рубашки (#220) — фишка-иконка приложения, во временный файл; удаляется с профилем
+  const picture = await mkdtemp(join(tmpdir(), 'fishki-picture-'))
+  ownBackPicture = join(picture, 'svoya-rubashka.png')
+  await writeFile(ownBackPicture, chipIcon({ size: 512 }))
   let chrome: ChildProcess | null = null
   let cdp: Cdp | null = null
   try {
@@ -1542,7 +1614,10 @@ async function main(): Promise<void> {
     const onlyGear = process.argv.includes('gear') // npm run shots -- gear: «⚙ Стол» за столом с ботами (#243)
     const onlyNames = process.argv.includes('imena') // npm run shots -- imena: имена у мест казино на телефоне (#254)
     const onlyWatch = process.argv.includes('smotret') // npm run shots -- smotret: наблюдение за столом с ботами (#244)
-    const part = onlyTrainer || onlyChoices || onlyHistory || onlyHud || onlyTimeBank || onlyGear || onlyNames || onlyWatch
+    const onlyOwnBack = process.argv.includes('rubashka') // npm run shots -- rubashka: своя рубашка картинкой (#220)
+    const part =
+      onlyTrainer || onlyChoices || onlyHistory || onlyHud || onlyTimeBank || onlyGear || onlyNames || onlyWatch || onlyOwnBack
+    if (onlyOwnBack) await ownBackOnly(cdp)
     if (onlyNames) await namesOnly(cdp)
     if (onlyTimeBank) await timeBankOnly(cdp)
     if (onlyHud) await hudOnly(cdp)
@@ -1568,6 +1643,7 @@ async function main(): Promise<void> {
     chrome?.kill('SIGKILL')
     await site.close()
     await rm(profile, { recursive: true, force: true }).catch(() => undefined)
+    await rm(picture, { recursive: true, force: true }).catch(() => undefined)
   }
 }
 

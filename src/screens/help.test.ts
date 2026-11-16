@@ -68,6 +68,7 @@ const PLACEHOLDERS: HelpValues = {
   trainerExample: '‹диапазон текстом›',
   chartsGame: '‹игра чартов›',
   chartsRounding: '‹округление чартов›',
+  ownBackFileMb: '‹своя рубашка, МБ›',
 }
 
 // Код приложения и сервера комнат текстом — без тестов и без самой справки
@@ -254,6 +255,7 @@ describe('справка', () => {
       trainerSamples: formatNumber(20_000),
       trainerExample: '«77+, A9s+, AJo+, AKs:0.5»',
       chartsGame: '6-макс, 100 ББ',
+      ownBackFileMb: '20',
       chartsRounding: 'доли округлены до 25 % (у пар — до 1/6)',
       bbExample: '42,5 ББ',
     })
