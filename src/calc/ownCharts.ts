@@ -181,23 +181,122 @@ export function chartFileName(name: string): string {
 
 export type ParsedChartFile = { ok: true; chart: OwnChart } | { ok: false; error: string }
 
-// Текст файла → чарт или понятная ошибка
-export function parseChartFile(text: string): ParsedChartFile {
+// Чем восполнить то, чего нет в ответе ИИ (#253): id нового чарта и время загрузки
+export type ChartFill = { id: string; now: string }
+
+// Имя чарта, если его не дали
+export const AI_CHART_NAME = 'Чарт от ИИ'
+// Доли руки в сумме от 1 − SUM_SLACK до 1 + SUM_SLACK нормируются к 1: округление ИИ (0,33 × 3)
+export const SUM_SLACK = 0.01
+
+// Первый объект «{…}» в тексте — ответ ИИ бывает с текстом вокруг и в обёртке ```json; объекта нет — null.
+// Скобки внутри строк JSON не считаются
+export function firstObject(text: string): string | null {
+  const start = text.indexOf('{')
+  if (start < 0) return null
+  let depth = 0
+  let inString = false
+  for (let i = start; i < text.length; i++) {
+    const c = text[i]
+    if (inString) {
+      if (c === '\\') i++
+      else if (c === '"') inString = false
+    } else if (c === '"') inString = true
+    else if (c === '{') depth++
+    else if (c === '}' && --depth === 0) return text.slice(start, i + 1)
+  }
+  return null
+}
+
+// Доли руки с суммой чуть мимо 1 → в сумме 1; дальше от 1, не числа — как есть (ошибку скажет chartProblem)
+function normalizeShares(shares: unknown): unknown {
+  if (!Array.isArray(shares) || !shares.every((s) => typeof s === 'number' && Number.isFinite(s) && s >= 0)) return shares
+  const sum = (shares as number[]).reduce((a, b) => a + b, 0)
+  if (Math.abs(sum - 1) <= EPS || Math.abs(sum - 1) > SUM_SLACK + EPS) return shares
+  return (shares as number[]).map((s) => tidy(s / sum))
+}
+
+// Восполнение чарта: нет id — fill.id, нет времени — fill.now, нет ситуации — null, нет имени — AI_CHART_NAME;
+// доли руки — нормировка. Без fill id и время не восполняются
+function filledChart(v: unknown, fill: ChartFill | undefined): unknown {
+  if (!isObject(v)) return v
+  const out: Record<string, unknown> = { ...v }
+  if (fill && (typeof out.id !== 'string' || out.id === '')) out.id = fill.id
+  if (fill && typeof out.updatedAt !== 'string') out.updatedAt = fill.now
+  if (out.base === undefined) out.base = null
+  if (typeof out.name !== 'string' || chartName(out.name) === '') out.name = AI_CHART_NAME
+  if (isObject(out.cells)) {
+    out.cells = Object.fromEntries(Object.entries(out.cells).map(([cls, shares]) => [cls, normalizeShares(shares)]))
+  }
+  return out
+}
+
+// Текст файла или ответа ИИ → чарт или понятная ошибка (одна функция для файла и вставки, #253).
+// Берётся первый объект «{…}» в тексте; в нём — файл выгрузки (app, kind, format, chart) или сам объект чарта.
+// Чего нет — восполняется (filledChart), строгая проверка chartProblem — после
+export function parseChartFile(text: string, fill?: ChartFill): ParsedChartFile {
+  const unreadable: ParsedChartFile = { ok: false, error: 'Файл не читается: это не чарт «Фишек» или он повреждён' }
+  const json = firstObject(text.replace(/^﻿/, ''))
+  if (json === null) return unreadable
   let data: unknown
   try {
-    data = JSON.parse(text.replace(/^﻿/, ''))
+    data = JSON.parse(json)
   } catch {
-    return { ok: false, error: 'Файл не читается: это не чарт «Фишек» или он повреждён' }
+    return unreadable
   }
-  if (!isObject(data) || data.app !== APP || data.kind !== CHART_FILE_KIND) return { ok: false, error: 'Это не чарт «Фишек»' }
-  if (typeof data.format !== 'number' || !Number.isInteger(data.format) || data.format < 1) {
-    return { ok: false, error: 'Чарт повреждён: не указана версия' }
+  if (!isObject(data)) return unreadable
+  let raw: unknown
+  if ('app' in data || 'kind' in data || 'format' in data) {
+    if (data.app !== APP || data.kind !== CHART_FILE_KIND) return { ok: false, error: 'Это не чарт «Фишек»' }
+    if (typeof data.format !== 'number' || !Number.isInteger(data.format) || data.format < 1) {
+      return { ok: false, error: 'Чарт повреждён: не указана версия' }
+    }
+    if (data.format > CHART_FILE_FORMAT) return { ok: false, error: 'Чарт из более новой версии «Фишек» — обновите приложение' }
+    raw = data.chart
+  } else if ('actions' in data || 'cells' in data) {
+    raw = data // сам объект чарта, без обёртки файла
+  } else {
+    return { ok: false, error: 'Это не чарт «Фишек»' }
   }
-  if (data.format > CHART_FILE_FORMAT) return { ok: false, error: 'Чарт из более новой версии «Фишек» — обновите приложение' }
-  const problem = chartProblem(data.chart)
+  const chart = filledChart(raw, fill)
+  const problem = chartProblem(chart)
   if (problem !== null) return { ok: false, error: `Чарт повреждён: ${problem}` }
-  const chart = data.chart as OwnChart
-  return { ok: true, chart: { ...chart, name: chartName(chart.name) } }
+  const own = chart as OwnChart
+  return { ok: true, chart: { ...own, name: chartName(own.name) } }
+}
+
+// Пример для ИИ: открытие с баттона — каждая форма записи действия и доли в порядке actions
+const PROMPT_EXAMPLE = {
+  app: APP,
+  kind: CHART_FILE_KIND,
+  format: CHART_FILE_FORMAT,
+  chart: {
+    name: 'BTN, открытие',
+    actions: ['fold', 'call', 'raise 2.5bb', 'allin'],
+    cells: { AA: [0, 0, 0.5, 0.5], AKs: [0, 0.25, 0.75, 0], '72o': [1, 0, 0, 0] },
+  },
+}
+export const CHART_PROMPT_EXAMPLE = JSON.stringify(PROMPT_EXAMPLE, null, 2)
+
+// «Промпт для ИИ» (#253): человек отдаёт его своему ИИ вместе с картинкой или таблицей чарта, ответ вставляет
+// в «Мои чарты». Собран из тех же констант, что и разбор; первый объект «{…}» в тексте — пример
+export function chartPrompt(): string {
+  const [fold, call, raise, allin] = PROMPT_EXAMPLE.chart.actions
+  return [
+    'По картинке или таблице чарта префлопа, которые я пришлю, собери JSON для приложения «Фишки». Ответь только JSON, без пояснений.',
+    '',
+    'Формат:',
+    `- app: "${APP}", kind: "${CHART_FILE_KIND}", format: ${String(CHART_FILE_FORMAT)} — как есть;`,
+    '- chart.name — имя чарта: позиция и ситуация;',
+    `- chart.actions — действия чарта по порядку, первое — всегда "${fold}". Запись: "${fold}" — пас, "${call}" — колл, "${allin}" — олл-ин, "${raise}" — рейз, число — до скольких больших блайндов (дробное — через точку);`,
+    '- chart.cells — руки: ключ — класс руки, у класса — доли действий от 0 до 1 в порядке actions, в сумме 1 (рейз наполовину, остальное пас — [0.5, 0.5]);',
+    `- классов ${String(CLASSES.length)}: пары ("AA"), одномастные — с s ("AKs"), разномастные — с o ("AKo"), старшая карта первой, десятка — T. Все: ${CLASSES.join(' ')};`,
+    '- руки нет в чарте — её нет в cells; рука в чарте, но всегда пас — доля паса 1.',
+    'id, updatedAt и base не нужны — приложение поставит само.',
+    '',
+    'Пример:',
+    CHART_PROMPT_EXAMPLE,
+  ].join('\n')
 }
 
 // «Мои чарты» — по имени, одинаковые имена — по времени правки

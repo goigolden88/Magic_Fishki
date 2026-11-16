@@ -4,11 +4,14 @@ import { LEAKPROOF } from './chartsData'
 import {
   applyRange,
   builtinCells,
+  CHART_PROMPT_EXAMPLE,
   chartFileName,
   chartFileText,
   chartName,
   chartProblem,
+  chartPrompt,
   emptyCells,
+  firstObject,
   newChartActions,
   ownChartGrid,
   parseChartFile,
@@ -166,5 +169,67 @@ describe('свои чарты: файл', () => {
     expect(chartProblem({ ...CHART, actions: ['fold', 'limp'] })).toBe('действие не разобрано')
     expect(chartProblem({ ...CHART, name: '  ' })).toBe('нет имени')
     expect(chartProblem(CHART)).toBeNull()
+  })
+})
+
+describe('свои чарты: ответ ИИ (#253)', () => {
+  const FILL = { id: 'new1', now: '2026-11-16T12:00:00.000Z' }
+  const file = (chart: unknown) => JSON.stringify({ app: 'magic_fishki', kind: 'chart', format: 1, chart })
+  const { id: _id, updatedAt: _at, base: _base, ...bare } = CHART
+
+  it('текст вокруг JSON и обёртка ```json — берётся первый объект', () => {
+    const answer = `Вот ваш чарт:\n\`\`\`json\n${chartFileText(CHART)}\n\`\`\`\nЕсли нужно — поправлю {без скобок}.`
+    expect(parseChartFile(answer, FILL)).toEqual({ ok: true, chart: CHART })
+    expect(firstObject('a {"name": "x}{", "b": {"c": "\\"}"}} z {}')).toBe('{"name": "x}{", "b": {"c": "\\"}"}}')
+    expect(firstObject('{"a": 1')).toBeNull()
+  })
+
+  it('голый объект чарта без id, времени и ситуации — восполняется', () => {
+    expect(parseChartFile(JSON.stringify(bare), FILL)).toEqual({ ok: true, chart: { ...bare, id: 'new1', updatedAt: FILL.now, base: null } })
+    const nameless = { actions: bare.actions, cells: bare.cells }
+    const parsed = parseChartFile(file(nameless), FILL)
+    expect(parsed).toEqual({ ok: true, chart: { ...nameless, id: 'new1', updatedAt: FILL.now, base: null, name: 'Чарт от ИИ' } })
+  })
+
+  it('свой id и время в ответе — остаются', () => {
+    expect(parseChartFile(JSON.stringify(CHART), FILL)).toEqual({ ok: true, chart: CHART })
+  })
+
+  it('доли 0,33 × 3 — нормируются к 1; дальше 1 ± 0,01 — ошибка', () => {
+    const three = { ...bare, actions: ['fold', 'call', 'allin'], cells: { AA: [0.33, 0.33, 0.33], KK: [0, 0.5, 0.505] } }
+    const parsed = parseChartFile(JSON.stringify(three), FILL)
+    if (!parsed.ok) throw new Error(parsed.error)
+    parsed.chart.cells.AA.forEach((s) => expect(s).toBeCloseTo(1 / 3, 9))
+    expect(parsed.chart.cells.KK.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 9)
+    expect(chartProblem(parsed.chart)).toBeNull()
+    expect(parseChartFile(JSON.stringify({ ...three, cells: { AA: [0.3, 0.3, 0.3] } }), FILL)).toEqual({
+      ok: false,
+      error: 'Чарт повреждён: у AA доли не в сумме 100 %',
+    })
+  })
+
+  it('мусор и чужое — прежние ошибки', () => {
+    expect(parseChartFile('Не могу разобрать картинку', FILL)).toEqual({ ok: false, error: 'Файл не читается: это не чарт «Фишек» или он повреждён' })
+    expect(parseChartFile('```json\n{"name": "x",}\n```', FILL)).toEqual({ ok: false, error: 'Файл не читается: это не чарт «Фишек» или он повреждён' })
+    expect(parseChartFile('{"games": []}', FILL)).toEqual({ ok: false, error: 'Это не чарт «Фишек»' })
+    expect(parseChartFile(JSON.stringify({ ...bare, cells: { ZZ: [0, 1] } }), FILL)).toEqual({ ok: false, error: 'Чарт повреждён: рука «ZZ» не разобрана' })
+    expect(parseChartFile(JSON.stringify({ ...bare, actions: ['fold', 'limp'] }), FILL)).toEqual({ ok: false, error: 'Чарт повреждён: действие не разобрано' })
+  })
+
+  it('без восполнения id и время не ставятся — строго, как раньше', () => {
+    expect(parseChartFile(JSON.stringify(bare))).toEqual({ ok: false, error: 'Чарт повреждён: нет id' })
+  })
+
+  it('промпт: пример — первый объект и проходит разбор; в тексте — формат, действия и все классы', () => {
+    const prompt = chartPrompt()
+    expect(firstObject(prompt)).toBe(CHART_PROMPT_EXAMPLE)
+    const parsed = parseChartFile(prompt, FILL)
+    if (!parsed.ok) throw new Error(parsed.error)
+    expect(parsed.chart.actions).toEqual(['fold', 'call', 'raise 2.5bb', 'allin'])
+    expect(parsed.chart.name).toBe('BTN, открытие')
+    expect(prompt).toContain('"magic_fishki"')
+    expect(prompt).toContain('format: 1')
+    expect(prompt).toContain('только JSON')
+    for (const cls of CLASSES) expect(prompt).toContain(` ${cls}`)
   })
 })
