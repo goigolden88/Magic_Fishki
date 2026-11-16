@@ -1,6 +1,6 @@
 import { parseChips } from '../calc/format'
 import type { Look } from '../calc/pokerLook'
-import { turnSecondsOf } from '../calc/pokerTimer'
+import { timeBankOf, turnSecondsOf } from '../calc/pokerTimer'
 import { GAME_CHOICES, MAX_RUNS_CHOICES, MIX_SHARE_CHOICES, type GameChoice, type QuickRoom, type RoomChoice } from '../calc/quickRoom'
 import { formSettings, tournamentFormOf, type TournamentForm } from '../calc/tournamentForm'
 import type { CardsMode, Limit } from '../poker/game'
@@ -35,7 +35,7 @@ export function roomFormOf(room: QuickRoom, stack: string, players: number): Roo
     stack,
     cards: room.cards,
     variant: room.variant,
-    timer: timerForm(room.turnSeconds, room.autoStart),
+    timer: timerForm(room.turnSeconds, room.autoStart, room.timeBank ?? null),
     look: room.look,
     format: tournamentFormOf(room.format, players),
     publicHud: room.publicHud,
@@ -59,6 +59,7 @@ export function roomChoiceOf(form: RoomForm): RoomChoice | null {
     cards: form.cards,
     variant: form.variant,
     turnSeconds: turn.seconds,
+    timeBank: timeBankOf(turn.seconds, form.timer.bank),
     autoStart: form.timer.autoStart,
     look: form.look,
     format: game.settings,
@@ -114,7 +115,7 @@ export function RoomFields({ form, players, onChange }: { form: RoomForm; player
       {/* #167: «Прогнать несколько раз» — только карты на телефонах, кэш и турнир */}
       {cards === 'phones' && <RunsFields max={form.maxRuns} onChange={(maxRuns) => set({ maxRuns })} />}
 
-      {/* #75: стол на одном телефоне — без таймера и раздачи «сама» */}
+      {/* #75: стол на одном телефоне — без таймера и раздачи «сама»; запас времени (#223) — тоже только здесь */}
       <TimerFields form={form.timer} onChange={(timer) => set({ timer })} />
 
       <LookFields look={form.look} backs onChange={(l) => set({ look: { ...form.look, ...l } })} />

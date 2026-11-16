@@ -8,7 +8,7 @@ import { potLimit, type HandLogEntry, type Stage, type Street } from '../poker/h
 import { HUD_FEW_HANDS, type HudCounts } from '../poker/hud'
 import { buildPots } from '../poker/pots'
 import { handFor, type HistoryHand } from '../poker/history'
-import { blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type HandRecord, type HandResult, type TableState } from '../poker/table'
+import { bankOf, blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type HandRecord, type HandResult, type TableState } from '../poker/table'
 import { allInOdds } from './allInOdds'
 import { handBlinds as tableBlinds, type SavedHand } from './evenings'
 import { handMoney, handNet, handPositions, positionLabels } from './handResult'
@@ -54,6 +54,7 @@ export type SeatView = {
   online: boolean
   sittingOut: boolean
   turnLeft: number | null // чей ход и таймер идёт — сколько секунд осталось
+  turnBank: boolean // чей ход, и идёт его запас (#223): turnLeft — секунды запаса; чужой запас, пока не тратится, не виден
   place: number | null // турнир: место выбывшего, а когда окончен — у всех; иначе null
   hud: HudView | null // HUD вечера (#79): раздач ещё не было или HUD чужой при «только свою» — null
   tag?: string // подпись под именем: стиль бота за столом против ботов (#139); у остальных столов поля нет
@@ -153,6 +154,9 @@ export type TableView = {
   canShow: { cards: Card[]; shown: boolean[] } | null // взял банк без вскрытия: что можно показать
   paused: boolean // «Перерыв»
   turnLeft: number | null // секунд на ход у того, чей ход; таймера нет — null
+  turnBank: boolean // у того, чей ход, идёт запас (#223): turnLeft — секунды запаса
+  // Мой запас (#223), секунд, без идущего хода; за столом запаса нет или я не за столом — null
+  myBank: number | null
   nextHandLeft: number | null // секунд до раздачи «сама»; не начнётся сама — null
   ante: number // анте с каждого: в раздаче — её, между раздачами — следующей; 0 — нет
   bb: number // большой блайнд: в раздаче — её, между раздачами — следующей; для показа сумм в ББ (Р-62)
@@ -173,6 +177,8 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
   const hand = table.hand
   const turn = table.turn
   const turnLeft = hand && turn && hand.toAct !== -1 ? secondsLeft(turn.deadline, now) : null
+  // Запас (#223): время на ход вышло — срок хода продлён до конца запаса, отсчёт тот же
+  const turnBank = turnLeft !== null && turn?.bank !== undefined
   const names = new Map(table.players.map((p) => [p.id, p.name]))
   const nameOf = (id: string) => names.get(id) ?? 'Ушёл'
   const host = table.players.find((p) => p.id === table.hostId)
@@ -210,6 +216,7 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
         online: p.online,
         sittingOut: p.sittingOut,
         turnLeft: hand !== null && index !== -1 && index === hand.toAct ? turnLeft : null,
+        turnBank: hand !== null && index !== -1 && index === hand.toAct && turnBank,
         place: places.get(p.id) ?? null,
         hud: table.settings.publicHud || p.id === meId ? hudView(table, p.id) : null,
       }
@@ -260,6 +267,8 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
     canShow: hidden && record ? { cards: hidden.cards, shown: hidden.cards.map((_, i) => Boolean(record.shown[meId]?.[i])) } : null,
     paused: table.paused === true,
     turnLeft,
+    turnBank,
+    myBank: table.settings.timeBank && table.players.some((p) => p.id === meId) ? Math.ceil(bankOf(table, meId) / 1000) : null,
     nextHandLeft: !hand && typeof table.nextHandAt === 'number' ? secondsLeft(table.nextHandAt, now) : null,
     ante: hand ? (hand.ante ?? 0) : (tournament?.blinds.ante ?? table.settings.ante ?? 0),
     bb: hand ? hand.bb : (tournament?.blinds.bb ?? table.settings.bb),

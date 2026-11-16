@@ -152,7 +152,7 @@ describe('настройка и версия', () => {
   })
 
   it('старая копия приложения — «обновите приложение»', () => {
-    expect(PROTOCOL_VERSION).toBe(17)
+    expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(17) // прогон — с версии 17; 18 — запас времени (#223)
     const s = allInPreflop()
     expect(handle(s, 'p0', { v: 16, type: 'runChoice', times: 2 }, 0)).toEqual({ ok: false, error: VERSION_ERROR })
   })

@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import type { Card } from './cards'
-import { PROTOCOL_VERSION, type ClientBody } from './protocol'
-import { AUTO_START_MS, handle, nextDeadline, onTime, type TableState } from './table'
+import { PROTOCOL_VERSION, VERSION_ERROR, type ClientBody } from './protocol'
+import {
+  AUTO_START_MS,
+  bankOf,
+  handle,
+  nextDeadline,
+  onTime,
+  TIME_BANK_ADD_S,
+  TIME_BANK_EVERY,
+  TIME_BANK_MAX_S,
+  type TableState,
+} from './table'
 import { allin, award, call, fold, MODES, newTable, play, sit, stackedDeck, start } from './testing'
 
 const T = 30_000 // время на ход в тестах — 30 с
@@ -197,6 +207,166 @@ describe.each(MODES)('следующая раздача сама (%s)', (_, rt) 
     s = play(s, [at(start('h'), 1000)], rt)
     expect(s.nextHandAt).toBeNull()
     expect(tick(s, fast)).toBeNull()
+  })
+})
+
+describe.each(MODES)('запас времени (#223) (%s)', (_, rt) => {
+  const tick = (s: TableState, now: number) => {
+    const r = onTime(rt ? roundtrip(s) : s, now)
+    return r && rt ? roundtrip(r) : r
+  }
+  const B = 30_000 // запас в тестах — 30 с
+  const banked = (settings = {}) => newTable(['h', 'g'], { turnSeconds: 30, timeBank: 30, ...settings })
+  // Раздача начата в 1000, у h вышло время на ход — пошёл его запас
+  const onBank = () => {
+    const s = tick(play(banked(), [at(start('h'), 1000)], rt), 1000 + T)
+    if (!s) throw new Error('запас не пошёл')
+    return s
+  }
+  // Раздача целиком: ходящий первым — пас, банк — другому
+  const quickHand = (s: TableState) => {
+    s = play(s, [start('h')], rt)
+    const hand = s.hand!
+    const first = hand.seats[hand.toAct].id
+    return play(s, [fold(first), award('h', [[first === 'h' ? 'g' : 'h']])], rt)
+  }
+
+  it('в начале у каждого — начальный запас; новый садится с начальным', () => {
+    const s = play(banked(), [sit('n', 'N')], rt)
+    expect(s.timeBank).toEqual({ h: B, g: B, n: B })
+    expect(bankOf(s, 'n')).toBe(B)
+    expect(bankOf(s, 'x')).toBe(0)
+  })
+
+  it('время на ход вышло, есть запас и игрок в сети — срок продлён на весь запас, в журнале пометки нет', () => {
+    const s = onBank()
+    expect(s.turn).toEqual({ hand: 1, move: 0, deadline: 1000 + T + B, bank: { playerId: 'h', from: 1000 + T } })
+    expect(s.hand?.log).toEqual([])
+    expect(s.timeouts).toEqual({})
+    expect(nextDeadline(s)).toBe(1000 + T + B)
+    expect(s.timeBank?.h).toBe(B) // вычитается, когда ход кончится
+  })
+
+  it('сходил на запасе — из запаса вычтено потраченное, следующий ход — снова полное время на ход', () => {
+    let s = play(onBank(), [at(call('h'), 1000 + T + 12_000)], rt)
+    expect(s.timeBank).toEqual({ h: B - 12_000, g: B })
+    expect(s.turn).toEqual({ hand: 1, move: 1, deadline: 1000 + T + 12_000 + T })
+    // Следующий ход h — снова полное время на ход, затем остаток запаса
+    s = play(s, [at({ from: 'g', msg: { type: 'act', action: { type: 'check' } } }, 50_000)], rt)
+    expect(s.turn).toEqual({ hand: 1, move: 2, deadline: 50_000 + T })
+    expect(s.hand?.seats[s.hand.toAct].id).toBe('g') // после префлопа хедз-апа первым ходит большой блайнд
+    s = play(s, [at({ from: 'g', msg: { type: 'act', action: { type: 'check' } } }, 51_000)], rt)
+    expect(s.turn).toEqual({ hand: 1, move: 3, deadline: 51_000 + T })
+    s = tick(s, 51_000 + T)!
+    expect(s.turn).toEqual({ hand: 1, move: 3, deadline: 51_000 + T + B - 12_000, bank: { playerId: 'h', from: 51_000 + T } })
+  })
+
+  it('запас кончился — как без него: пас по времени; два раза подряд — «пропускает раздачи»', () => {
+    let s = tick(onBank(), 1000 + T + B)!
+    expect(s.hand?.log).toEqual([{ street: 'preflop', playerId: 'h', type: 'fold', bet: 5, allIn: false, timeout: true }])
+    expect(s.timeBank?.h).toBe(0)
+    expect(s.timeouts).toEqual({ h: 1 })
+    expect(s.turn).toBeNull()
+    // Вторая раздача: кнопка у g; у h запаса нет — ход истекает по времени на ход
+    s = play(s, [award('h', [['g']], 70_000), at(start('h'), 71_000), at(call('g'), 72_000)], rt)
+    s = tick(s, 72_000 + T)!
+    expect(s.hand?.log.at(-1)).toMatchObject({ playerId: 'h', type: 'check', timeout: true })
+    expect(s.players[0].sittingOut).toBe(true)
+  })
+
+  it('игрок вне сети — запас не тратится, ход истекает по времени на ход', () => {
+    const s = play(banked(), [at(start('h'), 1000), { from: 'h', online: false, now: 2000 }], rt)
+    const r = tick(s, 1000 + T)!
+    expect(r.hand?.log).toMatchObject([{ playerId: 'h', type: 'fold', timeout: true }])
+    expect(r.timeBank?.h).toBe(B)
+  })
+
+  it('ушёл из сети уже на запасе — срок прежний', () => {
+    const s = play(onBank(), [{ from: 'h', online: false, now: 1000 + T + 1000 }], rt)
+    expect(s.turn?.deadline).toBe(1000 + T + B)
+    expect(tick(s, 1000 + T + B - 1)).toBeNull()
+    const r = tick(s, 1000 + T + B)!
+    expect(r.hand?.log).toMatchObject([{ playerId: 'h', type: 'fold', timeout: true }])
+    expect(r.timeBank?.h).toBe(0)
+  })
+
+  it('«Перерыв» на запасе — потраченное вычтено сразу; «Продолжить» — время на ход полностью, запас — остаток', () => {
+    let s = play(onBank(), [{ from: 'h', msg: { type: 'pause', paused: true }, now: 1000 + T + 10_000 }], rt)
+    expect(s.timeBank?.h).toBe(B - 10_000)
+    expect(s.turn).toBeNull()
+    expect(tick(s, 1000 + T + B)).toBeNull()
+    s = play(s, [{ from: 'h', msg: { type: 'pause', paused: false }, now: 100_000 }], rt)
+    expect(s.turn).toEqual({ hand: 1, move: 0, deadline: 100_000 + T })
+    expect(s.timeBank?.h).toBe(B - 10_000)
+    s = tick(s, 100_000 + T)!
+    expect(s.turn).toEqual({ hand: 1, move: 0, deadline: 100_000 + T + B - 10_000, bank: { playerId: 'h', from: 100_000 + T } })
+  })
+
+  it(`каждые ${TIME_BANK_EVERY} раздач стола всем за столом +${TIME_BANK_ADD_S} с, не больше ${TIME_BANK_MAX_S} с`, () => {
+    let s = banked({ timeBank: 15 })
+    for (let k = 1; k < TIME_BANK_EVERY; k++) s = quickHand(s)
+    expect(s.timeBank).toEqual({ h: 15_000, g: 15_000 })
+    s = quickHand(s)
+    expect(s.handCount).toBe(TIME_BANK_EVERY)
+    expect(s.timeBank).toEqual({ h: 20_000, g: 20_000 })
+    let full = banked({ timeBank: 60 })
+    for (let k = 0; k < TIME_BANK_EVERY; k++) full = quickHand(full)
+    expect(full.timeBank).toEqual({ h: TIME_BANK_MAX_S * 1000, g: TIME_BANK_MAX_S * 1000 })
+  })
+
+  it('ведущий сменил запас между раздачами — у всех новый начальный; тот же — остаток; выключил — запаса нет', () => {
+    let s = play(onBank(), [at(fold('h'), 1000 + T + 5000), award('h', [['g']], 40_000)], rt)
+    expect(s.timeBank).toEqual({ h: B - 5000, g: B })
+    let r = send(s, 'h', { type: 'tableSettings', turnSeconds: 30, timeBank: 30 })
+    expect(r.ok && r.state.timeBank).toEqual({ h: B - 5000, g: B })
+    r = send(s, 'h', { type: 'tableSettings', timeBank: 60 })
+    expect(r.ok && r.state.timeBank).toEqual({ h: 60_000, g: 60_000 })
+    r = send(s, 'h', { type: 'tableSettings', timeBank: null })
+    expect(r.ok).toBe(true)
+    s = r.ok ? r.state : s
+    expect(s.settings.timeBank).toBeNull()
+    expect(bankOf(s, 'h')).toBe(0)
+    s = play(s, [at(start('h'), 50_000)], rt)
+    // Кнопка у g — он ходит первым; запаса нет — ход истекает по времени на ход
+    expect(tick(s, 50_000 + T)?.hand?.log).toMatchObject([{ playerId: 'g', type: 'fold', timeout: true }])
+  })
+
+  it('будильник раньше срока или дважды — стол не меняется, запас не включается второй раз и не вычитается дважды', () => {
+    const s = play(banked(), [at(start('h'), 1000)], rt)
+    expect(tick(s, 1000 + T - 1)).toBeNull()
+    const once = tick(s, 1000 + T)!
+    expect(tick(once, 1000 + T)).toBeNull()
+    expect(tick(once, 1000 + T + B - 1)).toBeNull()
+    const out = tick(once, 1000 + T + B)!
+    expect(tick(out, 1000 + T + B)).toBeNull()
+    expect(out.timeBank?.h).toBe(0)
+    expect(out.hand?.log).toHaveLength(1)
+    // Сходил на запасе, затем другие сообщения — запас вычтен один раз
+    const acted = play(once, [at(call('h'), 1000 + T + 4000), { from: 'h', msg: { type: 'look', felt: 'blue' }, now: 1000 + T + 9000 }], rt)
+    expect(acted.timeBank?.h).toBe(B - 4000)
+    expect(tick(acted, 1000 + T + B)).toBeNull()
+  })
+
+  it('запас — только со временем на ход; значения — из готовых', () => {
+    const together = 'Запас времени — только вместе со временем на ход'
+    expect(() => newTable(['h'], { timeBank: 30 })).toThrow(together)
+    expect(() => newTable(['h'], { turnSeconds: 30, timeBank: 20 })).toThrow('Запас времени — 15, 30, 60 секунд или выкл')
+    const s = banked()
+    expect(send(s, 'h', { type: 'tableSettings', turnSeconds: null })).toEqual({ ok: false, error: together })
+    expect(send(s, 'h', { type: 'tableSettings', turnSeconds: null, timeBank: null }).ok).toBe(true)
+    expect(send(s, 'g', { type: 'tableSettings', timeBank: 60 })).toEqual({ ok: false, error: 'Это может только ведущий' })
+  })
+
+  it('старая копия приложения (протокол 17) — «обновите приложение»', () => {
+    expect(PROTOCOL_VERSION).toBe(18)
+    expect(handle(banked(), 'h', { v: 17, type: 'tableSettings', timeBank: 60 }, 0)).toEqual({ ok: false, error: VERSION_ERROR })
+  })
+
+  it('стол без новых полей (до запаса) — запаса нет, ход истекает как раньше', () => {
+    const s = play(timed(), [at(start('h'), 1000)], rt) as TableState & Record<string, unknown>
+    delete s.timeBank
+    expect(bankOf(s, 'h')).toBe(0)
+    expect(tick(s, 1000 + T)?.hand?.log).toMatchObject([{ playerId: 'h', type: 'fold', timeout: true }])
   })
 })
 
