@@ -5,6 +5,7 @@ import { parseLocalTable, type LocalTable } from '../calc/localTable'
 import { serverBase, type SavedSeat } from '../calc/pokerLink'
 import { parseLabels, parseNotes, type NoteLabels, type PlayerNotes } from '../calc/playerNotes'
 import { BET_STEP_DEFAULT, parseBetStep, type BetStep } from '../calc/pokerLayout'
+import { isOwnBackUrl } from '../calc/ownBack'
 import { isDefaultLook, MY_LOOK_DEFAULT, parseMyLook, type MyLook } from '../calc/pokerLook'
 import { parseQuickBets, QUICK_BETS_DEFAULT, type QuickBets } from '../calc/quickBets'
 import { parseQuickRoom, type QuickRoom } from '../calc/quickRoom'
@@ -15,7 +16,8 @@ import type { CSSProperties } from 'react'
 
 // Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги,
 // звук «ваш ход», «карты всегда открыты», «анимация карт», стол на этом телефоне и стол против ботов,
-// последняя открытая игра для «Продолжить» (#209), «HUD у мест: коротко / подробно» (#243) — данные этого устройства,
+// последняя открытая игра для «Продолжить» (#209), «HUD у мест: коротко / подробно» (#243), своя рубашка картинкой (#220) —
+// данные этого устройства,
 // а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21, Р-38).
 // Заметки об игроках и подписи их цветов (Р-56), личный «Вид стола» (Р-61), своя «Быстрая комната», показ в ББ
 // и быстрые ставки (Р-62), размер стола и панели ставок (Р-63), шаг колеса и «−»/«+» (Р-69), свои игры (Р-85) —
@@ -34,6 +36,7 @@ const ANIM_KEY = 'fishki.poker.anim'
 const NOTES_KEY = 'fishki.poker.notes'
 const LABELS_KEY = 'fishki.poker.noteLabels'
 const LOOK_KEY = 'fishki.poker.look'
+const OWN_BACK_KEY = 'fishki.poker.ownBack'
 const QUICK_ROOM_KEY = 'fishki.poker.quickRoom'
 const OWN_GAMES_KEY = 'fishki.poker.ownGames'
 const BB_KEY = 'fishki.poker.bigBlinds'
@@ -322,6 +325,35 @@ export function saveMyLook(next: MyLook) {
   myLook = next
   write(LOOK_KEY, isDefaultLook(next) ? '' : JSON.stringify(next))
   lookChanged()
+}
+
+// Своя рубашка картинкой (#220): data URL сжатой картинки — только на этом устройстве, на сервер и в копию не идёт.
+// Копия — в памяти страницы; строка не прошла проверку — картинки нет
+let ownBack: string | null | undefined // undefined — ещё не читали
+
+export function loadOwnBack(): string | null {
+  if (ownBack === undefined) {
+    const stored = read(OWN_BACK_KEY)
+    ownBack = isOwnBackUrl(stored) ? stored : null
+  }
+  return ownBack
+}
+
+export const hasOwnBack = () => loadOwnBack() !== null
+
+// Запись с ответом: браузер отказал (нет места, запрещено) — false, прежняя картинка остаётся.
+// null — стереть картинку
+export function saveOwnBack(url: string | null): boolean {
+  try {
+    if (url === null) localStorage.removeItem(OWN_BACK_KEY)
+    else if (isOwnBackUrl(url)) localStorage.setItem(OWN_BACK_KEY, url)
+    else return false
+  } catch {
+    return false
+  }
+  ownBack = url
+  lookChanged()
+  return true
 }
 
 // Вид стола сменили (свой вид, размер стола или панели) — стол на экране перерисовывается сразу (#243:

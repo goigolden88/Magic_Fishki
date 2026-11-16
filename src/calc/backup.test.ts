@@ -390,6 +390,18 @@ describe('файл-копия формата 5: вид стола', () => {
     expect(parsed.ok && parsed.backup.look.deck).toBe('two')
     expect(parsed.ok && parsed.backup.format).toBe(BACKUP_FORMAT)
   })
+
+  it('своя рубашка (#220): в копии «Своей» нет — «Как у стола»; остальной вид как был, формат прежний', () => {
+    const own = makeBackup([], SETTINGS, NOW, [], {}, {}, { ...LOOK, cardBack: 'own' })
+    const text = backupText(own)
+    expect(JSON.parse(text).look).toEqual({ ...LOOK, cardBack: null })
+    expect(JSON.parse(text).format).toBe(BACKUP_FORMAT)
+    expect(text).not.toContain('"own"')
+    expect(parse(text)).toEqual({ ok: true, backup: own })
+    // «Своя» в чужой или правленой копии — тоже «Как у стола»
+    const odd = parse(JSON.stringify({ ...backupOf([]), look: { ...LOOK, cardBack: 'own' } }))
+    expect(odd.ok && odd.backup.look).toEqual({ ...LOOK, cardBack: null })
+  })
 })
 
 // Покер-рум телефона в копии (Р-62): своя «Быстрая комната», показ в ББ, быстрые ставки

@@ -27,7 +27,9 @@ export function lookOf(settings: Partial<Settings>): Look {
 // null — «Как у стола» (выбор ведущего); колода — «Две масти цветом» или «Четыре цвета»,
 // null у колоды — не выбрана на этом телефоне: четыре цвета (#192), а восстановление из копии может её дописать
 export type MyFelt = Felt | 'navy' | 'black'
-export type MyBack = CardBack | 'chip' | 'dark'
+// 'own' — своя рубашка картинкой с устройства (#220): не в MY_BACK_LABELS — «Своя» видна, только пока картинка есть
+export type MyBack = CardBack | 'chip' | 'dark' | 'own'
+export const OWN_BACK = 'own'
 export type Deck = 'two' | 'four'
 // Лицо карт (#219): «Крупное» — ранг и масть строкой по центру белой карты, «Классическое» — индекс в углу и масть
 // по центру, «Цветное» — карта залита цветом масти, белые ранг и масть. null или нет поля (записи до #219) — «Крупное»
@@ -81,10 +83,21 @@ export function parseMyLook(raw: unknown): MyLook {
   const o = typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {}
   return {
     felt: oneOf(MY_FELT_LABELS, o.felt),
-    cardBack: oneOf(MY_BACK_LABELS, o.cardBack),
+    cardBack: o.cardBack === OWN_BACK ? OWN_BACK : oneOf(MY_BACK_LABELS, o.cardBack),
     deck: oneOf(DECK_LABELS, o.deck),
     face: oneOf(FACE_LABELS, o.face),
   }
+}
+
+// Вид для копии (#220): своей картинки в копии нет, поэтому и «Своя» в ней — «Как у стола»; остальное как есть
+export function backupLook(look: MyLook): MyLook {
+  return look.cardBack === OWN_BACK ? { ...look, cardBack: null } : look
+}
+
+// Рубашка, которой рисуются карты: «Своя», а картинки на этом устройстве нет (стёрли память, другой браузер), —
+// «Как у стола»
+export function shownBack(mine: MyLook, ownBack: boolean): MyBack | null {
+  return mine.cardBack === OWN_BACK && !ownBack ? null : mine.cardBack
 }
 
 // Ничего не выбрано — записи в памяти телефона нет; выбранная колода, и «две масти» тоже, — запись есть;
@@ -103,10 +116,11 @@ export function mergeMyLook(local: MyLook, backup: MyLook): MyLook {
   }
 }
 
-// Классы обёртки стола: сукно и рубашка карт внутри неё; свой выбор телефона — поверх выбора ведущего
-export function lookClass(settings: Partial<Settings>, mine: MyLook = MY_LOOK_DEFAULT): string {
+// Классы обёртки стола: сукно и рубашка карт внутри неё; свой выбор телефона — поверх выбора ведущего.
+// ownBack — есть ли на устройстве своя картинка рубашки (#220)
+export function lookClass(settings: Partial<Settings>, mine: MyLook = MY_LOOK_DEFAULT, ownBack = false): string {
   const table = lookOf(settings)
-  return `table-look felt-${mine.felt ?? table.felt} back-${mine.cardBack ?? table.cardBack}`
+  return `table-look felt-${mine.felt ?? table.felt} back-${shownBack(mine, ownBack) ?? table.cardBack}`
 }
 
 // Цвет масти на лице карты: две масти цветом — черви и бубны красные (класс red);

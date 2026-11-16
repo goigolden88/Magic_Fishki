@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { hostDo, parseLocalTable, startLocalTable } from '../calc/localTable'
 import {
+  backupLook,
   DECK_LABELS,
   deckOf,
   FACE_LABELS,
@@ -13,6 +14,7 @@ import {
   MY_FELT_LABELS,
   MY_LOOK_DEFAULT,
   parseMyLook,
+  shownBack,
   suitClass,
 } from '../calc/pokerLook'
 import { CARD_BACKS, FELTS } from './table'
@@ -109,6 +111,33 @@ describe('личный вид стола (Р-61)', () => {
 
   it('стол до #77 без полей вида — свой выбор всё равно свой', () => {
     expect(lookClass({}, { felt: 'navy', cardBack: 'chip', deck: 'two' })).toBe('table-look felt-navy back-chip')
+  })
+
+  it('своя рубашка (#220): с картинкой — back-own, без картинки — как у стола', () => {
+    const settings = { felt: 'burgundy' as const, cardBack: 'geo' as const }
+    const own = { ...MY_LOOK_DEFAULT, cardBack: 'own' as const }
+    expect(lookClass(settings, own, true)).toBe('table-look felt-burgundy back-own')
+    expect(lookClass(settings, own, false)).toBe('table-look felt-burgundy back-geo')
+    expect(lookClass(settings, own)).toBe('table-look felt-burgundy back-geo')
+    expect(lookClass({}, own, false)).toBe('table-look felt-green back-classic')
+    // встроенная рубашка — как прежде, картинка в памяти ей не мешает
+    expect(lookClass(settings, { ...MY_LOOK_DEFAULT, cardBack: 'dark' }, true)).toBe('table-look felt-burgundy back-dark')
+    expect(shownBack(own, false)).toBeNull()
+    expect(shownBack(own, true)).toBe('own')
+  })
+
+  it('своя рубашка из памяти — «Своя»; в копию — «Как у стола», остальное как было', () => {
+    expect(parseMyLook({ felt: 'navy', cardBack: 'own', deck: 'two', face: 'color' })).toEqual({
+      felt: 'navy',
+      cardBack: 'own',
+      deck: 'two',
+      face: 'color',
+    })
+    expect(MY_BACK_LABELS.some(([b]) => b === 'own')).toBe(false)
+    const own = { felt: 'navy' as const, cardBack: 'own' as const, deck: 'two' as const, face: 'color' as const }
+    expect(backupLook(own)).toEqual({ ...own, cardBack: null })
+    const dark = { ...own, cardBack: 'dark' as const }
+    expect(backupLook(dark)).toEqual(dark)
   })
 
   it('цвет масти: две масти — черви и бубны красные; четыре цвета — класс по масти', () => {

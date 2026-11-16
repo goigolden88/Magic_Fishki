@@ -82,7 +82,7 @@ import {
 import { playFlights, useLandOnHide } from './cardFly'
 import { GuestField } from './GuestField'
 import { PlayingCard } from './PokerRoom'
-import { loadCardAnim, loadMyLook } from './pokerStorage'
+import { hasOwnBack, loadCardAnim, loadMyLook } from './pokerStorage'
 import { useWide } from './useWide'
 
 const KINDS: DealKind[] = ['holdem', 'omaha']
@@ -756,7 +756,7 @@ function Felt(props: { kind: DealKind; seats: SeatData[]; boards: BoardData[]; l
       </div>
     ))
   return (
-    <div ref={ref} className={`casino-table ${l.wide ? 'wide' : 'phone'} ${lookClass(look, loadMyLook())}`} style={layoutStyle(l)}>
+    <div ref={ref} className={`casino-table ${l.wide ? 'wide' : 'phone'} ${lookClass(look, loadMyLook(), hasOwnBack())}`} style={layoutStyle(l)}>
       <div className="felt casino-felt" />
       <div className="casino-seats">{block(l.top)}</div>
       <div className="casino-boards" data-fly-origin>

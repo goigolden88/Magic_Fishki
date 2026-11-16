@@ -81,6 +81,7 @@ import { LookFields } from './LookFields'
 import { LookGear } from './TableGear'
 import { playFlights, useLandOnHide } from './cardFly'
 import {
+  hasOwnBack,
   loadBigBlinds,
   loadCardAnim,
   loadMyLook,
@@ -393,7 +394,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   // Колонка (#97): стол — на весь первый экран, под ним листается остальное, панель хода — внизу.
   // Широкое окно (Р-63): стол и панель — целиком в окне, панель — справа внизу поверх края стола (#210); под ними листается страница
   return (
-    <div className={`table-layout ${lookClass(table.settings, loadMyLook())}`} style={tableFitStyle()}>
+    <div className={`table-layout ${lookClass(table.settings, loadMyLook(), hasOwnBack())}`} style={tableFitStyle()}>
       <div className="table-scroll">
         <div className="table-stage">
           <p className="muted table-info">
