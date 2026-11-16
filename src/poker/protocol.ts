@@ -25,7 +25,9 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 //      (mixVote, mixResult); предложение батона (mixPropose), ответ (mixVote), «Без смены» ведущего (mixCancel)
 // 17 — «Прогнать несколько раз» (#167, Р-58): настройка maxRuns при создании, выбор в столе (runVote),
 //      ответ дошедшего (runChoice), несколько бордов в раздаче (boards) и в записи (runs)
-export const PROTOCOL_VERSION = 17
+// 18 — запас времени (#223): настройка timeBank при создании и в tableSettings, запас игроков в столе (timeBank),
+//      идущий запас в сроке хода (turn.bank)
+export const PROTOCOL_VERSION = 18
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -77,11 +79,12 @@ export type ClientBody =
   | { type: 'pause'; paused: boolean } // ведущий: «Перерыв» и «Продолжить»; в турнире — и часы уровней
   | { type: 'tournamentRebuy' } // выбывший в турнире: ребай за бай-ин, стек — стартовый
   | { type: 'endTournament' } // ведущий: «Закончить турнир», пока с фишками один и ждём ребая
-  // ведущий, между раздачами: время на ход (null — без таймера), раздача «сама», анте кэша, призы
-  // турнира до его начала (null — по числу игроков) и кому виден HUD; нет поля — не меняется
+  // ведущий, между раздачами: время на ход (null — без таймера), запас времени (#223, null — нет), раздача «сама»,
+  // анте кэша, призы турнира до его начала (null — по числу игроков) и кому виден HUD; нет поля — не меняется
   | {
       type: 'tableSettings'
       turnSeconds?: number | null
+      timeBank?: number | null
       autoStart?: AutoStart
       ante?: number
       prizes?: number[] | null

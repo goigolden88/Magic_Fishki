@@ -653,6 +653,25 @@ describe('время на ход и раздача «сама» — будиль
     expect(guest.sent.length).toBe(sent)
   })
 
+  it('запас времени (#223): при создании и в настройках стола доходит до стола; будильник — на конец запаса', async () => {
+    const { r, host, guest, hostId } = await twoPlayers({ turnSeconds: 30, timeBank: 15 })
+    expect(tableOf(guest).settings.timeBank).toBe(15)
+    expect(tableOf(guest).timeBank).toEqual({ [hostId]: 15_000, [tableOf(guest).players[1].id]: 15_000 })
+    await send(r, host, { type: 'tableSettings', timeBank: 30 }, 500)
+    expect(tableOf(guest).settings.timeBank).toBe(30)
+    await send(r, host, { type: 'start' }, 1000)
+    for (const p of [host, guest]) p.ping(1000 + T)
+    await alarm(r.env, 1000 + T)
+    // Время на ход вышло — ход ведущего продлён на его запас, хода за него нет
+    expect(tableOf(guest).turn).toEqual({ hand: 1, move: 0, deadline: 1000 + T + 30_000, bank: { playerId: hostId, from: 1000 + T } })
+    expect(tableOf(guest).hand?.log).toEqual([])
+    expect(r.storage.alarmAt).toBe(1000 + T + CHECK_MS)
+    for (const p of [host, guest]) p.ping(1000 + T + 30_000)
+    await alarm(r.env, 1000 + T + 30_000)
+    expect(tableOf(guest).hand?.log).toMatchObject([{ playerId: hostId, type: 'fold', timeout: true }])
+    expect(tableOf(guest).timeBank?.[hostId]).toBe(0)
+  })
+
   it('«Прогнать несколько раз» (#167): выбор дошедших — прогон дважды; не ответили до срока — будильник, один борд', async () => {
     const both = await twoPlayers({ cards: 'phones', maxRuns: 2 })
     await send(both.r, both.host, { type: 'start' }, 1000)

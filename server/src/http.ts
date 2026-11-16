@@ -61,9 +61,10 @@ function pickSettings(x: unknown): Partial<Settings> {
   if (!isRecord(x)) return {}
   const out: Record<string, unknown> = {}
   // format, ante, tournament — турнир и анте (#78); структуру турнира стол проверяет целиком; publicHud — HUD (#79);
-  // game, limit — омаха и пот-лимит (#80); mix, mixAgainst — «Микс» (#166); maxRuns — «Прогнать несколько раз» (#167)
+  // game, limit — омаха и пот-лимит (#80); mix, mixAgainst — «Микс» (#166); maxRuns — «Прогнать несколько раз» (#167);
+  // timeBank — запас времени (#223)
   const keys = [
-    ...['sb', 'bb', 'startingStack', 'maxSeats', 'rebuyMaxBB', 'cards', 'turnSeconds', 'autoStart', 'felt', 'cardBack'],
+    ...['sb', 'bb', 'startingStack', 'maxSeats', 'rebuyMaxBB', 'cards', 'turnSeconds', 'timeBank', 'autoStart', 'felt', 'cardBack'],
     ...['format', 'ante', 'tournament', 'publicHud', 'game', 'limit', 'mix', 'mixAgainst', 'maxRuns'],
   ]
   for (const key of keys) {
