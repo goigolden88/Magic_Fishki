@@ -1,8 +1,21 @@
+import { execSync } from 'node:child_process'
 import { defineConfig, type Plugin } from 'vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { chipIcon, ICONS } from './scripts/icons.ts'
 
 const BASE = '/Magic_Fishki/'
+
+// Версия сборки внизу «Настроек» (#234): день сборки (UTC) и короткий хеш коммита — без запроса в сеть.
+// Хеш — из GITHUB_SHA (выкладка), иначе из git; нет ни того, ни другого — «dev»
+function buildCommit(): string {
+  const sha = process.env.GITHUB_SHA
+  if (sha) return sha.slice(0, 7)
+  try {
+    return execSync('git rev-parse --short=7 HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || 'dev'
+  } catch {
+    return 'dev'
+  }
+}
 
 // PNG-иконки рисуются при сборке (scripts/icons.ts) и в dev отдаются с сервера;
 // apple-touch-icon — ссылкой в <head> для iPhone
@@ -31,6 +44,11 @@ function chipIcons(): Plugin {
 
 export default defineConfig({
   base: BASE,
+  // Объявлены в src/build.d.ts
+  define: {
+    __BUILD_DATE__: JSON.stringify(new Date().toISOString().slice(0, 10)),
+    __BUILD_COMMIT__: JSON.stringify(buildCommit()),
+  },
   oxc: { jsx: { runtime: 'automatic' } },
   plugins: [
     chipIcons(),
