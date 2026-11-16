@@ -12,6 +12,12 @@ import type { HandRecord } from '../poker/table'
 // с зерном из самой раздачи (до флопа): ответ один на всех телефонах, точность около ±1 %
 export const SAMPLES = 20_000
 
+// Свои игры (#224, Р-84): на руках больше четырёх карт — пятёрок на руку много (7 карт «любые» — 792), и выборка
+// меньше: работа (досдачи × пятёрки всех рук) — не больше, чем у холдема на шестерых (6 × 21 пятёрка) с SAMPLES.
+// У холдема и омахи (до 4 карт) выборка прежняя
+export const MANY_HOLE = 4
+export const WORK = SAMPLES * 6 * 21
+
 const RANKS = '23456789TJQKA'
 const SUIT_CHARS = 'shdc'
 const CATEGORIES: Category[] = ['high', 'pair', 'twoPair', 'trips', 'straight', 'flush', 'fullHouse', 'quads', 'straightFlush']
@@ -159,7 +165,8 @@ export function handScore(variant: Variant, hand: Card[], board: Card[]): number
 
 // Доли основного банка при досдаче стола до boardSize карт: у каждой руки, сумма — 1.
 // dead — известные карты вне игры (открытые у сбросивших). Карты неверные или повторяются — null.
-// samples — досдач не больше — полный перебор, больше — выборка этого размера (казино-стол — своя, #137)
+// samples — досдач не больше — полный перебор, больше — выборка этого размера (казино-стол — своя, #137);
+// больше MANY_HOLE карт на руке — не больше WORK / пятёрок всех рук (#224)
 export function equity(
   variant: Variant,
   hands: Card[][],
@@ -192,6 +199,10 @@ export function equity(
         : combinations(own, fromHand).flatMap((h) => combinations(table, 5 - fromHand).map((t) => [...h, ...t]))
     fives.push(Int32Array.from(sets.flat()))
     at += hand.length
+  }
+  if (hands.some((h) => h.length > MANY_HOLE)) {
+    const perRun = fives.reduce((n, f) => n + f.length / 5, 0)
+    samples = Math.max(1, Math.min(samples, Math.floor(WORK / perRun)))
   }
 
   const rules = rulesOf(variant)

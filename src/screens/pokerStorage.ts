@@ -10,6 +10,7 @@ import { parseQuickBets, QUICK_BETS_DEFAULT, type QuickBets } from '../calc/quic
 import { parseQuickRoom, type QuickRoom } from '../calc/quickRoom'
 import { parseDockSize, parseTableSize, tableFitVars, type DockSize } from '../calc/tableFit'
 import type { Card } from '../poker/cards'
+import { parseOwnGames, type OwnGame } from '../poker/ownGame'
 import type { CSSProperties } from 'react'
 
 // Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги,
@@ -17,7 +18,8 @@ import type { CSSProperties } from 'react'
 // последняя открытая игра для «Продолжить» (#209) — данные этого устройства,
 // а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21, Р-38).
 // Заметки об игроках и подписи их цветов (Р-56), личный «Вид стола» (Р-61), своя «Быстрая комната», показ в ББ
-// и быстрые ставки (Р-62), размер стола и панели ставок (Р-63), шаг колеса и «−»/«+» (Р-69) — тоже в localStorage, но в копию идут
+// и быстрые ставки (Р-62), размер стола и панели ставок (Р-63), шаг колеса и «−»/«+» (Р-69), свои игры (Р-84) —
+// тоже в localStorage, но в копию идут
 const PASSWORD_KEY = 'fishki.poker.password'
 const SERVER_KEY = 'fishki.poker.server'
 const SEATS_KEY = 'fishki.poker.seats'
@@ -33,6 +35,7 @@ const NOTES_KEY = 'fishki.poker.notes'
 const LABELS_KEY = 'fishki.poker.noteLabels'
 const LOOK_KEY = 'fishki.poker.look'
 const QUICK_ROOM_KEY = 'fishki.poker.quickRoom'
+const OWN_GAMES_KEY = 'fishki.poker.ownGames'
 const BB_KEY = 'fishki.poker.bigBlinds'
 const BETS_KEY = 'fishki.poker.quickBets'
 const TABLE_SIZE_KEY = 'fishki.poker.tableSize'
@@ -327,6 +330,20 @@ export function loadQuickRoom(): QuickRoom | null {
 
 export function saveQuickRoom(room: QuickRoom | null) {
   write(QUICK_ROOM_KEY, room ? JSON.stringify(room) : '')
+}
+
+// Свои игры (#224, Р-84): описания на телефоне ведущего, в копию идут. Нет или битое значение — пустой список
+export function loadOwnGames(): OwnGame[] {
+  try {
+    return parseOwnGames(JSON.parse(read(OWN_GAMES_KEY) || '[]'))
+  } catch {
+    return []
+  }
+}
+
+// Пустой список — ключ стирается
+export function saveOwnGames(games: OwnGame[]) {
+  write(OWN_GAMES_KEY, games.length > 0 ? JSON.stringify(games) : '')
 }
 
 // «Стеки и ставки в больших блайндах»: только показ за столом. Копия в памяти страницы — спрашивает каждое место.

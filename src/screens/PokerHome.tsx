@@ -53,6 +53,7 @@ import {
   loadLastGame,
   loadLocalTable,
   loadMe,
+  loadOwnGames,
   loadPassword,
   loadQuickRoom,
   loadSeat,
@@ -119,7 +120,7 @@ export function PokerHomeScreen() {
         name: me.name,
         regularId: me.id,
         roster: quick.players,
-        settings: quickRoomSettings(quick.buyin, quick.room),
+        settings: quickRoomSettings(quick.buyin, quick.room, loadOwnGames()),
       },
       me.id,
     )
@@ -192,7 +193,7 @@ export function PokerHomeScreen() {
         // Режимы карточками (#209): телефон — колонкой, от 600 px — по два, от 1024 px — в ряд (с «Тренажёром» — пять)
         <div className="modes">
           <ModeCard suit="♠" title="Комната по ссылке" text="У каждого карты на своём телефоне">
-            {quick && <p className="mode-note">{quickRoomLine(quickRoomSettings(quick.buyin, quick.room))}</p>}
+            {quick && <p className="mode-note">{quickRoomLine(quickRoomSettings(quick.buyin, quick.room, loadOwnGames()))}</p>}
             {quickError && <p className="warn">{quickError}</p>}
             <div className="mode-buttons">
               <button type="button" className="big primary" disabled={!quick || quickBusy} onClick={() => void quickRoom()}>
@@ -554,7 +555,7 @@ function NewRoomCard({ first, onCancel }: { first: boolean; onCancel: () => void
       name,
       ...(me ? { regularId: me.id } : {}),
       roster,
-      settings: roomSettings(choice),
+      settings: roomSettings(choice, loadOwnGames()),
     }
     setBusy(true)
     setError(null)

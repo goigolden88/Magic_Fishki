@@ -2,9 +2,10 @@
 // Раздача: шапка (номер, игра, блайнды, дата), места и стеки, свои карты, ходы по улицам, борд, итог.
 // Свои карты — видны; чужие — только вскрытые и показанные; карты взявшего банк без вскрытия — только свои
 import type { Card } from '../poker/cards'
-import type { GameId, Limit } from '../poker/game'
+import type { GameId, GameRound, Limit } from '../poker/game'
 import type { HandLogEntry, Street } from '../poker/hand'
 import { handFor } from '../poker/history'
+import { isOwnGameId } from '../poker/ownGame'
 import { eveningName, type SavedHand } from './evenings'
 
 const GAME_NAMES: Record<GameId, string> = { holdem: "Hold'em", omaha: 'Omaha', shortdeck: "6+ Hold'em" }
@@ -34,6 +35,17 @@ export function handsFileName(day: string, all = false): string {
 
 function isGameId(id: string): id is GameId {
   return id in GAME_NAMES
+}
+
+// Карт на столе к каждой улице описания: у холдема — 0, 3, 4, 5; у своей игры (#224) — по её кругам
+export function boardAtOf(rounds: GameRound[]): Record<Street, number> {
+  const at = { ...BOARD_AT }
+  let n = 0
+  for (const r of rounds) {
+    for (const d of r.deal) if (d.kind === 'board') n += d.count
+    at[r.street] = n
+  }
+  return at
 }
 
 const pad = (n: number, w = 2) => String(n).padStart(w, '0')
@@ -79,7 +91,13 @@ export function handText(saved: SavedHand): string {
 
   const rawGame = record?.game.id ?? t?.game ?? 'holdem'
   const game: GameId = isGameId(rawGame) ? rawGame : 'holdem'
-  const limit: Limit = t?.limit ?? (game === 'omaha' ? 'pot' : 'nolimit')
+  // Своя игра (#224) — её названием; лимит — стола, если игра та же, иначе без лимита
+  const ownName = isOwnGameId(rawGame) ? record?.game.name : undefined
+  const limit: Limit = ownName !== undefined && t?.game !== rawGame ? 'nolimit' : (t?.limit ?? (game === 'omaha' ? 'pot' : 'nolimit'))
+  // Улицы и карт стола к каждой — по описанию игры раздачи; у живых карт — как в холдеме
+  const rounds = Array.isArray(record?.game.rounds) && record.game.rounds.length > 0 ? record.game.rounds : null
+  const streets: Street[] = rounds ? rounds.map((r) => r.street) : STREETS
+  const boardAt = rounds ? boardAtOf(rounds) : BOARD_AT
   // Блайнды: из записи раздачи; у живых карт — стола, если не турнир (там они растут)
   const blinds = record
     ? { sb: record.sb, bb: record.bb }
@@ -89,7 +107,7 @@ export function handText(saved: SavedHand): string {
 
   const lines: string[] = []
   lines.push(
-    `PokerStars Hand #${handId(saved)}: ${GAME_NAMES[game]} ${LIMIT_NAMES[limit]}${blinds ? ` (${blinds.sb}/${blinds.bb})` : ''} - ${dateText(saved.startedAt)}`,
+    `PokerStars Hand #${handId(saved)}: ${ownName ?? GAME_NAMES[game]} ${LIMIT_NAMES[limit]}${blinds ? ` (${blinds.sb}/${blinds.bb})` : ''} - ${dateText(saved.startedAt)}`,
   )
   lines.push(`Table '${eveningName({ id: saved.evening, code: saved.code, startedAt: saved.startedAt })}' ${t?.maxSeats ?? 9}-max Seat #${button + 1} is the button`)
   seats.forEach((s, i) => lines.push(`Seat ${i + 1}: ${s.name} (${s.chips} in chips)`))
@@ -135,27 +153,32 @@ export function handText(saved: SavedHand): string {
   const mine = hero ? heroCards(saved, hero) : null
   if (hero && mine) lines.push(`Dealt to ${name(hero)} ${cardsText(mine)}`)
 
-  let street = 0 // индекс в STREETS
+  let street = 0 // индекс в streets
   const folded = new Map<string, Street>()
+  // Улица стола: «*** FLOP *** [Ah Kd 2c]», дальше — прежние карты и новые: «*** TURN *** [Ah Kd 2c] [7s]»
+  const streetLine = (head: string, s: Street, cards: Card[]) => {
+    const at = boardAt[s]
+    const before = boardAt[streets[streets.indexOf(s) - 1]] ?? 0
+    if (cards.length < at) return `*** ${head} ***`
+    if (before === 0) return `*** ${head} *** ${cardsText(cards.slice(0, at))}`
+    return `*** ${head} *** ${cardsText(cards.slice(0, before))} ${cardsText(cards.slice(before, at))}`
+  }
   const nextStreet = () => {
     street++
     streetBet.clear()
     max = 0
-    const s = STREETS[street]
-    const at = BOARD_AT[s]
-    if (board.length < at) lines.push(`*** ${s.toUpperCase()} ***`)
-    else if (s === 'flop') lines.push(`*** FLOP *** ${cardsText(board.slice(0, 3))}`)
-    else lines.push(`*** ${s.toUpperCase()} *** ${cardsText(board.slice(0, at - 1))} [${board[at - 1]}]`)
+    const s = streets[street]
+    lines.push(streetLine(s.toUpperCase(), s, board))
   }
 
   for (const e of log) {
     if (e.type === 'ante') continue
-    while (street < STREETS.indexOf(e.street)) nextStreet()
+    while (street < streets.indexOf(e.street)) nextStreet()
     const who = name(e.playerId)
     const before = streetBet.get(e.playerId) ?? 0
     const add = Math.max(0, e.bet - before)
     if (e.type === 'fold') {
-      folded.set(e.playerId, STREETS[street])
+      folded.set(e.playerId, streets[street])
       lines.push(`${who}: folds`)
       continue
     }
@@ -168,15 +191,13 @@ export function handText(saved: SavedHand): string {
     max = Math.max(max, e.bet)
   }
   // Ва-банк до ривера — остальные улицы открываются без ходов
-  while (street < STREETS.length - 1 && board.length >= BOARD_AT[STREETS[street + 1]]) nextStreet()
+  while (street < streets.length - 1 && board.length >= boardAt[streets[street + 1]]) nextStreet()
   // Прогнали несколько раз — оставшиеся улицы каждого борда, как у покер-румов: «*** FIRST FLOP ***», «*** SECOND TURN ***»
   runs?.forEach((run, b) => {
-    for (let k = street + 1; k < STREETS.length; k++) {
-      const s = STREETS[k]
-      const at = BOARD_AT[s]
-      if (run.board.length < at) break
-      const head = `*** ${RUN_ORDINALS[b]} ${s.toUpperCase()} ***`
-      lines.push(s === 'flop' ? `${head} ${cardsText(run.board.slice(0, 3))}` : `${head} ${cardsText(run.board.slice(0, at - 1))} [${run.board[at - 1]}]`)
+    for (let k = street + 1; k < streets.length; k++) {
+      const s = streets[k]
+      if (run.board.length < boardAt[s]) break
+      lines.push(streetLine(`${RUN_ORDINALS[b]} ${s.toUpperCase()}`, s, run.board))
     }
   })
 

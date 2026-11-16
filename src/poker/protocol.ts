@@ -1,7 +1,7 @@
 // Сообщения клиента и сервера стола. Их берут сервер комнат и экран — версия одна на всех:
 // клиент с другой версией получает отказ «обновите приложение»
-import type { GameId } from './game'
 import type { HistoryHand } from './history'
+import type { TableGameId } from './ownGame'
 import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 
 // 2 — список постоянных игроков комнаты (lobby), вход под постоянным (regularId), «пересадить» (reseat)
@@ -27,7 +27,9 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 //      ответ дошедшего (runChoice), несколько бордов в раздаче (boards) и в записи (runs)
 // 18 — запас времени (#223): настройка timeBank при создании и в tableSettings, запас игроков в столе (timeBank),
 //      идущий запас в сроке хода (turn.bank)
-export const PROTOCOL_VERSION = 18
+// 19 — свои игры (#224, Р-84): настройка games при создании (описания игр), game — и id своей игры;
+//      «Микс» предлагает и свою игру стола (mixPropose), описание своей игры — в раздаче и в записи (game.name)
+export const PROTOCOL_VERSION = 19
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -94,7 +96,7 @@ export type ClientBody =
   | { type: 'look'; felt?: Felt; cardBack?: CardBack }
   // «Микс» (#166): батон прошлой раздачи между раздачами предлагает игру; голосующий — «За» (yes) или «Против»;
   // ведущий прерывает голосование — «Без смены»
-  | { type: 'mixPropose'; game: GameId }
+  | { type: 'mixPropose'; game: TableGameId }
   | { type: 'mixVote'; yes: boolean }
   | { type: 'mixCancel' }
   // «Прогнать несколько раз» (#167): дошедший до вскрытия олл-ин — сколько раз прогнать, 1…runVote.max

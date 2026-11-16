@@ -12,6 +12,7 @@ import {
   type Settings,
 } from '../model'
 import type { SavedHand } from './evenings'
+import { parseOwnGames, type OwnGame } from '../poker/ownGame'
 import { isOwnChart, type OwnChart } from './ownCharts'
 import { daysAgoText } from './format'
 import { parseLabels, parseNotes, type NoteLabels, type PlayerNotes } from './playerNotes'
@@ -33,8 +34,9 @@ import { parseTheme, type Theme } from './theme'
 // С #192 колода вида может быть null — не выбрана (четыре цвета); старое приложение читает её как «две масти».
 // С #219 в look — ещё лицо карт (face), формат прежний: поле необязательное, старое приложение его не прочтёт.
 // Формат 7 (Р-77): ещё свои чарты тренажёра — записи хранилища charts как есть; у 1–6 их нет — пусто
+// Формат 8 (Р-84): ещё свои игры покера — описания из памяти телефона (ownGames); у 1–7 их нет — пусто
 export const BACKUP_APP = 'magic_fishki'
-export const BACKUP_FORMAT = 7
+export const BACKUP_FORMAT = 8
 
 export type Backup = {
   app: typeof BACKUP_APP
@@ -48,6 +50,13 @@ export type Backup = {
   look: MyLook
   poker: PokerPrefs
   charts: OwnChart[]
+  ownGames: OwnGame[]
+}
+
+// Восстановление своих игр (#224, Р-11): из копии — те, которых здесь нет по id, в конец; свои не трогаются
+export function mergeOwnGames(local: OwnGame[], backup: OwnGame[]): OwnGame[] {
+  const ids = new Set(local.map((g) => g.id))
+  return [...local, ...backup.filter((g) => !ids.has(g.id))]
 }
 
 // Покер-рум телефона (Р-62): null — не задано, начальные значения.
@@ -122,6 +131,7 @@ export function makeBackup(
   look: MyLook = MY_LOOK_DEFAULT,
   poker: PokerPrefs = POKER_PREFS_NONE,
   charts: OwnChart[] = [],
+  ownGames: OwnGame[] = [],
 ): Backup {
   return {
     app: BACKUP_APP,
@@ -135,6 +145,7 @@ export function makeBackup(
     look,
     poker,
     charts,
+    ownGames,
   }
 }
 
@@ -318,6 +329,12 @@ export function parseBackup(text: string, makeId: () => string): ParsedBackup {
     if (badChart >= 0) return { ok: false, error: `Копия повреждена: чарт № ${badChart + 1} не читается` }
     charts = data.charts as OwnChart[]
   }
+  // Свои игры (Р-84): у копий 1–7 их нет — пусто; описание не читается — мимо, копия из-за него не отвергается
+  let ownGames: OwnGame[] = []
+  if (data.format >= 8) {
+    if (!Array.isArray(data.ownGames)) return { ok: false, error: 'Копия повреждена: нет списка своих игр' }
+    ownGames = parseOwnGames(data.ownGames)
+  }
   let games = data.games as Game[]
   let players = settings.players as Regular[]
   if (oldFormat) {
@@ -343,6 +360,7 @@ export function parseBackup(text: string, makeId: () => string): ParsedBackup {
       look,
       poker,
       charts,
+      ownGames,
     },
   }
 }

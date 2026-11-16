@@ -20,6 +20,7 @@ import {
 } from './game'
 import { act, awardPots, awardRuns, dealOrder, startHand, type Hand, type HandLogEntry } from './hand'
 import { addHand, type Hud } from './hud'
+import { isOwnGameId, ownGameDef, ownGamesError, type OwnGame, type TableGameId } from './ownGame'
 import { isMixShare, MIX_VOTE_MS, mixPasses, type MixResult, type MixShare, type MixVote } from './mix'
 import { PROTOCOL_VERSION, VERSION_ERROR, type BetAction, type ClientBody } from './protocol'
 import { isMaxRuns, RUN_VOTE_MS, runCount, runVoteDone, type MaxRuns, type RunVote } from './runs'
@@ -63,9 +64,14 @@ export type Settings = {
   // HUD вечера (#79): true — видят все, иначе каждый только свой. У столов до него поля нет — только свой
   publicHud?: boolean
   // Игра (#80): холдем, омаха или шорт-дек (#81) — при любых картах; у столов до него поля нет — холдем.
-  // limit — у омахи: пот-лимит (нет поля — он) или без лимита; холдем и шорт-дек — всегда без лимита
-  game?: GameId
+  // Своя игра (#224) — id одной из games, только карты на телефонах.
+  // limit — у омахи: пот-лимит (нет поля — он) или без лимита; холдем и шорт-дек — всегда без лимита;
+  // у своей игры лимит — из её описания
+  game?: TableGameId
   limit?: Limit
+  // Свои игры стола (#224, Р-84): описания, до OWN_GAMES_MAX, id без повторов; только карты на телефонах.
+  // У столов до него поля нет — своих игр нет
+  games?: OwnGame[]
   // «Микс» (#166, Р-57): игру между раздачами предлагает батон, смена — голосованием; только карты
   // на телефонах. mixAgainst — доля «против», при которой смена ещё проходит (нет поля — половина).
   // У столов до него полей нет — выкл
@@ -118,13 +124,29 @@ export const DEFAULT_SETTINGS: Settings = {
 // Описание игры для новой раздачи: карты на телефонах — игра стола (нет поля — холдем); живые — null.
 // У столов до этапа 2 поля cards нет — живые. По нему сервер знает, какую колоду тасовать
 export function gameFor(settings: Settings): GameDef | null {
-  return settings.cards === 'phones' ? GAMES[settings.game ?? 'holdem'] : null
+  if (settings.cards !== 'phones') return null
+  const own = ownGameOf(settings)
+  return own ? ownGameDef(own) : GAMES[builtInOf(settings)]
 }
 
-// Предел ставки новой раздачи (#80): омаха — по настройке, по умолчанию пот-лимит; холдем — без лимита.
-// Живые карты — тоже: лимит считает программа
+// Предел ставки новой раздачи (#80): омаха — по настройке, по умолчанию пот-лимит; холдем — без лимита;
+// своя игра (#224) — из описания. Живые карты — тоже: лимит считает программа
 export function limitFor(settings: Settings): Limit {
+  const own = ownGameOf(settings)
+  if (own) return own.limit
   return settings.game === 'omaha' ? (settings.limit ?? 'pot') : 'nolimit'
+}
+
+// Своя игра стола (#224): описание из games по id игры; встроенная или нет такой — null
+export function ownGameOf(settings: Settings): OwnGame | null {
+  const id = settings.game
+  return isOwnGameId(id) ? (settings.games?.find((g) => g.id === id) ?? null) : null
+}
+
+// Встроенная игра стола; своя — холдем (до неё не доходит: settingsError не пускает чужой id)
+function builtInOf(settings: Settings): GameId {
+  const id = settings.game ?? 'holdem'
+  return Object.hasOwn(GAMES, id) ? (id as GameId) : 'holdem'
 }
 
 // Ведущий вне сети дольше этого — остальные могут взять ведение
@@ -932,11 +954,14 @@ export function mixProposeError(state: TableState, playerId: string): string | n
 function proposeGame(state: TableState, me: TablePlayer, game: unknown, now: number): string | null {
   const error = mixProposeError(state, me.id)
   if (error) return error
-  if (typeof game !== 'string' || !Object.hasOwn(GAMES, game)) return 'Игра — холдем, омаха или шорт-дек'
+  // Своя игра (#224) — только из своих игр стола
+  if (isOwnGameId(game)) {
+    if (!state.settings.games?.some((g) => g.id === game)) return 'Такой своей игры за этим столом нет'
+  } else if (typeof game !== 'string' || !Object.hasOwn(GAMES, game)) return 'Игра — холдем, омаха или шорт-дек'
   const from = state.settings.game ?? 'holdem'
   if (game === from) return 'Эта игра уже идёт — выберите другую'
   const voters = state.players.filter((p) => p.id !== me.id && p.chips > 0 && !p.sittingOut).map((p) => p.id)
-  state.mixVote = { after: state.handCount, by: me.id, from, game: game as GameId, deadline: now + MIX_VOTE_MS, voters, answers: {} }
+  state.mixVote = { after: state.handCount, by: me.id, from, game: game as TableGameId, deadline: now + MIX_VOTE_MS, voters, answers: {} }
   return null
 }
 
@@ -1113,7 +1138,16 @@ function settingsError(s: Settings): string | null {
   }
   if (s.ante !== undefined && (!Number.isInteger(s.ante) || s.ante < 0)) return 'Анте — целое число фишек, не меньше нуля'
   if (s.publicHud !== undefined && typeof s.publicHud !== 'boolean') return 'HUD видят — все или каждый только свою'
-  if (s.game !== undefined && !Object.hasOwn(GAMES, s.game)) return 'Игра — холдем, омаха или шорт-дек'
+  // Свои игры (#224): верные описания, каждой хватает карт на все места; только карты на телефонах
+  if (s.games !== undefined) {
+    const error = ownGamesError(s.games, s.maxSeats)
+    if (error) return error
+    if (s.games.length > 0 && s.cards !== 'phones') return 'Свои игры — только с картами на телефонах'
+  }
+  if (isOwnGameId(s.game)) {
+    if (s.cards !== 'phones') return 'Своя игра — только с картами на телефонах'
+    if (!s.games?.some((g) => g.id === s.game)) return 'Такой своей игры за этим столом нет'
+  } else if (s.game !== undefined && !Object.hasOwn(GAMES, s.game)) return 'Игра — холдем, омаха или шорт-дек'
   if (s.limit !== undefined && s.limit !== 'nolimit' && s.limit !== 'pot') return 'Лимит — пот-лимит или без лимита'
   if (s.mix !== undefined && typeof s.mix !== 'boolean') return '«Микс» — включён или выключен'
   if (s.mix && s.cards !== 'phones') return '«Микс» — только с картами на телефонах'

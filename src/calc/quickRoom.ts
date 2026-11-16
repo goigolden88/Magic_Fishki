@@ -3,6 +3,7 @@
 import type { Regular } from '../model'
 import type { CardsMode, GameId, Limit } from '../poker/game'
 import { isMixShare, type MixShare } from '../poker/mix'
+import { isOwnGameId, OWN_GAMES_MAX, seatsFor, type OwnGame, type TableGameId } from '../poker/ownGame'
 import { isMaxRuns, type MaxRuns } from '../poker/runs'
 import { CARD_BACKS, DEFAULT_SETTINGS, FELTS, TIME_BANK_PRESETS, TURN_MAX_S, TURN_MIN_S, type AutoStart, type Settings } from '../poker/table'
 import { tournamentError, type TournamentSettings } from '../poker/tournament'
@@ -11,8 +12,9 @@ import { lookOf, type Look } from './pokerLook'
 import { AUTO_START_LABELS } from './pokerTimer'
 import { formSettings, tournamentForm } from './tournamentForm'
 
-// «Покер» — игра и лимит стола (#80): холдем и шорт-дек (#81) — без лимита; у омахи — пот-лимит (по умолчанию) или без лимита
-export type GameChoice = { game: GameId; limit: Limit }
+// «Покер» — игра и лимит стола (#80): холдем и шорт-дек (#81) — без лимита; у омахи — пот-лимит (по умолчанию) или без лимита.
+// Своя игра (#224) — её id, лимит — из её описания
+export type GameChoice = { game: TableGameId; limit: Limit }
 
 export const GAME_CHOICES: [GameId, string][] = [
   ['holdem', 'Холдем'],
@@ -84,14 +86,27 @@ export const ROOM_DEFAULTS: Omit<RoomChoice, 'startingStack'> = {
   publicHud: false,
 }
 
-// Настройки стола для запроса create
-export function roomSettings(c: RoomChoice): Partial<Settings> {
+// Свои игры в комнату (#224, Р-84): только карты на телефонах; с «Миксом» — все свои (выбранная — первой), иначе —
+// выбранная. Выбранной уже нет на телефоне (own) — холдем. Мест — сколько хватит карт на каждую (seatsFor)
+function ownSettings(c: RoomChoice, own: OwnGame[]): Partial<Settings> {
+  const phones = c.cards === 'phones'
+  const id = c.variant.game
+  const chosen = phones && isOwnGameId(id) ? (own.find((g) => g.id === id) ?? null) : null
+  const variant = isOwnGameId(id) && !chosen ? DEFAULT_GAME : c.variant
+  const mixed = c.mix && phones ? own.filter((g) => g !== chosen) : []
+  const games = [...(chosen ? [chosen] : []), ...mixed].slice(0, OWN_GAMES_MAX)
+  if (games.length === 0) return gameSettings(variant)
+  return { ...gameSettings(variant), games, maxSeats: Math.min(DEFAULT_SETTINGS.maxSeats, ...games.map(seatsFor)) }
+}
+
+// Настройки стола для запроса create; own — свои игры телефона (#224)
+export function roomSettings(c: RoomChoice, own: OwnGame[] = []): Partial<Settings> {
   return {
     sb: c.sb,
     bb: c.bb,
     startingStack: c.startingStack,
     cards: c.cards,
-    ...gameSettings(c.variant),
+    ...ownSettings(c, own),
     turnSeconds: c.turnSeconds,
     ...(c.timeBank && c.turnSeconds !== null ? { timeBank: c.timeBank } : {}),
     autoStart: c.autoStart,
@@ -115,9 +130,10 @@ export function quickRoomChoice(room: QuickRoom | null, defaultBuyin: number): R
   return { ...r, startingStack: r.startingStack ?? defaultBuyin }
 }
 
-// «Быстрая комната»: своя из «Настроек» или начальные значения формы; стек — свой или закуп по умолчанию
-export function quickRoomSettings(defaultBuyin: number, room: QuickRoom | null = null): Partial<Settings> {
-  return roomSettings(quickRoomChoice(room, defaultBuyin))
+// «Быстрая комната»: своя из «Настроек» или начальные значения формы; стек — свой или закуп по умолчанию.
+// own — свои игры телефона (#224): выбранной там нет — холдем
+export function quickRoomSettings(defaultBuyin: number, room: QuickRoom | null = null, own: OwnGame[] = []): Partial<Settings> {
+  return roomSettings(quickRoomChoice(room, defaultBuyin), own)
 }
 
 // Сохранить в «Настройках» нельзя: блайнды — как проверяет форма, стек — не меньше большого блайнда
@@ -133,14 +149,14 @@ function isPositive(x: unknown): x is number {
 }
 
 // Из памяти телефона или копии; не похоже — null (тогда начальные значения). Игра — из тех, что знает
-// приложение; знает ли её сервер — скажет он сам при создании
+// приложение, или своя (#224): есть ли она ещё на телефоне — решает roomSettings; знает ли её сервер — скажет он сам
 export function parseQuickRoom(raw: unknown): QuickRoom | null {
   if (!isRecord(raw)) return null
   const { sb, bb, startingStack, cards, variant, turnSeconds, timeBank, autoStart, look, format, publicHud, mix, maxRuns } = raw
   if (!isPositive(sb) || !isPositive(bb) || sb > bb) return null
   if (startingStack !== null && (!isPositive(startingStack) || startingStack < bb)) return null
   if (cards !== 'live' && cards !== 'phones') return null
-  if (!isRecord(variant) || !GAME_CHOICES.some(([id]) => id === variant.game)) return null
+  if (!isRecord(variant) || !(GAME_CHOICES.some(([id]) => id === variant.game) || isOwnGameId(variant.game))) return null
   if (variant.limit !== 'pot' && variant.limit !== 'nolimit') return null
   if (turnSeconds !== null && !(Number.isInteger(turnSeconds) && (turnSeconds as number) >= TURN_MIN_S && (turnSeconds as number) <= TURN_MAX_S)) {
     return null
@@ -168,7 +184,7 @@ export function parseQuickRoom(raw: unknown): QuickRoom | null {
     bb,
     startingStack,
     cards,
-    variant: { game: variant.game as GameId, limit: variant.limit },
+    variant: { game: variant.game as TableGameId, limit: variant.limit },
     turnSeconds: turnSeconds as number | null,
     timeBank: turnSeconds === null ? null : ((timeBank as number | null | undefined) ?? null),
     autoStart: autoStart as AutoStart,
@@ -185,10 +201,12 @@ function isRecord(x: unknown): x is Record<string, unknown> {
 }
 
 // Подпись под кнопкой: «Холдем · кэш · карты на телефонах · блайнды 5/10 · стек 1 000»;
-// у омахи — с лимитом, с таймером — «ход 30 с», с запасом (#223) — ещё «запас 30 с»
+// у омахи — с лимитом, с таймером — «ход 30 с», с запасом (#223) — ещё «запас 30 с»; своя игра (#224) — названием и лимитом
 export function quickRoomLine(s: Partial<Settings>): string {
-  const name = GAME_CHOICES.find(([id]) => id === (s.game ?? 'holdem'))?.[1] ?? 'Холдем'
-  const game = s.game === 'omaha' ? `${name} ${s.limit === 'nolimit' ? 'без лимита' : 'пот-лимит'}` : name
+  const own = isOwnGameId(s.game) ? s.games?.find((g) => g.id === s.game) : undefined
+  const name = own?.name ?? GAME_CHOICES.find(([id]) => id === (s.game ?? 'holdem'))?.[1] ?? 'Холдем'
+  const limit = own ? own.limit : s.game === 'omaha' ? (s.limit ?? 'pot') : null
+  const game = limit ? `${name} ${limit === 'nolimit' ? 'без лимита' : 'пот-лимит'}` : name
   return [
     game,
     s.format === 'tournament' ? 'турнир' : 'кэш',
