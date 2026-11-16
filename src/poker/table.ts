@@ -66,6 +66,9 @@ export type Settings = {
   tournament?: TournamentSettings // структура турнира; есть, когда format — 'tournament'
   // HUD вечера (#79): true — видят все, иначе каждый только свой. У столов до него поля нет — только свой
   publicHud?: boolean
+  // «Ход раздачи по касанию банка» (#258): false — касание банка панель не открывает; журнал ходов в раздаче
+  // остаётся (подсказка для удобства, не тайна). У столов до него поля нет — вкл
+  liveHand?: boolean
   // Игра (#80): холдем, омаха или шорт-дек (#81) — при любых картах; у столов до него поля нет — холдем.
   // Своя игра (#224) — id одной из games, только карты на телефонах.
   // limit — у омахи: пот-лимит (нет поля — он) или без лимита; холдем и шорт-дек — всегда без лимита;
@@ -920,7 +923,8 @@ function pause(state: TableState, paused: boolean, now: number): string | null {
   return null
 }
 
-// Время на ход, запас времени (#223), раздача «сама» и кому виден HUD (#79) — ведущий, между раздачами;
+// Время на ход, запас времени (#223), раздача «сама», кому виден HUD (#79) и ход раздачи по касанию банка (#258) —
+// ведущий, между раздачами;
 // действуют со следующей раздачи. Запас сменился — у всех новый начальный, выключен — запаса нет
 function changeSettings(state: TableState, msg: Extract<ClientBody, { type: 'tableSettings' }>, now: number): string | null {
   if (state.hand) return 'Настройки стола меняются между раздачами'
@@ -929,6 +933,7 @@ function changeSettings(state: TableState, msg: Extract<ClientBody, { type: 'tab
   if ('timeBank' in msg) s.timeBank = msg.timeBank
   if ('autoStart' in msg) s.autoStart = msg.autoStart
   if ('publicHud' in msg) s.publicHud = msg.publicHud
+  if ('liveHand' in msg) s.liveHand = msg.liveHand
   const tournament = s.format === 'tournament'
   // Анте кэша (#78) — со следующей раздачи; в турнире анте — по уровням
   if ('ante' in msg) {
@@ -1170,6 +1175,7 @@ function settingsError(s: Settings): string | null {
   if (s.ante !== undefined && (!Number.isInteger(s.ante) || s.ante < 0)) return 'Анте — целое число фишек, не меньше нуля'
   if (s.straddle !== undefined && typeof s.straddle !== 'boolean') return 'Страддл — включён или выключен'
   if (s.publicHud !== undefined && typeof s.publicHud !== 'boolean') return 'HUD видят — все или каждый только свою'
+  if (s.liveHand !== undefined && typeof s.liveHand !== 'boolean') return 'Ход раздачи по касанию банка — включён или выключен'
   // Свои игры (#224): верные описания, каждой хватает карт на все места; только карты на телефонах
   if (s.games !== undefined) {
     const error = ownGamesError(s.games, s.maxSeats)
