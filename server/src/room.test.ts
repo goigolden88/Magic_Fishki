@@ -515,9 +515,80 @@ describe('мак на вскрытии (#279)', () => {
     expect(record?.mucked).toEqual([jacks])
   })
 
-  it('«Мак по выбору» — пока отказ', async () => {
-    const created = await initRoom(fakeRoom().env, 'ABCDEF', 'Ведущий', { cards: 'phones', muck: 'manual' as 'auto' }, 0)
-    expect(created).toMatchObject({ ok: false, error: 'Вскрытие — все открывают или мак сам' })
+  it('другой режим — отказ', async () => {
+    const created = await initRoom(fakeRoom().env, 'ABCDEF', 'Ведущий', { cards: 'phones', muck: 'other' as 'auto' }, 0)
+    expect(created).toMatchObject({ ok: false, error: 'Вскрытие — все открывают, мак сам или мак по выбору' })
+  })
+})
+
+describe('мак по выбору (#286)', () => {
+  const BOARD: Card[] = ['2s', '7h', '9d', 'Jc', '3c']
+
+  // Хедз-ап, ставок нет: первым открывает первый слева от кнопки (тузы), кнопка (король старший) — решает
+  async function decided() {
+    const t = await twoPlayers({ cards: 'phones', muck: 'manual', autoStart: 'fast' })
+    await send(t.r, t.host, { type: 'start' })
+    const [winner, loser] = await rig(t.r, [['Ah', 'Ad'], ['Kh', 'Qh']], BOARD)
+    const peers = new Map([
+      [t.hostId, t.host],
+      [t.guestId, t.guest],
+    ])
+    await moves(t.r, peers, Array(8).fill('pass'))
+    return { ...t, peers, winner: peers.get(winner) as FakePeer, loser: peers.get(loser) as FakePeer, loserId: loser }
+  }
+
+  it('пауза: банк отдан, карт решающего нет у соперника, будильник — на конец паузы', async () => {
+    const t = await decided()
+    const table = (await stored(t.r))?.table as TableState
+    expect(table.hand).toBeNull()
+    expect(table.muckVote).toMatchObject({ players: [t.loserId], answers: {} })
+    expect(table.nextHandAt).toBeNull()
+    expect(t.r.storage.alarmAt).toBe(table.muckVote?.deadline)
+    expect(JSON.stringify(t.winner.sent.filter((m) => m.type === 'state').at(-1))).not.toContain('"Kh"')
+    expect(tableOf(t.loser).muckVote?.players).toEqual([t.loserId])
+    // Ведущий во время паузы раздачу не начинает
+    await send(t.r, t.host, { type: 'start' })
+    expect(t.host.last()).toMatchObject({ type: 'error', error: 'Игроки решают, показать ли карты, — подождите несколько секунд' })
+  })
+
+  it('«Сбросить» — карт нет у соперника и в истории; раздача «сама» — после паузы', async () => {
+    const t = await decided()
+    await send(t.r, t.loser, { type: 'muck', show: false }, 5000)
+    const table = (await stored(t.r))?.table as TableState
+    expect(table.muckVote).toBeNull()
+    expect(table.nextHandAt).toBe(5000 + AUTO_START_MS.fast)
+    expect(recordOf(t.winner)?.mucked).toEqual([t.loserId])
+    expect(JSON.stringify(t.winner.sent)).not.toContain('"Kh"')
+    await send(t.r, t.winner, { type: 'history' })
+    expect(JSON.stringify(t.winner.last())).not.toContain('"Kh"')
+    // Второй ответ — отказ
+    await send(t.r, t.loser, { type: 'muck', show: true }, 5000)
+    expect(t.loser.last()).toMatchObject({ type: 'error', error: 'Выбора «показать или сбросить» сейчас нет' })
+  })
+
+  it('«Показать» — карты видны сопернику и в истории', async () => {
+    const t = await decided()
+    await send(t.r, t.loser, { type: 'muck', show: true })
+    expect(recordOf(t.winner)?.shown[t.loserId]).toEqual(['Kh', 'Qh'])
+    expect(recordOf(t.winner)?.mucked).toBeUndefined()
+    await send(t.r, t.winner, { type: 'history' })
+    expect(JSON.stringify(t.winner.last())).toContain('"Kh"')
+  })
+
+  it('не ответил — будильник в конце паузы открывает карты и взводит раздачу «сама»', async () => {
+    const t = await decided()
+    const deadline = (await stored(t.r))?.table.muckVote?.deadline as number
+    await alarm(t.r.env, deadline)
+    const table = (await stored(t.r))?.table as TableState
+    expect(table.muckVote).toBeNull()
+    expect(table.nextHandAt).toBe(deadline + AUTO_START_MS.fast)
+    expect(recordOf(t.winner)?.shown[t.loserId]).toEqual(['Kh', 'Qh'])
+  })
+
+  it('ответ чужого — отказ', async () => {
+    const t = await decided()
+    await send(t.r, t.winner, { type: 'muck', show: false })
+    expect(t.winner.last()).toMatchObject({ type: 'error', error: 'Показать или сбросить решает тот, кто проиграл на вскрытии' })
   })
 })
 

@@ -1303,18 +1303,32 @@ async function muckOnly(cdp: Cdp): Promise<void> {
     await sleep(500)
     await d.shot('09k-mak-sbrosil-bez-pokaza', false)
   })
+  // «Мак по выбору» (#286): я решаю — карточка «Показать карты?» внизу экрана; срок паузы — от времени страницы
+  await screen('Комната: «Показать карты?»', size, async () => {
+    const table = (await muckTable('manual')) as { muckVote: Record<string, unknown> }
+    const vote = JSON.stringify(table.muckVote)
+    await d.goto('#/poker')
+    await d.waitText('Войти по ссылке')
+    await d.eval(`(localStorage.setItem('fishki.poker.seats', ${JSON.stringify(JSON.stringify({ [SHOW_CODE]: { playerId: 'me', token: 'shots' } }))}), true)`)
+    await d.eval(`(${fakeRoomSocket.toString()})({ ...${JSON.stringify(table)}, muckVote: { ...${vote}, deadline: Date.now() + 9000 } }), true`)
+    await d.goto(`#/poker/${SHOW_CODE}`)
+    await d.waitText('Показать карты?')
+    await sleep(500)
+    await d.shot('09l-mak-po-vyboru', false)
+  })
 }
 
-// Комната с картами на телефонах и «Мак сам» после вскрытия, в виде моего телефона: кнопка — Аня, я (Борис) ставлю на
-// ривере и открываю первым — пара тузов; Гоша уравнял с дамами — хуже, сброс без показа; Аня спасовала на ривере
-async function muckTable(): Promise<unknown> {
+// Комната с картами на телефонах после вскрытия, в виде моего телефона: кнопка — Аня, Аня спасовала на ривере.
+// «Мак сам»: я (Борис) ставлю на ривере и открываю первым — пара тузов; Гоша уравнял с дамами — хуже, сброс без показа.
+// «Мак по выбору» (#286): наоборот — ставит и открывает Гоша, я с дамами решаю: показать или сбросить
+async function muckTable(mode: 'auto' | 'manual' = 'auto'): Promise<unknown> {
   const load = async (file: string) =>
     (await runnerImport<Record<string, any>>(join(process.cwd(), 'src/poker', file), { configFile: false, logLevel: 'silent' })).module
   const table = await load('table.ts')
   const { stackedDeck } = await load('testing.ts')
   const { PROTOCOL_VERSION } = await load('protocol.ts')
   const now = Date.now()
-  const settings = { sb: 5, bb: 10, startingStack: 1000, maxSeats: 6, cards: 'phones', autoStart: 'off', muck: 'auto' }
+  const settings = { sb: 5, bb: 10, startingStack: 1000, maxSeats: 6, cards: 'phones', autoStart: 'off', muck: mode }
   const created = table.createTable('host', 'Аня', settings, now)
   if (!created.ok) throw new Error(created.error)
   let state = created.state
@@ -1325,25 +1339,27 @@ async function muckTable(): Promise<unknown> {
   }
   send('me', { type: 'sit', name: 'Борис' })
   send('gosha', { type: 'sit', name: 'Гоша' })
-  const hole: Record<string, string[]> = { me: ['Ah', 'Kd'], gosha: ['Qs', 'Qc'], host: ['7c', '2d'] }
+  const [better, worse] = mode === 'auto' ? ['me', 'gosha'] : ['gosha', 'me']
+  const hole: Record<string, string[]> = { [better]: ['Ah', 'Kd'], [worse]: ['Qs', 'Qc'], host: ['7c', '2d'] }
   send('host', { type: 'start' }, stackedDeck([hole.me, hole.gosha, hole.host], ['As', '9h', '5d', '3c', 'Jh']))
   // Карты — по игрокам, кто бы ни был на кнопке: колода с тем же столом, руки — на место
   state.hand.cards.hole = { ...hole }
-  // До ривера — колл и чеки; на ривере Борис ставит, Гоша уравнивает, Аня пасует
+  // До ривера — колл и чеки; на ривере сильнейший ставит, другой уравнивает, Аня пасует
   for (let i = 0; i < 20 && state.hand; i++) {
     const hand = state.hand
     const seat = hand.seats[hand.toAct]
     const facing = hand.currentBet > seat.bet
     const river = hand.stage === 'river'
     const action =
-      river && seat.id === 'me' && !facing
+      river && seat.id === better && !facing
         ? { type: 'raise', to: 40 }
         : river && seat.id === 'host' && facing
           ? { type: 'fold' }
           : { type: facing ? 'call' : 'check' }
     send(seat.id, { type: 'act', action })
   }
-  if (state.hand || !state.lastHand?.record?.mucked?.includes('gosha')) throw new Error('вскрытие с маком не доиграно')
+  if (state.hand || !state.lastHand?.record?.mucked?.includes(worse)) throw new Error('вскрытие с маком не доиграно')
+  if (mode === 'manual' && !state.muckVote?.players.includes('me')) throw new Error('паузы «Мак по выбору» нет')
   return table.viewFor(state, 'me')
 }
 
@@ -2485,7 +2501,8 @@ async function main(): Promise<void> {
     const onlyReport = process.argv.includes('otchet') // npm run shots -- otchet: отчёт сессии (#263)
     const onlyRules = process.argv.includes('pravila') // npm run shots -- pravila: правила игры за столом (#277)
     const onlyShow = process.argv.includes('pokazat') // npm run shots -- pokazat: «Показать» у сбросившего (#278)
-    const onlyMuck = process.argv.includes('mak') // npm run shots -- mak: «сбросил без показа» на вскрытии (#279)
+    // npm run shots -- mak: «сбросил без показа» на вскрытии (#279) и «Показать карты?» «Мака по выбору» (#286)
+    const onlyMuck = process.argv.includes('mak')
     const part =
       onlyShow ||
       onlyMuck ||
