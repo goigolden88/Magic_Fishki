@@ -1226,6 +1226,62 @@ async function openCardsTable(game: { name: string; hole: number; up: number }):
   return JSON.stringify({ id: 'shots-open', table: state, meId: 'me', level: 'amateur', open: false, showStyles: true, autoFinish: false, hudAll: false, history: [] })
 }
 
+// npm run shots -- pravila (#277): карточка «Правила: …» своей игры с открытой картой и хай/лоу — по касанию строки
+// над столом. Боты своих игр не знают (parseBotTable — только холдем и омаха), а стол на этом телефоне читает любые
+// настройки: стол собирают правила стола и кладут в память «Стола на этом телефоне», раздача идёт, ход — у игрока.
+// Снимок с открытой карточкой: стол и панель хода под ней
+async function rulesOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES) {
+    console.log(`Правила игры, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await themeOnly(d)
+    await screen('Стол: правила своей игры', size, async () => {
+      const text = await rulesTable()
+      await d.goto('#/poker')
+      await d.waitText('Войти по ссылке')
+      await d.eval(`(localStorage.setItem('fishki.poker.local', ${JSON.stringify(text)}), true)`)
+      await d.goto('#/poker/local')
+      await d.reload()
+      await d.waitFor('.dock.actions')
+      await d.waitFor('button.rules-line')
+      await sleep(1500) // раздача долетела
+      await d.eval(`(document.querySelector('button.rules-line').click(), true)`)
+      await d.waitText('Правила: Омаха с открытой')
+      await d.shot('09h-pravila-igry', false)
+    })
+  }
+}
+
+// Стол на этом телефоне (LocalTable строкой): своя игра — 4 карты, 1 открытая, ровно 2 из руки, пот-лимит, хай/лоу;
+// четверо, раздача началась
+async function rulesTable(): Promise<string> {
+  const load = async (file: string) =>
+    (await runnerImport<Record<string, any>>(join(process.cwd(), 'src/poker', file), { configFile: false, logLevel: 'silent' })).module
+  const table = await load('table.ts')
+  const rules = await load('game.ts')
+  const own = await load('ownGame.ts')
+  const { PROTOCOL_VERSION } = await load('protocol.ts')
+  const mine = { id: 'own-shots', name: 'Омаха с открытой', hole: 4, up: 1, fromHand: 2, deck: 52, order: 'standard', board: [3, 1, 1], limit: 'pot', hiLo: true }
+  const now = Date.now()
+  const settings = { sb: 5, bb: 10, startingStack: 1000, maxSeats: 6, cards: 'phones', autoStart: 'off', games: [mine], game: mine.id }
+  const created = table.createTable('host', 'Аня', settings, now)
+  if (!created.ok) throw new Error(created.error)
+  let state = created.state
+  const send = (from: string, body: Record<string, unknown>, deck?: string[]) => {
+    const r = table.handle(state, from, { v: PROTOCOL_VERSION, ...body }, now, deck)
+    if (!r.ok) throw new Error(`${from} ${String(body.type)}: ${r.error}`)
+    state = r.state
+  }
+  ;['Борис', 'Вера', 'Гоша'].forEach((name, i) => send(`p${i + 1}`, { type: 'sit', name }))
+  let seed = 277
+  const bytes = (b: Uint8Array) => {
+    for (let i = 0; i < b.length; i++) b[i] = (seed = (seed * 1103515245 + 12345) >>> 0) >>> 24
+    return b
+  }
+  send('host', { type: 'start' }, rules.shuffle(rules.deckFor(own.ownGameDef(mine)), bytes))
+  return JSON.stringify({ id: 'shots-rules', table: state, gameId: null, history: [] })
+}
+
 // npm run shots -- chto: «Что нового» (#261) — на телефоне и ноутбуке. Свежая установка окна не видит (проверка);
 // прочитанное «0» — как у телефона, обновившегося через несколько записей: окно поверх «Игр» со всеми записями (14),
 // «Понятно» — после перезагрузки окна нет (проверка); «Настройки» → «Что нового» — тот же список целиком (14b)
@@ -2259,7 +2315,9 @@ async function main(): Promise<void> {
     const onlyWhatsNew = process.argv.includes('chto') // npm run shots -- chto: «Что нового» (#261)
     const onlyCooler = process.argv.includes('kuler') // npm run shots -- kuler: кулер за столом с ботами (#262)
     const onlyReport = process.argv.includes('otchet') // npm run shots -- otchet: отчёт сессии (#263)
+    const onlyRules = process.argv.includes('pravila') // npm run shots -- pravila: правила игры за столом (#277)
     const part =
+      onlyRules ||
       onlyReport ||
       onlyCooler ||
       onlyWhatsNew ||
@@ -2276,6 +2334,7 @@ async function main(): Promise<void> {
       onlyStraddle ||
       onlyOwnGames
     if (onlyOwnGames) await ownGamesOnly(cdp)
+    if (onlyRules) await rulesOnly(cdp)
     if (onlyHandLog) await handLogOnly(cdp)
     if (onlyWhatsNew) await whatsNewOnly(cdp)
     if (onlyCooler) await coolerOnly(cdp)
