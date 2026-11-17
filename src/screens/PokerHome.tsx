@@ -46,6 +46,7 @@ import { TRAINER_HASH } from './Trainer'
 import { TRAINER_SIDES_MAX } from '../calc/trainerView'
 import { trainerHashOf } from '../calc/trainerFromHand'
 import { HandHistory } from './PokerRoom'
+import { SessionReport } from './SessionReport'
 import {
   clearBotTable,
   clearLocalTable,
@@ -335,7 +336,7 @@ function continueOf(): { title: string; line: string; href: string } | null {
 }
 
 // «Прошлые вечера» (#114): копия раздач на этом телефоне — строка на вечер (дата, стол, раздач, мой итог — #242);
-// касание — итог вечера по игрокам и его раздачи той же карточкой, что «История раздач» за столом; «Удалить» — с вопросом.
+// касание — итог вечера по игрокам, мой отчёт сессии (#263) и его раздачи той же карточкой, что «История раздач» за столом; «Удалить» — с вопросом.
 // «Выгрузить» у вечера и «Выгрузить все» под списком — файл текстом покер-румов (Р-54).
 // Вечеров нет или память браузера не читается — раздела нет (и «Выгрузить все» нет)
 function PastEvenings() {
@@ -390,7 +391,12 @@ function PastEvenings() {
           hands={open.hands}
           title={`${formatDate(eveningDay(open.evening))} · ${eveningLine(open.evening)}`}
           back="← Вечера"
-          top={<EveningResultTable hands={open.hands} />}
+          top={(openHand) => (
+            <>
+              <EveningResultTable hands={open.hands} />
+              <SessionReport hands={open.hands} onHand={openHand} />
+            </>
+          )}
           toTrainer={trainerHashOf}
           onClose={() => setOpen(null)}
         />

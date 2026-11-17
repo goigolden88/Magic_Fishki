@@ -2869,6 +2869,44 @@ input.own-back-file {
   white-space: nowrap;
 }
 
+/* Отчёт сессии (#263): под итогом вечера; график — во всю ширину карточки, высота — от ширины; ноль — пунктиром,
+   линия итога — цветом акцента гаммы */
+.session-report {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.session-report p {
+  margin: 0;
+}
+
+.session-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 5 / 2;
+  max-height: 40dvh;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  overflow: visible; /* линия на краю — целиком, а не срезанной половиной */
+}
+
+.session-zero {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 4 4;
+}
+
+.session-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+}
+
 .hand-text {
   max-width: 100%;
   overflow-x: auto;
