@@ -1,6 +1,7 @@
 // Какие разделы «Настроек» развёрнуты (#234) — состояние экрана, а не данные: в localStorage этого устройства,
 // не в IndexedDB и не в копию. В первый раз развёрнуто только «Оформление»
-export const SETTINGS_GROUPS = ['look', 'accounting', 'players', 'poker', 'notes', 'backup', 'demo'] as const
+// «Синхронизация» (sync, #265) — соседним разделом после «Копии данных»
+export const SETTINGS_GROUPS = ['look', 'accounting', 'players', 'poker', 'notes', 'backup', 'sync', 'demo'] as const
 export type SettingsGroup = (typeof SETTINGS_GROUPS)[number]
 export type OpenGroups = Record<SettingsGroup, boolean>
 
@@ -11,6 +12,7 @@ export const OPEN_GROUPS_DEFAULT: OpenGroups = {
   poker: false,
   notes: false,
   backup: false,
+  sync: false,
   demo: false,
 }
 

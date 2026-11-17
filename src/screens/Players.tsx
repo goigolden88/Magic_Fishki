@@ -5,6 +5,7 @@ import { statsShareText } from '../calc/share'
 import { basisText, rebuysPerGame, regularStats, type Evening, type RegularStat, type Stats } from '../calc/stats'
 import { formatDate } from '../dates'
 import { getSettings, listGames } from '../store/db'
+import { useRemoteVersion } from '../sync/instance'
 
 export const sign = (n: number) => (n > 0 ? 'plus' : n < 0 ? 'minus' : '')
 
@@ -61,13 +62,14 @@ export function PlayersScreen() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [demo, setDemo] = useState(false) // есть демо-игры — строка, что они не считаются (Р-04)
   const [shareNote, setShareNote] = useState<string | null>(null) // «Скопировано» под кнопкой
+  const remote = useRemoteVersion() // влитое с другого устройства (#265) — итоги перечитываются
 
   useEffect(() => {
     void Promise.all([getSettings(), listGames()]).then(([settings, games]) => {
       setStats(regularStats(settings.players, games))
       setDemo(hasDemo(games))
     })
-  }, [])
+  }, [remote])
 
   // Как «Поделиться итогом» в игре: системное «Поделиться»; где его нет — в буфер обмена
   async function share(stats: Stats) {
