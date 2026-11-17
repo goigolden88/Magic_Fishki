@@ -217,8 +217,32 @@ async function run<T>(
   })
 }
 
-// Запись в несколько хранилищ одной транзакцией: либо всё, либо ничего. Итог body — в замыкании вызывающего
-async function inTx(stores: StoreName[], body: (tx: IDBTransaction) => void): Promise<void> {
+// Событие изменения (#265): после каждой записи данных — откуда она. local — правка здесь (синхронизация
+// отправит её через 5 с тишины), remote — влитое синхронизацией с другого устройства (экраны перечитывают)
+export type ChangeOrigin = 'local' | 'remote'
+const changeListeners = new Set<(origin: ChangeOrigin) => void>()
+
+export function onChange(listener: (origin: ChangeOrigin) => void): () => void {
+  changeListeners.add(listener)
+  return () => {
+    changeListeners.delete(listener)
+  }
+}
+
+function changed(origin: ChangeOrigin): void {
+  for (const listener of changeListeners) listener(origin)
+}
+
+// Синхронизация влила ключи памяти браузера (prefs.json) — то же событие remote: экраны перечитывают
+export const announceRemote = () => changed('remote')
+
+// Запись в несколько хранилищ одной транзакцией: либо всё, либо ничего. Итог body — в замыкании вызывающего.
+// После записи — событие изменения (origin); null — без события (служебное: снятие отметок)
+async function inTx(
+  stores: StoreName[],
+  body: (tx: IDBTransaction) => void,
+  origin: ChangeOrigin | null = 'local',
+): Promise<void> {
   const db = await open()
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(stores, 'readwrite')
@@ -227,6 +251,7 @@ async function inTx(stores: StoreName[], body: (tx: IDBTransaction) => void): Pr
     tx.onerror = () => reject(tx.error)
     tx.onabort = () => reject(tx.error)
   })
+  if (origin) changed(origin)
 }
 
 function markDirty(tx: IDBTransaction, mark: DirtyMark): void {
@@ -527,10 +552,138 @@ export async function listDirty(): Promise<DirtyMark[]> {
 // Отправленное — отметки снимаются одной транзакцией
 export async function clearDirty(marks: DirtyMark[]): Promise<void> {
   if (marks.length === 0) return
-  await inTx([DIRTY], (tx) => {
-    const store = tx.objectStore(DIRTY)
-    for (const m of marks) store.delete([m.store, m.key])
+  await inTx(
+    [DIRTY],
+    (tx) => {
+      const store = tx.objectStore(DIRTY)
+      for (const m of marks) store.delete([m.store, m.key])
+    },
+    null,
+  )
+}
+
+// ─── Синхронизация (#265, src/sync/) ───────────────────────────────────────
+
+export type SyncedStore = 'games' | 'settings' | typeof HANDS | typeof CHARTS
+// Запись как лежит или как пришла из репозитория данных: синхронизации нужны ключ и время правки
+export type StoredRecord = { updatedAt?: unknown; deleted?: unknown; [field: string]: unknown }
+export type SyncSnapshot = {
+  games: StoredRecord[]
+  settings: StoredRecord | null
+  hands: StoredRecord[]
+  charts: StoredRecord[]
+}
+
+// Всё, что синхронизируется, — одной транзакцией чтения, с метками удаления; демо-игр нет (Р-04)
+export async function syncSnapshot(): Promise<SyncSnapshot> {
+  const db = await open()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['games', 'settings', HANDS, CHARTS], 'readonly')
+    const games = tx.objectStore('games').getAll()
+    const settings = tx.objectStore('settings').get(SETTINGS_KEY)
+    const hands = tx.objectStore(HANDS).getAll()
+    const charts = tx.objectStore(CHARTS).getAll()
+    tx.oncomplete = () =>
+      resolve({
+        games: (games.result as StoredRecord[]).filter((g) => g.demo !== true),
+        settings: (settings.result as StoredRecord | undefined) ?? null,
+        hands: hands.result as StoredRecord[],
+        charts: charts.result as StoredRecord[],
+      })
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error)
   })
+}
+
+// Ключ записи в хранилище; у записи без ключа — null
+function keyOf(store: SyncedStore, record: StoredRecord): IDBValidKey | null {
+  if (store === 'settings') return SETTINGS_KEY
+  if (store === HANDS) {
+    return typeof record.evening === 'string' && typeof record.number === 'number' ? [record.evening, record.number] : null
+  }
+  return typeof record.id === 'string' ? record.id : null
+}
+
+// Метка из пришедшей метки: только ключ, deleted и время правки — содержимого быть не должно
+function markOf(store: SyncedStore, record: StoredRecord, updatedAt: string): Tombstone | HandTombstone {
+  return store === HANDS
+    ? handTombstone(record.evening as string, record.number as number, updatedAt)
+    : tombstone(record.id as string, updatedAt)
+}
+
+// Влить пришедшее с другого устройства — одной транзакцией: по ключу побеждает поздний updatedAt; у здешней
+// записи без времени правки (настройки до первой записи) — пришедшая. Демо-игра здесь не перезаписывается,
+// пришедшая демо — мимо. Метка старше TOMBSTONE_DAYS — не пишется: она стёрта и на том устройстве; но если она
+// позже здешней записи — здешняя стирается совсем (удаление случилось после её правки). Отметок «не отправлено»
+// слияние не ставит. Вернёт, сколько записей изменилось; изменилось — событие remote
+export async function mergeRemote(store: SyncedStore, records: readonly StoredRecord[], at = Date.now()): Promise<number> {
+  if (records.length === 0) return 0
+  let count = 0
+  await inTx(
+    [store, DIRTY],
+    (tx) => {
+      const os = tx.objectStore(store)
+      for (const record of records) {
+        const key = keyOf(store, record)
+        const remoteAt = record.updatedAt
+        if (key === null || typeof remoteAt !== 'string' || record.demo === true) continue
+        const old = os.get(key)
+        old.onsuccess = () => {
+          const local = old.result as StoredRecord | undefined
+          if (local?.demo === true) return
+          if (local && typeof local.updatedAt === 'string' && local.updatedAt >= remoteAt) return
+          let value: unknown = record
+          if (isMark(record)) {
+            if (expired(remoteAt, at)) {
+              if (!local) return
+              os.delete(key)
+              tx.objectStore(DIRTY).delete([store, key])
+              count += 1
+              return
+            }
+            value = markOf(store, record, remoteAt)
+          }
+          if (store === 'settings') os.put(value, SETTINGS_KEY)
+          else os.put(value)
+          count += 1
+        }
+      }
+    },
+    null,
+  )
+  if (count > 0) changed('remote')
+  return count
+}
+
+// «Нет в репо — значит удалено» (#265): записи, удалённые на другом устройстве, чья метка уже истекла, —
+// стереть совсем, одной транзакцией. Запись с отметкой «не отправлено» (правили здесь) остаётся: поздняя правка
+// побеждает. Вернёт, сколько стёрто; стёрто — событие remote
+export async function forgetRecords(refs: readonly { store: 'games' | typeof HANDS | typeof CHARTS; key: IDBValidKey }[]): Promise<number> {
+  if (refs.length === 0) return 0
+  let count = 0
+  const stores = [...new Set(refs.map((r) => r.store))]
+  await inTx(
+    [...stores, DIRTY],
+    (tx) => {
+      for (const ref of refs) {
+        const mark = tx.objectStore(DIRTY).get([ref.store, ref.key])
+        mark.onsuccess = () => {
+          if (mark.result !== undefined) return
+          const os = tx.objectStore(ref.store)
+          const old = os.get(ref.key)
+          old.onsuccess = () => {
+            const local = old.result as StoredRecord | undefined
+            if (!local || local.demo === true) return
+            os.delete(ref.key)
+            count += 1
+          }
+        }
+      }
+    },
+    null,
+  )
+  if (count > 0) changed('remote')
+  return count
 }
 
 // Память синхронизации (шаг 2): отпечатки файлов, последний коммит — по имени; нет — undefined

@@ -93,6 +93,66 @@ export function stampSynced(key: string) {
   markLocalDirty(key).catch(() => {})
 }
 
+// Синхронизация (#265, prefs.json): синхронизируемые ключи как есть — значение (null — стёрт) и время правки.
+// Ключ без времени правки (значение с до #264) — с началом отсчёта: правка с другого устройства его побеждает.
+// Ни значения, ни времени — ключа нет
+const EPOCH = new Date(0).toISOString()
+
+export type SyncedPref = { key: string; value: string | null; updatedAt: string }
+
+export function syncedPrefs(): SyncedPref[] {
+  const stamps = loadSyncStamps()
+  const out: SyncedPref[] = []
+  for (const key of SYNCED_KEYS) {
+    let value: string | null = null
+    try {
+      value = localStorage.getItem(key)
+    } catch {
+      return []
+    }
+    const at = stamps[key]
+    if (at === undefined && value === null) continue
+    out.push({ key, value, updatedAt: at ?? EPOCH })
+  }
+  return out
+}
+
+// Влить ключи с другого устройства: по ключу целиком побеждает поздний. Записывается мимо stampSynced —
+// отметки «не отправлено» нет, время правки — пришедшее. Копии в памяти страницы сбрасываются: следующее чтение
+// возьмёт новое (стол на экране сам не перерисовывается). Вернёт ключи, что изменились
+export function applySyncedPrefs(records: readonly { key?: unknown; value?: unknown; updatedAt?: unknown }[]): string[] {
+  const stamps = loadSyncStamps()
+  const applied: string[] = []
+  for (const r of records) {
+    if (typeof r.key !== 'string' || !SYNCED_KEYS.has(r.key) || typeof r.updatedAt !== 'string') continue
+    if (r.value !== null && typeof r.value !== 'string') continue
+    const local = stamps[r.key]
+    if (local !== undefined && local >= r.updatedAt) continue
+    try {
+      if (r.value === null) localStorage.removeItem(r.key)
+      else localStorage.setItem(r.key, r.value)
+    } catch {
+      continue
+    }
+    stamps[r.key] = r.updatedAt
+    applied.push(r.key)
+  }
+  if (applied.length === 0) return applied
+  try {
+    localStorage.setItem(SYNC_STAMPS_KEY, JSON.stringify(stamps))
+  } catch {
+    // время не запомним — следующий проход сравнит заново
+  }
+  notesState = undefined
+  myLook = undefined
+  bigBlinds = undefined
+  quickBets = undefined
+  betStep = undefined
+  tableSize = undefined
+  dockSize = undefined
+  return applied
+}
+
 function read(key: string): string {
   try {
     return localStorage.getItem(key) ?? ''
