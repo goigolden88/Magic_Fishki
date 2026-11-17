@@ -3486,6 +3486,15 @@ input.bet-range::-moz-range-thumb {
   margin-top: 0.3rem;
 }
 
+/* «Мак по выбору» (#286): свои карты над кнопками «Показать» и «Сбросить» */
+.muck-cards {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.3rem;
+  margin: 0 0 0.4rem;
+}
+
 .dock-note {
   margin: 0.3rem 0 0;
   font-size: 0.85rem;

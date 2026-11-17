@@ -19,7 +19,7 @@ import { formSettings, tournamentFormOf, type TournamentForm } from '../calc/tou
 import type { CardsMode, Limit } from '../poker/game'
 import { MIX_SHARE_DEFAULT, MIX_VOTE_MS, type MixShare } from '../poker/mix'
 import { RUN_VOTE_MS, type MaxRuns } from '../poker/runs'
-import type { MuckMode } from '../poker/table'
+import { MUCK_VOTE_MS, type MuckMode } from '../poker/table'
 import { HudFields } from './Hud'
 import { LookFields } from './LookFields'
 import { TimerFields, timerForm, type TimerForm } from './TimerFields'
@@ -167,9 +167,9 @@ export function RoomFields(props: { form: RoomForm; players: number; own: OwnGam
   )
 }
 
-// «Вскрытие» (#279): все открывают или «Мак сам» — проигравший, кого не обязывают показывать, сбрасывает карты без показа.
-// Выбор кнопками: рядом встанет «Мак по выбору». Только карты на телефонах; у комнаты при создании и в «Настройках
-// стола» ведущего. muck — null: все открывают
+// «Вскрытие» (#279): все открывают, «Мак сам» — проигравший, кого не обязывают показывать, сбрасывает карты без показа,
+// или «Мак по выбору» (#286) — он же решает сам кнопками. Выбор кнопками. Только карты на телефонах; у комнаты
+// при создании и в «Настройках стола» ведущего. muck — null: все открывают
 export function MuckFields({ muck, onChange }: { muck: MuckMode | null; onChange: (m: MuckMode | null) => void }) {
   return (
     <fieldset className="players-pick">
@@ -190,7 +190,9 @@ export function MuckFields({ muck, onChange }: { muck: MuckMode | null; onChange
       <p className="muted">
         {muck === 'auto'
           ? 'Первым открывает последний, кто ставил или повышал; дальше по часовой. Чья рука хуже уже открытой, тот сбрасывает карты без показа — сам. Взявший банк открыт всегда; олл-ин без торговли — открываются все.'
-          : 'На вскрытии все, кто дошёл, открывают карты.'}
+          : muck === 'manual'
+            ? `Первым открывает последний, кто ставил или повышал; дальше по часовой. Чья рука хуже уже открытой, тот сам решает кнопками — показать или сбросить, ${MUCK_VOTE_MS / 1000} секунд; не решил — карты открываются. Взявший банк открыт всегда; олл-ин без торговли — открываются все.`
+            : 'На вскрытии все, кто дошёл, открывают карты.'}
       </p>
     </fieldset>
   )

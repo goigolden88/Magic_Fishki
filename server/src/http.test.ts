@@ -167,15 +167,17 @@ describe('создание комнаты', () => {
     expect(gameFor(table!.settings)?.hiLo).toBe(true)
   })
 
-  it('мак на вскрытии (#279): «Мак сам» доходит до стола; «Мак по выбору» — пока отказ 400', async () => {
-    const room = fakeRoom()
-    const { d } = deps('p', { init: (code, name, settings, roster, regularId) => initRoom(room.env, code, name, settings, 0, roster, regularId) })
-    expect(await createRoom(body('p', { settings: { cards: 'phones', muck: 'auto' } }), d)).toMatchObject({ status: 200 })
-    expect((await room.storage.get<RoomRecord>('room'))?.table.settings.muck).toBe('auto')
+  it('мак на вскрытии (#279, #286): «Мак сам» и «Мак по выбору» доходят до стола; другое — отказ 400', async () => {
+    for (const muck of ['auto', 'manual']) {
+      const room = fakeRoom()
+      const { d } = deps('p', { init: (code, name, settings, roster, regularId) => initRoom(room.env, code, name, settings, 0, roster, regularId) })
+      expect(await createRoom(body('p', { settings: { cards: 'phones', muck } }), d)).toMatchObject({ status: 200 })
+      expect((await room.storage.get<RoomRecord>('room'))?.table.settings.muck).toBe(muck)
+    }
     const bad = deps('p', { init: (code, name, settings, roster, regularId) => initRoom(fakeRoom().env, code, name, settings, 0, roster, regularId) })
-    expect(await createRoom(body('p', { settings: { cards: 'phones', muck: 'manual' } }), bad.d)).toEqual({
+    expect(await createRoom(body('p', { settings: { cards: 'phones', muck: 'other' } }), bad.d)).toEqual({
       status: 400,
-      body: { v: PROTOCOL_VERSION, error: 'Вскрытие — все открывают или мак сам' },
+      body: { v: PROTOCOL_VERSION, error: 'Вскрытие — все открывают, мак сам или мак по выбору' },
     })
   })
 
