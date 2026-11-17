@@ -4,7 +4,7 @@
 // #214; только он — npm run shots -- trainer), «Стол на этом телефоне»
 // (10 гостей, панель хода), «Против ботов» (мой ход, панель хода; после паса — «История раздач» за столом
 // и в «Прошлых вечерах», #239; только она — npm run shots -- history), «Казино» (столы идут; на телефоне — ещё
-// на шестерых), «Справка».
+// на шестерых), «Справка» (группами, #245; только она — npm run shots -- spravka).
 // Сервер комнат не нужен — всё без сети; комната — только в шаге «Показать» (#278), с подменённым на странице
 // соединением (npm run shots -- pokazat). Демо-игры и гости — выдуманные (src/calc/demo.ts).
 // Chrome — по DevTools-протоколу (обычный --screenshot не умеет нажимать кнопки), без сторонних библиотек.
@@ -1905,11 +1905,33 @@ async function casinoAndHelpSteps(d: Device): Promise<void> {
 
   await ownBackStep(d)
 
-  await screen('Справка', size, async () => {
-    await d.goto('#/help')
-    await d.waitFor('details.card.help')
-    await d.shot('06-spravka')
-  })
+  await screen('Справка', size, () => helpStep(d))
+}
+
+// Справка (#245): сначала группы свёрнуты; затем группа «Покер: начать игру» и в ней «Против ботов» — абзацами
+async function helpStep(d: Device): Promise<void> {
+  await d.goto('#/help')
+  await d.waitFor('details.help-group')
+  await d.shot('06-spravka')
+  const opened = await d.eval<boolean>(`(() => {
+    const group = [...document.querySelectorAll('details.help-group')].find((g) => g.querySelector('summary')?.textContent?.startsWith('Покер: начать игру'))
+    const section = group && [...group.querySelectorAll('details.help')].find((s) => s.querySelector('summary')?.textContent === 'Против ботов')
+    if (!group || !section) return false
+    group.open = true
+    section.open = true
+    return true
+  })()`)
+  if (!opened) throw new Error('нет группы «Покер: начать игру» с разделом «Против ботов»')
+  await d.shot('06b-spravka-gruppa')
+}
+
+// npm run shots -- spravka: только справка (#245), телефон и широкое окно
+async function helpOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES.slice(0, 2)) {
+    console.log(`Справка, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await screen('Справка', size, () => helpStep(d))
+  }
 }
 
 // Имена у мест казино на телефоне (#254): новая игра «только казино» из четырёх гостей с именами 8–12 букв, холдем
@@ -2503,7 +2525,9 @@ async function main(): Promise<void> {
     const onlyShow = process.argv.includes('pokazat') // npm run shots -- pokazat: «Показать» у сбросившего (#278)
     // npm run shots -- mak: «сбросил без показа» на вскрытии (#279) и «Показать карты?» «Мака по выбору» (#286)
     const onlyMuck = process.argv.includes('mak')
+    const onlyHelp = process.argv.includes('spravka') // npm run shots -- spravka: справка группами (#245)
     const part =
+      onlyHelp ||
       onlyShow ||
       onlyMuck ||
       onlyRules ||
@@ -2522,6 +2546,7 @@ async function main(): Promise<void> {
       onlyOwnBack ||
       onlyStraddle ||
       onlyOwnGames
+    if (onlyHelp) await helpOnly(cdp)
     if (onlyOwnGames) await ownGamesOnly(cdp)
     if (onlyRules) await rulesOnly(cdp)
     if (onlyShow) await showOnly(cdp)

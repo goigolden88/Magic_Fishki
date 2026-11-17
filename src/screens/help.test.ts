@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { formatBB, formatNumber, formatRub } from '../calc/format'
-import { HELP_VALUES, helpSections, type HelpValues } from './helpText'
+import { allHelpSections, HELP_VALUES, helpGroups, helpSections, OWN_SERVER_DOC, type HelpValues } from './helpText'
 
 // Вместо чисел — метка: цифра в выводе значит, что число вписано в текст руками
 const PLACEHOLDERS: HelpValues = {
@@ -89,6 +89,7 @@ const PLACEHOLDERS: HelpValues = {
   ownLineExample: '‹строка своей игры›',
   ownOpenLineExample: '‹строка своей игры с открытыми›',
   ownHiLoLineExample: '‹строка своей игры хай/лоу›',
+  ownServerDoc: '‹свой сервер›',
 }
 
 // Код приложения и сервера комнат текстом — без тестов и без самой справки
@@ -106,6 +107,7 @@ const NOT_IN_CODE = new Set<string>([
   'олл-ин или пас',
   'VPIP/PFR · раздач',
   'Update branch',
+  'Свой сервер покера',
 ])
 
 // В справке — в другом падеже или собрано из частей; в коде — эти части
@@ -124,6 +126,8 @@ const IN_CODE_AS: Record<string, string[]> = {
   'Имя (батон) предлагает омаху': ['(батон) предлагает'],
   'Следующая раздача — омаха': ['Следующая раздача — '],
   'Остаёмся в холдем': ['Остаёмся в '],
+  'Показать первую': ['Показать', 'первую'],
+  'Показать вторую': ['Показать', 'вторую'],
 }
 
 // Части «…», которые должны быть в коде: многоточие и N — изменяемое (число, имя), короче двух знаков — не в счёт
@@ -139,38 +143,62 @@ function partsOf(quoted: string): string[] {
 }
 
 describe('справка', () => {
-  it('разделы: по экрану, расчёт, данные и «если что-то не так»', () => {
-    expect(helpSections(HELP_VALUES).map((s) => s.title)).toEqual([
-      'Игры',
-      'Игра',
-      'Казино',
-      'Игроки',
-      'Карточка игрока',
-      'Из Телеграма',
-      'Играть',
-      'Стол на этом телефоне',
-      'Против ботов',
-      'Тренажёр',
-      'Комната покера',
-      'Стол покера',
-      'История раздач и выгрузка',
-      'Холдем, омаха, шорт-дек',
-      'Свои игры',
-      'Микс',
-      'Прогнать несколько раз',
-      'Время на ход, раздача сама, звук и анимация',
-      'Ведущий',
-      'Кэш и турнир',
-      'Вид стола',
-      'HUD',
-      'Заметки об игроках',
-      'Конец игры и связь',
-      'Компьютер и широкое окно',
-      'Настройки',
-      'Как считаются переводы',
-      'Данные',
-      'Если что-то не так',
+  // #245: разделы — группами, по порядку экранов
+  it('группы и разделы в них — по экранам приложения', () => {
+    expect(helpGroups(HELP_VALUES).map((g) => [g.title, g.sections.map((s) => s.title)])).toEqual([
+      ['Учёт вечера', ['Игры', 'Из Телеграма', 'Игра', 'Казино', 'Игроки', 'Карточка игрока', 'Как считаются переводы']],
+      ['Покер: начать игру', ['Играть', 'Комната покера', 'Ведущий', 'Кэш и турнир', 'Стол на этом телефоне', 'Против ботов']],
+      [
+        'Покер: за столом',
+        [
+          'Стол покера',
+          'Время на ход, раздача сама, звук и анимация',
+          'Вид стола',
+          'HUD',
+          'Заметки об игроках',
+          'История раздач и выгрузка',
+          'Конец игры и связь',
+        ],
+      ],
+      ['Покер: игры', ['Холдем, омаха, шорт-дек', 'Свои игры', 'Микс', 'Прогнать несколько раз']],
+      ['Тренажёр', ['Калькулятор', 'Чарты']],
+      ['Приложение', ['Настройки', 'Компьютер и широкое окно', 'Данные', 'Если что-то не так']],
     ])
+  })
+
+  it('каждый раздел — ровно в одной группе, пустых групп нет', () => {
+    const inGroups = helpGroups(HELP_VALUES).flatMap((g) => g.sections.map((s) => s.title))
+    const written = allHelpSections(HELP_VALUES).map((s) => s.title)
+    expect(new Set(written).size).toBe(written.length)
+    expect([...inGroups].sort()).toEqual([...written].sort())
+    for (const g of helpGroups(HELP_VALUES)) expect(g.sections.length).toBeGreaterThan(0)
+    expect(helpSections(HELP_VALUES).map((s) => s.title)).toEqual(inGroups)
+  })
+
+  // Ссылка «раздел «…»» в тексте ведёт на заголовок раздела справки
+  it('ссылки на разделы — на существующие разделы', () => {
+    const titles = new Set(allHelpSections(PLACEHOLDERS).map((s) => s.title))
+    const missing = new Set<string>()
+    for (const p of allHelpSections(PLACEHOLDERS).flatMap((s) => s.text)) {
+      for (const [, title] of p.matchAll(/раздел(?:е|а)? «([^«»]+)»/g)) {
+        if (title !== 'Настроек' && !titles.has(title)) missing.add(title)
+      }
+    }
+    expect([...missing]).toEqual([])
+  })
+
+  it('раздел о сервере в «Настройках» ведёт на инструкцию «Свой сервер покера»', () => {
+    expect(OWN_SERVER_DOC).toBe('https://github.com/goigolden88/Magic_Fishki/blob/main/docs/Свой%20сервер%20покера.md')
+    const settings = allHelpSections(HELP_VALUES).find((s) => s.title === 'Настройки')
+    expect(settings?.text.find((p) => p.includes('«Адрес сервера»'))).toContain(OWN_SERVER_DOC)
+  })
+
+  // Длинный раздел — абзацами по темам (#245): «Против ботов» был одним абзацем в несколько тысяч знаков
+  it('абзацы — не длиннее трёх тысяч знаков', () => {
+    const long = allHelpSections(HELP_VALUES)
+      .flatMap((s) => s.text.map((p) => [s.title, p.length] as const))
+      .filter(([, n]) => n > 3000)
+    expect(long).toEqual([])
   })
 
   // Р-59: справка называет кнопки и экраны, как в приложении. Каждое «…» в тексте — строка из кода экранов
@@ -297,6 +325,7 @@ describe('справка', () => {
       ownLineExample: '«5 карт, ровно 2 из руки · стол 3-1-1 · пот-лимит · до 9 игроков»',
       ownOpenLineExample: '«3 карты (1 открытая), любые из руки · стол 3-1-1 · без лимита · до 10 игроков»',
       ownHiLoLineExample: '«4 карты, ровно 2 из руки · стол 3-1-1 · пот-лимит · хай/лоу · до 10 игроков»',
+      ownServerDoc: OWN_SERVER_DOC,
       chartsRounding: 'доли округлены до 25 % (у пар — до 1/6)',
       bbExample: '42,5 ББ',
     })
