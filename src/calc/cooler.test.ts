@@ -3,6 +3,8 @@ import { HOLDEM_GAME, OMAHA_GAME, SHORT_DECK_GAME, type GameDef } from '../poker
 import type { HandLogEntry } from '../poker/hand'
 import type { HandRecord, HandResult, RunRecord } from '../poker/table'
 import { coolerOf } from './cooler'
+import type { SavedHand } from './evenings'
+import { historyList } from './pokerView'
 
 const BB = 10
 
@@ -97,6 +99,16 @@ describe('кулер (#262)', () => {
     // Первый борд без кулера, второй — с ним: нет
     const back = hand({ board: second, a: FLUSH, b: FULL, winners: ['a', 'b'], runs: [run(second, 'a'), run(BOARD, 'b')] })
     expect(coolerOf(back)).toBeNull()
+  })
+
+  it('история раздач: пометка «кулер» только у кулера', () => {
+    const saved = (h: HandResult, number: number): SavedHand => ({ evening: 'e', code: null, startedAt: 0, number, hand: { ...h, number } })
+    const yes = hand({ board: BOARD, a: FLUSH, b: FULL, winners: ['b'] })
+    const no = hand({ board: BOARD, a: FLUSH, b: FULL, winners: ['b'], put: 15 * BB })
+    expect(historyList([saved(yes, 1), saved(no, 2)]).map((i) => [i.number, i.cooler])).toEqual([
+      [2, undefined],
+      [1, true],
+    ])
   })
 
   it('проигравших двое — тот, у кого рука сильнее', () => {
