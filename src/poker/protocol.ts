@@ -2,7 +2,7 @@
 // клиент с другой версией получает отказ «обновите приложение»
 import type { HistoryHand } from './history'
 import type { TableGameId } from './ownGame'
-import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
+import type { AutoStart, CardBack, Felt, MuckMode, Settings, TableState } from './table'
 
 // 2 — список постоянных игроков комнаты (lobby), вход под постоянным (regularId), «пересадить» (reseat)
 // 3 — признак жизни (PING): без него сервер считает игрока вне сети
@@ -37,7 +37,9 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 // 23 — ход раздачи по касанию банка (#258): настройка liveHand при создании и в tableSettings
 // 24 — «Показать» и у сбросивших (#278): сообщение show то же; в записи раздачи hidden — карты по игрокам
 //      (взявший без вскрытия и сбросившие), каждому телефону — только свои
-export const PROTOCOL_VERSION = 24
+// 25 — мак на вскрытии (#279): настройка muck при создании и в tableSettings (null — все открывают); в записи
+//      раздачи сбросившие без показа (mucked), их карты — в hidden, рука и пятёрка — только им
+export const PROTOCOL_VERSION = 25
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -101,6 +103,7 @@ export type ClientBody =
       prizes?: number[] | null
       publicHud?: boolean
       liveHand?: boolean
+      muck?: MuckMode | null
     }
   // ведущий, в любой момент: вид стола — сукно и рубашка карт; нет поля — не меняется
   | { type: 'look'; felt?: Felt; cardBack?: CardBack }

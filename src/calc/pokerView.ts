@@ -206,7 +206,8 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
         cards: cards ? (s && !s.folded ? publicCards(cards, p.id) : null) : (record?.shown[p.id] ?? null),
         // Прогнали несколько раз (#167) — у каждого борда своя рука: подписи — у бордов, не у мест
         // Хай/лоу (#227) — старшая рука и лоу: «Тройка, короли · лоу 7-4-3-2-A»
-        handName: record?.runs ? null : withLow(record?.hands[p.id] ?? null, record?.lows?.[p.id]),
+        // Сбросил без показа (#279) — у места ни карт, ни руки, и у себя тоже: свои — в «Показать»
+        handName: record?.runs || muckNote(record, p.id) ? null : withLow(record?.hands[p.id] ?? null, record?.lows?.[p.id]),
         best: fives.get(p.id) ?? null,
         id: p.id,
         seat: p.seat,
@@ -538,8 +539,9 @@ function fivesOf(last: HandResult): Map<string, Card[]> {
 export type LastHandView = {
   number: number
   board: Card[]
-  // Сданные, по местам; best — у победителя банка на вскрытии лучшая пятёрка, иначе null
-  players: { name: string; cards: (Card | null)[] | null; hand: string | null; best: Card[] | null; won: number }[]
+  // Сданные, по местам; best — у победителя банка на вскрытии лучшая пятёрка, иначе null;
+  // note — сбросил без показа на вскрытии (#279, muckNote), иначе null
+  players: { name: string; cards: (Card | null)[] | null; hand: string | null; best: Card[] | null; won: number; note: string | null }[]
   rounds: { label: string; moves: string[] }[] // ходы по кругам торгов
   // Ва-банк до ривера и вскрытие (#116): «Шансы на ва-банке (флоп): Аня 72 %, Боря 28 %»; иначе null
   odds: string | null
@@ -559,21 +561,38 @@ export function lastHandRecord(table: TableState): LastHandView | null {
   const labels = potLabels(last.pots.length)
   const runs = runBoards(record, labels)
   const split = runs ? null : splitOf(record, labels)
+  const hidden = hiddenOf(record)
   return {
     number: last.number,
     board: record.board,
-    players: record.seats.map((s) => ({
-      name: s.name,
-      cards: record.shown[s.id] ?? null,
-      hand: runs ? null : withLow(record.hands[s.id] ?? null, record.lows?.[s.id]),
-      best: fives.get(s.id) ?? null,
-      won: last.payouts[s.id] ?? 0,
-    })),
+    players: record.seats.map((s) => {
+      const note = muckNote(record, s.id)
+      return {
+        name: s.name,
+        // Сбросил без показа я (#279) — мои карты, с пометкой «не показаны»
+        cards: (note ? hidden[s.id] : undefined) ?? record.shown[s.id] ?? null,
+        hand: runs ? null : withLow(record.hands[s.id] ?? null, record.lows?.[s.id]),
+        best: fives.get(s.id) ?? null,
+        won: last.payouts[s.id] ?? 0,
+        note,
+      }
+    }),
     rounds: roundsOf(record.log, record.seats),
     odds: oddsLine(record),
     ...(runs ? { runs } : {}),
     ...(split ? { split } : {}),
   }
+}
+
+// Сбросил без показа на вскрытии (#279) — в записи в виде телефона (viewFor, handFor): другим —
+// «сбросил без показа», себе — «не показаны» (показал часть — «показаны не все»); показал все или мака не было — null
+export function muckNote(record: HandRecord | undefined, id: string): string | null {
+  if (!record?.mucked?.includes(id)) return null
+  const shown = record.shown[id] ?? []
+  const some = shown.some((c) => c !== null)
+  if (some && shown.every((c) => c !== null)) return null
+  if (hiddenOf(record)[id]) return some ? 'показаны не все' : 'не показаны'
+  return some ? null : 'сбросил без показа'
 }
 
 // Хай/лоу (#227): делёж банков записи строками — по именам мест
@@ -722,6 +741,7 @@ export function historyHandView(s: SavedHand): HistoryHandView {
       hand: runs ? null : withLow(record?.hands[x.id] ?? null, record?.lows?.[x.id]),
       best: fives.get(x.id) ?? null,
       won: h.payouts[x.id] ?? 0,
+      note: muckNote(record, x.id),
     })),
     rounds: roundsOf(log, seats),
     odds: record ? oddsLine(record) : null,

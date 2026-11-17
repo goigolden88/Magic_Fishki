@@ -86,7 +86,14 @@ export type Settings = {
   // «Прогнать несколько раз» (#167, Р-58): до скольких раз; 1 — нет. Только карты на телефонах; кэш и турнир.
   // У столов до него поля нет — нет
   maxRuns?: MaxRuns
+  // Вскрытие (#279): нет поля — все открывают; 'auto' — «Мак сам»: проигравший, которого не обязывают показывать,
+  // сбрасывает карты без показа (showdownOpen). Только карты на телефонах; меняется между раздачами
+  muck?: MuckMode
 }
+
+// Режимы вскрытия (#279): «Мак сам»; «Мак по выбору» ('manual') — следующей задачей
+export const MUCK_MODES = ['auto'] as const
+export type MuckMode = (typeof MUCK_MODES)[number]
 
 export type TableFormat = 'cash' | 'tournament'
 
@@ -217,6 +224,10 @@ export type HandRecord = {
   lows?: Record<string, string>
   lowBest?: Record<string, Card[]>
   split?: PotSplit[]
+  // Сбросили без показа на вскрытии (#279, «Мак сам»), по местам: их карты — в hidden, а рука, пятёрка и лоу
+  // (hands, best, lows, lowBest, у бордов — тоже) другим телефонам не приходят (recordFor). Мака не было
+  // (и у записей до #279) — поля нет
+  mucked?: string[]
 }
 
 export type PotSplit = { hi: string[]; lo: string[] }
@@ -500,8 +511,8 @@ export function viewFor(table: TableState, playerId: string | null): TableState 
     cards.deck = []
     for (const id of Object.keys(cards.hole)) if (id !== playerId) cards.hole[id] = publicCards(cards, id)
   }
-  const record = view.lastHand?.record
-  if (record && closed) record.hidden = ownHidden(record, playerId)
+  const last = view.lastHand
+  if (last?.record && closed) last.record = recordFor(last.record, playerId)
   return view
 }
 
@@ -509,6 +520,26 @@ export function viewFor(table: TableState, playerId: string | null): TableState 
 export function ownHidden(record: HandRecord, playerId: string | null): HiddenCards {
   const mine = playerId !== null ? hiddenOf(record)[playerId] : undefined
   return mine ? { [playerId as string]: mine } : {}
+}
+
+// Запись раздачи для телефона игрока playerId: закрытые карты — только свои (ownHidden); у чьих карт ещё закрыты
+// (сбросил без показа на вскрытии, #279) — ни руки, ни пятёрки, ни лоу, и у бордов тоже. Показал все — видно всё
+export function recordFor(record: HandRecord, playerId: string | null): HandRecord {
+  const others = new Set(Object.keys(hiddenOf(record)).filter((id) => id !== playerId))
+  const out: HandRecord = { ...record, hidden: ownHidden(record, playerId) }
+  if (others.size === 0) return out
+  const drop = <T>(m: Record<string, T>): Record<string, T> => Object.fromEntries(Object.entries(m).filter(([id]) => !others.has(id)))
+  const lowsOf = <T extends { lows?: Record<string, string>; lowBest?: Record<string, Card[]> }>(r: T) => ({
+    ...(r.lows ? { lows: drop(r.lows) } : {}),
+    ...(r.lowBest ? { lowBest: drop(r.lowBest) } : {}),
+  })
+  return {
+    ...out,
+    hands: drop(record.hands),
+    ...(record.best ? { best: drop(record.best) } : {}),
+    ...lowsOf(record),
+    ...(record.runs ? { runs: record.runs.map((r) => ({ ...r, hands: drop(r.hands), best: drop(r.best), ...lowsOf(r) })) } : {}),
+  }
 }
 
 // Соединение игрока открылось или закрылось (зовёт сервер)
@@ -834,6 +865,7 @@ function settle(state: TableState, now: number): string | null {
     if (s.folded && own && own.length > 0 && own.every((c) => c !== null)) hidden[s.id] = [...(own as Card[])]
   }
   let runs: RunRecord[]
+  let mucked: string[] = []
   if (live.length > 1) {
     const times = runsFor(state, hand, cards, live, now)
     if (times === null) return null
@@ -860,7 +892,13 @@ function settle(state: TableState, now: number): string | null {
       const split = hand.pots.map((pot, k) => ({ hi: winners[k], lo: lowWinners(variant, board, contenders(pot.eligible)) }))
       return { board, hands, best, winners, lows, lowBest, split }
     })
-    for (const id of live) shown[id] = hole(id)
+    // «Мак сам» (#279): открываются по порядку вскрытия те, кого обязывают; остальные — сброс без показа
+    const open = state.settings.muck === 'auto' ? showdownOpen(hand, variant, runs, hole) : live
+    for (const id of live) {
+      if (open.includes(id)) shown[id] = hole(id)
+      else hidden[id] = hole(id)
+    }
+    mucked = live.filter((id) => !open.includes(id))
   } else {
     runs = [{ board: [...cards.board], hands: {}, best: {}, winners: hand.pots.map((pot) => [...pot.eligible]) }]
     hidden[live[0]] = hole(live[0])
@@ -894,9 +932,60 @@ function settle(state: TableState, now: number): string | null {
     hidden,
     ...(runs.length > 1 ? { runs } : {}),
     ...(first.split ? { lows: first.lows ?? {}, lowBest: first.lowBest ?? {}, split: first.split } : {}),
+    ...(mucked.length > 0 ? { mucked } : {}),
   }
   finishHand(state, hand, winners, payouts, now, record)
   return null
+}
+
+// Порядок вскрытия (#279): первым — последний, кто ставил или повышал на последнем круге торговли; не ставил
+// никто — первый из оставшихся слева от кнопки; дальше — по часовой. Только оставшиеся в раздаче
+export function showdownOrder(hand: Hand): string[] {
+  const n = hand.seats.length
+  const aggressor = lastAggressor(hand)
+  const at = hand.seats.findIndex((s) => s.id === aggressor && !s.folded)
+  const start = at !== -1 ? at : (hand.button + 1) % n
+  return Array.from({ length: n }, (_, k) => hand.seats[(start + k) % n]).filter((s) => !s.folded).map((s) => s.id)
+}
+
+// Последний, кто поднял ставку круга на последнем круге торгов (ставка, повышение, олл-ин выше ставки);
+// не было — null. Анте — не ход; страддл — ставка вслепую, как блайнд
+function lastAggressor(hand: Hand): string | null {
+  const moves = hand.log.filter((e) => e.type !== 'ante')
+  const street = moves.at(-1)?.street
+  let max = street === 'preflop' ? hand.bb : 0
+  let who: string | null = null
+  for (const e of moves) {
+    if (e.street !== street) continue
+    if ((e.type === 'raise' || e.type === 'allin') && e.bet > max) who = e.playerId
+    max = Math.max(max, e.bet)
+  }
+  return who
+}
+
+// Кто открывает карты на вскрытии при «Мак сам» (#279), по порядку вскрытия. Торговаться было некому (ставить мог
+// не больше одного — олл-ин) — все. Иначе по каждому банку (и побочному), на каждом борде, старшая рука и лоу
+// отдельно: рука открывается, если она первая среди претендентов банка или не хуже лучшей уже открытой из них.
+// Взявший хоть часть банка открыт всегда. Сила рук и делёж — те же, что у банков (bestHands, lowWinners)
+export function showdownOpen(hand: Hand, variant: GameDef['variant'], runs: RunRecord[], hole: (id: string) => Card[]): string[] {
+  const order = showdownOrder(hand)
+  if (hand.seats.filter((s) => !s.folded && !s.allIn).length <= 1) return order
+  const took = (id: string) => runs.some((r) => r.winners.some((w, k) => w.includes(id) || r.split?.[k].lo.includes(id)))
+  const contenders = (ids: string[]) => ids.map((id) => ({ id, cards: hole(id) }))
+  const open: string[] = []
+  for (const id of order) {
+    const claims = hand.pots.some((pot) => {
+      if (!pot.eligible.includes(id)) return false
+      const before = open.filter((x) => pot.eligible.includes(x))
+      if (before.length === 0) return true
+      const vs = contenders([id, ...before])
+      return runs.some(
+        (r) => bestHands(variant, r.board, vs).includes(id) || (r.split !== undefined && lowWinners(variant, r.board, vs).includes(id)),
+      )
+    })
+    if (claims || took(id)) open.push(id)
+  }
+  return open
 }
 
 // Раздача окончена: стеки — игрокам, итог — в «прошлую раздачу», одобренные в ней докупы — в стек
@@ -956,8 +1045,8 @@ function pause(state: TableState, paused: boolean, now: number): string | null {
   return null
 }
 
-// Время на ход, запас времени (#223), раздача «сама», кому виден HUD (#79) и ход раздачи по касанию банка (#258) —
-// ведущий, между раздачами;
+// Время на ход, запас времени (#223), раздача «сама», кому виден HUD (#79), ход раздачи по касанию банка (#258)
+// и вскрытие (#279) — ведущий, между раздачами;
 // действуют со следующей раздачи. Запас сменился — у всех новый начальный, выключен — запаса нет
 function changeSettings(state: TableState, msg: Extract<ClientBody, { type: 'tableSettings' }>, now: number): string | null {
   if (state.hand) return 'Настройки стола меняются между раздачами'
@@ -967,6 +1056,11 @@ function changeSettings(state: TableState, msg: Extract<ClientBody, { type: 'tab
   if ('autoStart' in msg) s.autoStart = msg.autoStart
   if ('publicHud' in msg) s.publicHud = msg.publicHud
   if ('liveHand' in msg) s.liveHand = msg.liveHand
+  // Вскрытие (#279): null — все открывают (поля нет)
+  if ('muck' in msg) {
+    if (msg.muck === null) delete s.muck
+    else s.muck = msg.muck
+  }
   const tournament = s.format === 'tournament'
   // Анте кэша (#78) — со следующей раздачи; в турнире анте — по уровням
   if ('ante' in msg) {
@@ -1215,6 +1309,8 @@ function settingsError(s: Settings): string | null {
   if (s.straddle !== undefined && typeof s.straddle !== 'boolean') return 'Страддл — включён или выключен'
   if (s.publicHud !== undefined && typeof s.publicHud !== 'boolean') return 'HUD видят — все или каждый только свою'
   if (s.liveHand !== undefined && typeof s.liveHand !== 'boolean') return 'Ход раздачи по касанию банка — включён или выключен'
+  if (s.muck !== undefined && !(MUCK_MODES as readonly unknown[]).includes(s.muck)) return 'Вскрытие — все открывают или мак сам'
+  if (s.muck !== undefined && s.cards !== 'phones') return 'Мак на вскрытии — только с картами на телефонах'
   // Свои игры (#224): верные описания, каждой хватает карт на все места; только карты на телефонах
   if (s.games !== undefined) {
     const error = ownGamesError(s.games, s.maxSeats)
