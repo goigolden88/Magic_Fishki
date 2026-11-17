@@ -1997,6 +1997,20 @@ textarea.note-input {
   overscroll-behavior: contain;
 }
 
+/* «Что нового» (#261): запись — дата и строки списком */
+.change > p {
+  margin: 0;
+}
+
+.change ul {
+  margin: 0.25rem 0 1rem;
+  padding-left: 1.25rem;
+}
+
+.change li + li {
+  margin-top: 0.35rem;
+}
+
 @media (min-width: 1024px) {
   .gear-shade {
     align-items: stretch;

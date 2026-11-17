@@ -6,9 +6,10 @@ import { useLookVersion } from './PokerRoom'
 import { loadMyLook } from './pokerStorage'
 
 // «⚙» за столом (#243): карточка поверх стола — менять, не выходя из-за него. «Готово» и Esc закрывают;
-// игра на это время идёт как шла. Карточка — вне обёртки стола: сукно и рубашка стола не красят образцы выбора
-export function GearPop(props: { title: string; onClose: () => void; children: ReactNode }) {
-  const { title, onClose, children } = props
+// игра на это время идёт как шла. Карточка — вне обёртки стола: сукно и рубашка стола не красят образцы выбора.
+// done — надпись кнопки закрытия («Что нового», #261: «Понятно»)
+export function GearPop(props: { title: string; onClose: () => void; children: ReactNode; done?: string }) {
+  const { title, onClose, children, done = 'Готово' } = props
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
@@ -22,7 +23,7 @@ export function GearPop(props: { title: string; onClose: () => void; children: R
         <h2>{title}</h2>
         <div className="gear-body">{children}</div>
         <button type="button" className="big primary wide" onClick={onClose}>
-          Готово
+          {done}
         </button>
       </section>
     </div>,

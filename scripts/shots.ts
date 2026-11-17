@@ -43,6 +43,8 @@
 // (03h-novaya-komnata-svoya-igra); npm run shots -- svoi — только они.
 // Открытые карты своей игры (#226): правка «Три с открытой» (05e), список (05f) и стол против ботов, собранный
 // правилами стола из готового состояния, — три карты, одна открытая (09e), и семь, две открытые (09f); входят в svoi.
+// «Что нового» (#261): окно после обновления поверх «Игр» (14) и список целиком из «Настроек» (14b), на 390 и 1366;
+// npm run shots -- chto — только они.
 // Chrome — google-chrome, google-chrome-stable или chromium; свой путь — переменная CHROME
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -1204,6 +1206,40 @@ async function openCardsTable(game: { name: string; hole: number; up: number }):
   return JSON.stringify({ id: 'shots-open', table: state, meId: 'me', level: 'amateur', open: false, showStyles: true, autoFinish: false, hudAll: false, history: [] })
 }
 
+// npm run shots -- chto: «Что нового» (#261) — на телефоне и ноутбуке. Свежая установка окна не видит (проверка);
+// прочитанное «0» — как у телефона, обновившегося через несколько записей: окно поверх «Игр» со всеми записями (14),
+// «Понятно» — после перезагрузки окна нет (проверка); «Настройки» → «Что нового» — тот же список целиком (14b)
+async function whatsNewOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES.slice(0, 2)) {
+    console.log(`Что нового, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    const popped = () => d.eval<boolean>(`!!document.querySelector('[role="dialog"][aria-label="Что нового"]')`)
+    await screen('Что нового', size, async () => {
+      await themeOnly(d)
+      await d.goto('#/')
+      await d.waitFor('main h1')
+      await sleep(1000) // база посчитана — свежая установка отмечена прочитанной
+      if (await popped()) throw new Error('у свежей установки всплыло «Что нового»')
+      await d.eval(`(localStorage.setItem('fishki.whatsNew.seen', '0'), true)`)
+      await d.reload()
+      await d.waitFor('[role="dialog"][aria-label="Что нового"]')
+      await d.shot('14-chto-novogo', false)
+      await d.click('Понятно')
+      await d.reload()
+      await d.waitFor('main h1')
+      await sleep(1000)
+      if (await popped()) throw new Error('«Что нового» всплыло снова после «Понятно»')
+    })
+    await screen('Настройки: что нового', size, async () => {
+      await openSettings(d)
+      await d.click('Что нового')
+      await d.waitFor('[role="dialog"][aria-label="Что нового"]')
+      await d.shot('14b-chto-novogo-nastroyki', false)
+      await d.click('Готово')
+    })
+  }
+}
+
 // npm run shots -- hod: «Ход раздачи» по касанию банка (#258) — стол против ботов на тёрне, мой ход: префлоп, флоп
 // и тёрн с ходами; на телефоне и ноутбуке. Стол собирают правила стола (как openCardsTable), колода — всякий раз одна
 async function handLogOnly(cdp: Cdp): Promise<void> {
@@ -2007,7 +2043,9 @@ async function main(): Promise<void> {
     const onlyStraddle = process.argv.includes('straddl') // npm run shots -- straddl: страддл на столе на телефоне (#222)
     const onlyOwnGames = process.argv.includes('svoi') // npm run shots -- svoi: свои игры (#225)
     const onlyHandLog = process.argv.includes('hod') // npm run shots -- hod: «Ход раздачи» по касанию банка (#258)
+    const onlyWhatsNew = process.argv.includes('chto') // npm run shots -- chto: «Что нового» (#261)
     const part =
+      onlyWhatsNew ||
       onlyHandLog ||
       onlyTrainer ||
       onlyChoices ||
@@ -2022,6 +2060,7 @@ async function main(): Promise<void> {
       onlyOwnGames
     if (onlyOwnGames) await ownGamesOnly(cdp)
     if (onlyHandLog) await handLogOnly(cdp)
+    if (onlyWhatsNew) await whatsNewOnly(cdp)
     if (onlyStraddle) for (const size of SIZES) await straddleStep(cdp, size)
     if (onlyOwnBack) await ownBackOnly(cdp)
     if (onlyNames) await namesOnly(cdp)
@@ -2039,6 +2078,7 @@ async function main(): Promise<void> {
     if (!onlyTable && !uchet && !part) await gearOnly(cdp)
     if (!onlyTable && !uchet && !part) await watchOnly(cdp)
     if (!onlyTable && !uchet && !part) await handLogOnly(cdp)
+    if (!onlyTable && !part) await whatsNewOnly(cdp)
     if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !part) {
       for (const other of ['club', 'day'] as const) for (const size of SIZES) await themeScenario(cdp, size, other)
     }

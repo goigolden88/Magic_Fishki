@@ -15,6 +15,8 @@ import { TrainerScreen } from './screens/Trainer'
 import { parseRoomLink, roomHash, type RoomTarget } from './calc/pokerLink'
 import { parseTrainerPath, TRAINER_PATH, type TrainerStart } from './calc/trainerFromHand'
 import { saveSeat } from './screens/pokerStorage'
+import { useWhatsNew, WhatsNew } from './screens/WhatsNew'
+import { CHANGES } from './changes'
 
 // Маршруты: #/ — игры, #/game/:id — игра, #/game/:id/deal — казино-стол игры, #/settings — настройки, #/import — из Телеграма, #/players — игроки,
 // #/players/:id — карточка постоянного игрока, #/help — справка, #/poker — покер онлайн,
@@ -84,6 +86,24 @@ export function App() {
     return () => window.removeEventListener('hashchange', onChange)
   }, [])
 
+  // «Что нового» (#261) — поверх экрана после обновления, но не за столом: ждёт выхода из-за него
+  const whatsNew = useWhatsNew(CHANGES)
+  const pop = whatsNew.show.length > 0 && !atTable(route) && <WhatsNew changes={whatsNew.show} onDone={whatsNew.dismiss} />
+
+  return (
+    <>
+      <Screen route={route} />
+      {pop}
+    </>
+  )
+}
+
+// Идёт игра за столом: комната, стол на этом телефоне, против ботов, казино-стол игры
+function atTable(route: Route): boolean {
+  return route.screen === 'pokerRoom' || route.screen === 'pokerLocal' || route.screen === 'pokerBots' || route.screen === 'casinoDeal'
+}
+
+function Screen({ route }: { route: Route }) {
   switch (route.screen) {
     case 'game':
       return <GameScreen key={route.id} id={route.id} />

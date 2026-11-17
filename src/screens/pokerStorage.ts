@@ -516,6 +516,19 @@ export function saveDockSize(size: DockSize | null) {
 // Переменные CSS обёртки стола: размер стола и панели (действуют только на широком окне — styles.css)
 export const tableFitStyle = (): CSSProperties => tableFitVars(loadTableSizeChoice(), loadDockSizeChoice()) as CSSProperties
 
+// «Что нового» (#261): последний прочитанный id записи CHANGES — у каждого устройства свой, в копию не идёт.
+// null — ключа нет (свежая установка или обновилась с версии без окна); память не читается — и тогда null,
+// а окно не показывается вовсе: проверяет storageWorks
+const WHATS_NEW_KEY = 'fishki.whatsNew.seen'
+
+export function loadSeenChange(): number | null {
+  const raw = read(WHATS_NEW_KEY)
+  const id = Number(raw)
+  return raw !== '' && Number.isInteger(id) && id >= 0 ? id : null
+}
+
+export const saveSeenChange = (id: number) => write(WHATS_NEW_KEY, String(id))
+
 // Память браузера работает: записать и прочитать
 export function storageWorks(): boolean {
   try {
