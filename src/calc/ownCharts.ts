@@ -12,8 +12,7 @@ export type OwnChart = {
   base: string | null // ключ встроенной ситуации (situationKey) или null — заведён с нуля
   actions: string[] // первым — «fold», как у встроенных
   cells: Record<string, number[]>
-  updatedAt: string // ISO 8601
-  deleted?: true // помечен удалённым (#264): для человека его нет, чтения базы пропускают
+  updatedAt: string // ISO 8601; удалённый — в базе метка Tombstone (#301, store/db.ts)
 }
 
 // Правка на экране — то же без id и времени

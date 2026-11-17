@@ -1,8 +1,9 @@
 // Единственный вход в IndexedDB. База magic_fishki: хранилища games (ключ id), settings (одна запись)
 // и hands — раздачи прошлых вечеров покера (ключ [evening, number], #114), charts — свои чарты тренажёра (ключ id, #215).
-// С версии 5 (#264) — под синхронизацию между устройствами: удаление — пометкой deleted (чтения её пропускают),
-// у каждой записи — время правки, dirty — что изменилось и ещё не отправлено, syncMeta — память синхронизации.
-// dirty и syncMeta — этого устройства: не синхронизируются и в копию не входят
+// С версии 5 (#264) — под синхронизацию между устройствами: у каждой записи — время правки, dirty — что изменилось
+// и ещё не отправлено, syncMeta — память синхронизации. dirty и syncMeta — этого устройства: не синхронизируются
+// и в копию не входят. С версии 6 (#301) удаление стирает содержимое: вместо записи — метка (ключ, deleted, время
+// правки), чтения её пропускают; через TOMBSTONE_DAYS метка стирается при открытии базы (purgeTombstones)
 import { eveningSummaries, isBotsEvening, type EveningCounts, type EveningSummary, type SavedHand } from '../calc/evenings'
 import { byName, type OwnChart } from '../calc/ownCharts'
 import { linkRegulars, regularsFromNames, settingsWithDefaults, type Game, type Regular, type Settings } from '../model'
@@ -10,7 +11,7 @@ import type { HistoryHand } from '../poker/history'
 import { ulid } from '../ulid'
 
 const DB_NAME = 'magic_fishki'
-const DB_VERSION = 5
+const DB_VERSION = 6
 const SETTINGS_KEY = 'settings'
 const HANDS = 'hands'
 const CHARTS = 'charts'
@@ -24,6 +25,15 @@ type StoreName = 'games' | 'settings' | typeof HANDS | typeof CHARTS | typeof DI
 // (fishki.poker.notes и прочие из копии, pokerStorage.ts). Одна отметка на запись: вторая правка её не множит
 export type DirtyStore = 'games' | 'settings' | typeof HANDS | typeof CHARTS | 'local'
 export type DirtyMark = { store: DirtyStore; key: string | [string, number] }
+
+// Метка удаления (#301): вместо удалённой игры или чарта — только ключ и время правки; у раздачи — HandTombstone.
+// Содержимого нет: оно стёрто. Нужна синхронизации — донести удаление до других устройств
+export type Tombstone = { id: string; deleted: true; updatedAt: string }
+export type HandTombstone = { evening: string; number: number; deleted: true; updatedAt: string }
+
+// Метка живёт столько дней, потом стирается совсем (purgeTombstones)
+export const TOMBSTONE_DAYS = 30
+const DAY_MS = 24 * 60 * 60 * 1000
 
 let opening: Promise<IDBDatabase> | null = null
 
@@ -48,6 +58,83 @@ function migrate(db: IDBDatabase, tx: IDBTransaction, oldVersion: number): void 
     db.createObjectStore(SYNC_META)
     stampHands(tx)
   }
+  // Версия 6 (#301): помеченное удалённым — сжимается до меток; живые записи не трогаются
+  if (oldVersion < 6) toTombstones(tx)
+}
+
+// Помечена удалённой: метка или (до версии 6) запись с deleted: true
+function isMark(record: unknown): record is { deleted: true; updatedAt?: unknown } {
+  return typeof record === 'object' && record !== null && 'deleted' in record && record.deleted === true
+}
+
+function tombstone(id: string, updatedAt: string): Tombstone {
+  return { id, deleted: true, updatedAt }
+}
+
+function handTombstone(evening: string, number: number, updatedAt: string): HandTombstone {
+  return { evening, number, deleted: true, updatedAt }
+}
+
+// Версия 6: у помеченных удалёнными игр, раздач и чартов остаются только ключ, deleted и время правки
+function toTombstones(tx: IDBTransaction): void {
+  for (const name of ['games', HANDS, CHARTS]) {
+    const cursor = tx.objectStore(name).openCursor()
+    cursor.onsuccess = () => {
+      const c = cursor.result
+      if (!c) return
+      const record: unknown = c.value
+      if (isMark(record)) {
+        const at = typeof record.updatedAt === 'string' ? record.updatedAt : now()
+        if (name === HANDS) {
+          const h = record as unknown as SavedHand
+          c.update(handTombstone(h.evening, h.number, at))
+        } else c.update(tombstone((record as unknown as { id: string }).id, at))
+      }
+      c.continue()
+    }
+  }
+}
+
+// Метка старше TOMBSTONE_DAYS по времени правки
+function expired(updatedAt: unknown, at: number): boolean {
+  return typeof updatedAt === 'string' && at - Date.parse(updatedAt) > TOMBSTONE_DAYS * DAY_MS
+}
+
+const markId = (store: string, key: IDBValidKey) => JSON.stringify([store, key])
+
+// Чистка меток (#301) — при открытии базы, одной транзакцией: метка старше TOMBSTONE_DAYS стирается совсем.
+// Синхронизация подключалась (syncMeta не пуст) — только уже отправленная (её нет в dirty): неотправленное удаление
+// не теряется. Не подключалась — удалять на других устройствах нечего: стирается и её отметка «не отправлено».
+// Новых отметок чистка не ставит
+function purgeTombstones(db: IDBDatabase, at: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['games', HANDS, CHARTS, DIRTY, SYNC_META], 'readwrite')
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+    tx.onabort = () => reject(tx.error)
+    const meta = tx.objectStore(SYNC_META).count()
+    meta.onsuccess = () => {
+      const synced = meta.result > 0
+      const marks = tx.objectStore(DIRTY).getAll()
+      marks.onsuccess = () => {
+        const unsent = new Set((marks.result as DirtyMark[]).map((m) => markId(m.store, m.key)))
+        for (const name of ['games', HANDS, CHARTS]) {
+          const cursor = tx.objectStore(name).openCursor()
+          cursor.onsuccess = () => {
+            const c = cursor.result
+            if (!c) return
+            const record: unknown = c.value
+            const id = markId(name, c.primaryKey)
+            if (isMark(record) && expired(record.updatedAt, at) && !(synced && unsent.has(id))) {
+              c.delete()
+              if (unsent.has(id)) tx.objectStore(DIRTY).delete([name, c.primaryKey])
+            }
+            c.continue()
+          }
+        }
+      }
+    }
+  })
 }
 
 // Версия 2 (Р-12): постоянные игроки — из строк в { id, name } с новыми id в прежнем порядке;
@@ -103,7 +190,9 @@ function open(): Promise<IDBDatabase> {
         db.close()
         opening = null
       }
-      resolve(db)
+      // Сначала чистка меток, потом чтения; ошибка чистки работе не мешает — метки дождутся следующего открытия
+      const ready = () => resolve(db)
+      purgeTombstones(db, Date.now()).then(ready, ready)
     }
     req.onerror = () => {
       opening = null
@@ -146,34 +235,27 @@ function markDirty(tx: IDBTransaction, mark: DirtyMark): void {
 
 const now = () => new Date().toISOString()
 
-// Помеченные удалёнными — мимо: для человека их нет
-function live<T extends { deleted?: true }>(records: T[]): T[] {
-  return records.filter((r) => r.deleted !== true)
-}
-
-// Пометка удаления снимается: запись снова живая (сохранение, восстановление из копии)
-function alive<T extends { deleted?: true }>(record: T): T {
-  if (record.deleted === undefined) return record
-  const { deleted: _deleted, ...rest } = record
-  return rest as T
+// Метки удаления — мимо: для человека записи нет
+function live<T>(records: (T | Tombstone | HandTombstone)[]): T[] {
+  return records.filter((r): r is T => !isMark(r))
 }
 
 const handKey = (h: SavedHand): [string, number] => [h.evening, h.number]
 
 // Новые сверху: по дню игры, в один день — по времени создания (ULID растёт со временем)
 export async function listGames(): Promise<Game[]> {
-  const games = live(await run<Game[]>('games', 'readonly', (s) => s.getAll()))
+  const games = live<Game>(await run<(Game | Tombstone)[]>('games', 'readonly', (s) => s.getAll()))
   return games.sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id))
 }
 
 export async function getGame(id: string): Promise<Game | undefined> {
-  const game = await run<Game | undefined>('games', 'readonly', (s) => s.get(id))
-  return game?.deleted ? undefined : game
+  const game = await run<Game | Tombstone | undefined>('games', 'readonly', (s) => s.get(id))
+  return isMark(game) ? undefined : game
 }
 
-// Демо-игры (Р-04) не синхронизируются никогда — отметки «не отправлено» у них нет
+// Демо-игры (Р-04) не синхронизируются никогда — отметки «не отправлено» у них нет. Метку с тем же id заменяет
 export async function saveGame(game: Game): Promise<Game> {
-  const saved = { ...alive(game), updatedAt: now() }
+  const saved = { ...game, updatedAt: now() }
   await inTx(['games', DIRTY], (tx) => {
     tx.objectStore('games').put(saved)
     if (!saved.demo) markDirty(tx, { store: 'games', key: saved.id })
@@ -183,7 +265,8 @@ export async function saveGame(game: Game): Promise<Game> {
 
 // Восстановление из файла-копии (Р-11) и демо-игры (Р-04): игры пишутся как есть, со своим updatedAt;
 // одной транзакцией — либо все, либо ни одной. Живые игры с тем же id уже отсеяны (calc/backup.ts, planRestore).
-// Помеченная удалённой (#264) — встаёт обратно, время правки — сейчас: копия спасает после случайного удаления
+// Удалённая (метка, #301) — встаёт обратно целиком из копии вместо метки, время правки — сейчас: копия спасает
+// после случайного удаления. Метки уже нет — просто добавляется
 export async function restoreGames(games: Game[]): Promise<void> {
   if (games.length === 0) return
   const at = now()
@@ -192,28 +275,27 @@ export async function restoreGames(games: Game[]): Promise<void> {
     for (const game of games) {
       const old = store.get(game.id)
       old.onsuccess = () => {
-        const back = (old.result as Game | undefined)?.deleted === true
-        store.put(back ? { ...alive(game), updatedAt: at } : alive(game))
+        store.put(isMark(old.result) ? { ...game, updatedAt: at } : game)
         if (!game.demo) markDirty(tx, { store: 'games', key: game.id })
       }
     }
   })
 }
 
-// Для человека — окончательно, с тем же вопросом (Р-09); в базе — пометка deleted и время правки (#264):
-// удаление дойдёт до других устройств. Демо-игра стирается совсем — она не синхронизируется
+// Для человека — окончательно, с тем же вопросом (Р-09); в базе — содержимое стёрто, вместо него метка
+// (#301): удаление дойдёт до других устройств. Демо-игра стирается совсем — она не синхронизируется
 export async function deleteGame(id: string): Promise<void> {
   await inTx(['games', DIRTY], (tx) => {
     const store = tx.objectStore('games')
     const old = store.get(id)
     old.onsuccess = () => {
-      const game = old.result as Game | undefined
-      if (!game || game.deleted) return
+      const game = old.result as Game | Tombstone | undefined
+      if (!game || isMark(game)) return
       if (game.demo) {
         store.delete(id)
         return
       }
-      store.put({ ...game, deleted: true, updatedAt: now() })
+      store.put(tombstone(id, now()))
       markDirty(tx, { store: 'games', key: id })
     }
   })
@@ -266,7 +348,7 @@ function sameHand(a: SavedHand, b: SavedHand): boolean {
 // заменяет запись (после «Показать» — с показанными картами), дублей нет. Свои карты (mine, Р-54)
 // у прежней записи остаются, если в новой их нет: телефон, вернувшийся к столу, их уже не видел.
 // Изменённая или новая — с новым временем правки и отметкой «не отправлено» (#264); та же самая — не переписывается.
-// Раздача удалённого вечера (стол с ботами ещё идёт) пишется заново, без карт прежней записи
+// Раздача удалённого вечера (стол с ботами ещё идёт) пишется заново вместо метки
 export async function saveHands(hands: SavedHand[]): Promise<void> {
   if (hands.length === 0) return
   const at = now()
@@ -275,9 +357,9 @@ export async function saveHands(hands: SavedHand[]): Promise<void> {
     for (const hand of hands) {
       const old = store.get(handKey(hand))
       old.onsuccess = () => {
-        const prev = old.result as SavedHand | undefined
-        const kept = prev && !prev.deleted ? prev : undefined
-        const fresh = alive(!hand.mine && kept?.mine ? { ...hand, mine: kept.mine } : hand)
+        const prev = old.result as SavedHand | HandTombstone | undefined
+        const kept = prev && !isMark(prev) ? prev : undefined
+        const fresh = !hand.mine && kept?.mine ? { ...hand, mine: kept.mine } : hand
         if (kept && sameHand(kept, fresh)) return
         store.put({ ...fresh, updatedAt: at })
         markDirty(tx, { store: HANDS, key: handKey(hand) })
@@ -288,12 +370,14 @@ export async function saveHands(hands: SavedHand[]): Promise<void> {
 
 // Все записи раздач — для «Выгрузить все» и копии данных (Р-54)
 export async function allHands(): Promise<SavedHand[]> {
-  return live(await run<SavedHand[]>(HANDS, 'readonly', (s) => s.getAll()))
+  return live<SavedHand>(await run<(SavedHand | HandTombstone)[]>(HANDS, 'readonly', (s) => s.getAll()))
 }
 
 // Записи вечера целиком (со столом и своими картами) — для «Выгрузить», по номерам
 export async function eveningRecords(id: string): Promise<SavedHand[]> {
-  const saved = live(await run<SavedHand[]>(HANDS, 'readonly', (s) => s.index(BY_EVENING).getAll(id)))
+  const saved = live<SavedHand>(
+    await run<(SavedHand | HandTombstone)[]>(HANDS, 'readonly', (s) => s.index(BY_EVENING).getAll(id)),
+  )
   return saved.sort((a, b) => a.number - b.number)
 }
 
@@ -304,7 +388,8 @@ export async function handKeys(): Promise<[string, number][]> {
 }
 
 // Восстановление раздач из копии (Р-54): записи как есть, одной транзакцией. Живые записанные отсеяны (planRestore).
-// Время правки — своё, у копий до #264 его нет — начало вечера; помеченная удалённой — встаёт обратно, время — сейчас
+// Время правки — своё, у копий до #264 его нет — начало вечера; удалённая (метка) — встаёт обратно целиком
+// вместо метки, время — сейчас
 export async function restoreHands(hands: SavedHand[]): Promise<void> {
   if (hands.length === 0) return
   const at = now()
@@ -313,9 +398,9 @@ export async function restoreHands(hands: SavedHand[]): Promise<void> {
     for (const hand of hands) {
       const old = store.get(handKey(hand))
       old.onsuccess = () => {
-        const back = (old.result as SavedHand | undefined)?.deleted === true
+        const back = isMark(old.result)
         const updatedAt = back ? at : typeof hand.updatedAt === 'string' ? hand.updatedAt : isoAt(hand.startedAt)
-        store.put({ ...alive(hand), updatedAt })
+        store.put({ ...hand, updatedAt })
         markDirty(tx, { store: HANDS, key: handKey(hand) })
       }
     }
@@ -328,10 +413,10 @@ export async function listEvenings(): Promise<EveningSummary[]> {
   return eveningSummaries(await allHands())
 }
 
-// Раздачу — пометкой удаления (#264): время правки — сейчас, отметка «не отправлено»
+// Раздачу — меткой вместо записи (#301): карты, ходы и имена стёрты; время правки — сейчас, отметка «не отправлено»
 function deleteHand(tx: IDBTransaction, c: IDBCursorWithValue, at: string): void {
   const hand = c.value as SavedHand
-  c.update({ ...hand, deleted: true, updatedAt: at })
+  c.update(handTombstone(hand.evening, hand.number, at))
   markDirty(tx, { store: HANDS, key: handKey(hand) })
 }
 
@@ -346,8 +431,8 @@ export async function deleteEvenings(onlyBots: boolean): Promise<EveningCounts> 
     cursor.onsuccess = () => {
       const c = cursor.result
       if (!c) return
-      const hand = c.value as SavedHand
-      if (!hand.deleted && (!onlyBots || isBotsEvening({ id: hand.evening }))) {
+      const hand = c.value as SavedHand | HandTombstone
+      if (!isMark(hand) && (!onlyBots || isBotsEvening({ id: hand.evening }))) {
         deleteHand(tx, c, at)
         evenings.add(hand.evening)
         hands += 1
@@ -365,12 +450,12 @@ export async function eveningHands(id: string): Promise<HistoryHand[]> {
 
 // «Мои чарты» (#215, Р-77) — по имени
 export async function listCharts(): Promise<OwnChart[]> {
-  return byName(live(await run<OwnChart[]>(CHARTS, 'readonly', (s) => s.getAll())))
+  return byName(live<OwnChart>(await run<(OwnChart | Tombstone)[]>(CHARTS, 'readonly', (s) => s.getAll())))
 }
 
 // Свой чарт: тот же id — заменяет запись (правка, переименование); время правки ставится само
 export async function saveChart(chart: OwnChart): Promise<OwnChart> {
-  const saved = { ...alive(chart), updatedAt: now() }
+  const saved = { ...chart, updatedAt: now() }
   await inTx([CHARTS, DIRTY], (tx) => {
     tx.objectStore(CHARTS).put(saved)
     markDirty(tx, { store: CHARTS, key: saved.id })
@@ -378,15 +463,15 @@ export async function saveChart(chart: OwnChart): Promise<OwnChart> {
   return saved
 }
 
-// Для человека — окончательно, как удаление игры; в базе — пометка (#264)
+// Для человека — окончательно, как удаление игры; в базе — метка вместо чарта (#301)
 export async function deleteChart(id: string): Promise<void> {
   await inTx([CHARTS, DIRTY], (tx) => {
     const store = tx.objectStore(CHARTS)
     const old = store.get(id)
     old.onsuccess = () => {
-      const chart = old.result as OwnChart | undefined
-      if (!chart || chart.deleted) return
-      store.put({ ...chart, deleted: true, updatedAt: now() })
+      const chart = old.result as OwnChart | Tombstone | undefined
+      if (!chart || isMark(chart)) return
+      store.put(tombstone(id, now()))
       markDirty(tx, { store: CHARTS, key: id })
     }
   })
@@ -398,7 +483,7 @@ export async function chartIds(): Promise<string[]> {
 }
 
 // Восстановление чартов из копии (Р-77): записи как есть, одной транзакцией. Живые с тем же id отсеяны (planRestore).
-// Помеченный удалённым (#264) — встаёт обратно, время правки — сейчас
+// Удалённый (метка, #301) — встаёт обратно целиком вместо метки, время правки — сейчас
 export async function restoreCharts(charts: OwnChart[]): Promise<void> {
   if (charts.length === 0) return
   const at = now()
@@ -407,8 +492,7 @@ export async function restoreCharts(charts: OwnChart[]): Promise<void> {
     for (const chart of charts) {
       const old = store.get(chart.id)
       old.onsuccess = () => {
-        const back = (old.result as OwnChart | undefined)?.deleted === true
-        store.put(back ? { ...alive(chart), updatedAt: at } : alive(chart))
+        store.put(isMark(old.result) ? { ...chart, updatedAt: at } : chart)
         markDirty(tx, { store: CHARTS, key: chart.id })
       }
     }
@@ -416,7 +500,7 @@ export async function restoreCharts(charts: OwnChart[]): Promise<void> {
 }
 
 // «Удалить» у вечера: все его раздачи одной транзакцией. Для человека — окончательно, как удаление игры;
-// в базе — пометки (#264)
+// в базе — метки вместо раздач (#301)
 export async function deleteEvening(id: string): Promise<void> {
   const at = now()
   await inTx([HANDS, DIRTY], (tx) => {
@@ -424,7 +508,7 @@ export async function deleteEvening(id: string): Promise<void> {
     cursor.onsuccess = () => {
       const c = cursor.result
       if (!c) return
-      if (!(c.value as SavedHand).deleted) deleteHand(tx, c, at)
+      if (!isMark(c.value)) deleteHand(tx, c, at)
       c.continue()
     }
   })

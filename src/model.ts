@@ -42,8 +42,7 @@ export type Game = {
   mode?: GameMode // режим (Р-29); нет — по данным (gameMode)
   closed?: boolean // игра закрыта: записи не правятся без «Открыть снова»
   demo?: boolean // демо-данные — удаляются одной кнопкой
-  updatedAt: string // ISO 8601
-  deleted?: true // помечена удалённой (#264): для человека её нет, чтения базы пропускают
+  updatedAt: string // ISO 8601; удалённая — в базе метка Tombstone (#301, store/db.ts)
 }
 
 export type Settings = {
