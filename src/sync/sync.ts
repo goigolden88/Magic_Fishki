@@ -333,6 +333,8 @@ export type SyncStatus = {
   badToken: boolean
   /** Проход проиграл гонку до конца и сам повторится через минуту. */
   deferred: boolean
+  /** Нет связи с GitHub: не поломка — правки ждут сети и уедут сами (отступление от ядра: там это ошибка). */
+  offline: boolean
 }
 
 /** Через сколько повторить проход, проигравший гонку до конца. Есть в справке. */
@@ -361,7 +363,15 @@ export type SyncDeps = {
 
 /** Синхронизация приложения. Зовётся один раз (`instance.ts`): состояние прохода и таймеры живут в экземпляре. */
 export function createSync(deps: SyncDeps) {
-  let status: SyncStatus = { state: 'off', pending: 0, lastAt: null, error: '', badToken: false, deferred: false }
+  let status: SyncStatus = {
+    state: 'off',
+    pending: 0,
+    lastAt: null,
+    error: '',
+    badToken: false,
+    deferred: false,
+    offline: false,
+  }
   const listeners = new Set<(value: SyncStatus) => void>()
 
   function publish(patch: Partial<SyncStatus>): void {
@@ -400,7 +410,9 @@ export function createSync(deps: SyncDeps) {
     } catch {
       // база не открылась — состояние прежнее
     }
-    if (!configured(current)) publish({ state: 'off', pending, lastAt, error: '', badToken: false, deferred: false })
+    if (!configured(current)) {
+      publish({ state: 'off', pending, lastAt, error: '', badToken: false, deferred: false, offline: false })
+    }
     else if (status.state !== 'syncing') publish({ state: status.error ? 'error' : 'idle', pending, lastAt })
     else publish({ pending, lastAt })
     return status
@@ -432,20 +444,32 @@ export function createSync(deps: SyncDeps) {
         const expiry = api.tokenExpiry()
         if (expiry && expiry !== current.tokenExpires) deps.config.save({ tokenExpires: expiry })
 
-        publish({ state: 'idle', error: '', badToken: false, deferred: false })
+        publish({ state: 'idle', error: '', badToken: false, deferred: false, offline: false })
         await refreshStatus()
         return result
       } catch (error) {
         // Проигранная до конца гонка — не поломка: очередь цела. Второй раз подряд — уже повод показать
         const race = error instanceof GitHubError && error.conflict
         if (race && !status.deferred) {
-          publish({ state: 'idle', error: '', badToken: false, deferred: true })
+          publish({ state: 'idle', error: '', badToken: false, deferred: true, offline: false })
           await refreshStatus()
           later(RETRY_MS)
           return null
         }
+        // Нет сети — ждём её: проход повторится при возврате сети, вкладки или следующей правке
+        if (error instanceof GitHubError && error.status === 0) {
+          publish({ state: 'idle', error: '', badToken: false, deferred: false, offline: true })
+          await refreshStatus()
+          return null
+        }
         const text = error instanceof Error ? error.message : 'Неизвестная ошибка'
-        publish({ state: 'error', error: text, badToken: error instanceof GitHubError && error.badToken, deferred: false })
+        publish({
+          state: 'error',
+          error: text,
+          badToken: error instanceof GitHubError && error.badToken,
+          deferred: false,
+          offline: false,
+        })
         await refreshStatus()
         return null
       }

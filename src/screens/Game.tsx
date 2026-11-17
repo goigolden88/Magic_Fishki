@@ -16,6 +16,7 @@ import {
   type Regular,
 } from '../model'
 import { deleteGame, getGame, getSettings, saveGame } from '../store/db'
+import { useRemoteVersion } from '../sync/instance'
 import { ulid } from '../ulid'
 import { clearRound } from './casinoStake'
 
@@ -34,6 +35,8 @@ export function GameScreen({ id }: { id: string }) {
   const [shareNote, setShareNote] = useState<string | null>(null) // «Скопировано» под кнопкой
   const [deleting, setDeleting] = useState(false) // первое нажатие «Удалить игру» — ждём второго
 
+  const remote = useRemoteVersion() // влитое с другого устройства (#265) — игра перечитывается
+
   useEffect(() => {
     void getGame(id).then((g) => setGame(g ?? null))
     void getSettings().then((s) => {
@@ -41,7 +44,7 @@ export function GameScreen({ id }: { id: string }) {
       setRegulars(s.players)
       setDefaultRate(s.defaultRate)
     })
-  }, [id])
+  }, [id, remote])
 
   if (game === undefined) return <main className="screen" />
   if (game === null) {

@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
+import { useRemoteVersion, useSyncStatus } from '../sync/instance'
+import { SyncCard, SyncDotMark } from './SyncSettings'
 import {
   backupFileName,
   backupText,
@@ -146,13 +148,21 @@ export function SettingsScreen() {
   const [openGroups, setOpenGroups] = useState(loadOpenGroups) // развёрнутые разделы (#234), на этом устройстве
   const [changes, setChanges] = useState(false) // открыт «Что нового» (#261)
 
+  const syncStatus = useSyncStatus()
+  const remote = useRemoteVersion() // влитое с другого устройства (#265) — настройки и карточки перечитываются
+
   useEffect(() => {
     void getSettings().then((s) => {
       setSettings(s)
       setRateText(formatRate(s.defaultRate))
       setBuyinText(String(s.defaultBuyin))
     })
-  }, [])
+    if (remote > 0) {
+      setMyLook(loadMyLook())
+      setOwnGames(loadOwnGames())
+      setRestored((n) => n + 1)
+    }
+  }, [remote])
 
   const rate = rateText === null ? null : parseRate(rateText)
   const buyin = parseChips(buyinText)
@@ -179,10 +189,13 @@ export function SettingsScreen() {
   }
 
   // Заголовок раздела — кнопка: свернуть и развернуть раздел целиком (#234)
-  const title = (group: SettingsGroup, text: string) => (
+  const title = (group: SettingsGroup, text: string, mark?: ReactNode) => (
     <h2 className="group-title">
       <button type="button" className="group-toggle" aria-expanded={openGroups[group]} onClick={() => toggleGroup(group)}>
-        <span className="grow">{text}</span>
+        <span className="grow">
+          {text}
+          {mark}
+        </span>
         <span className="muted" aria-hidden="true">
           {openGroups[group] ? '▾' : '▸'}
         </span>
@@ -311,6 +324,10 @@ export function SettingsScreen() {
               <EveningsCard key={`evenings-${restored}`} />
             </>
           )}
+
+          {/* #265: свои данные между устройствами через приватный репозиторий; точка — у заголовка и свёрнутого */}
+          {title('sync', 'Синхронизация', <SyncDotMark status={syncStatus} />)}
+          {openGroups.sync && <SyncCard />}
 
           {title('demo', 'Демо-данные')}
           {openGroups.demo && <DemoCard />}

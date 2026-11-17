@@ -40,6 +40,7 @@ import {
 import { CLASSES, parseRange, RANGE_EXAMPLE } from '../calc/rangeText'
 import { CHARTS_GAME, CHARTS_ROUNDING } from '../calc/trainerView'
 import { deleteChart, listCharts, saveChart } from '../store/db'
+import { useRemoteVersion } from '../sync/instance'
 import { ulid } from '../ulid'
 import { download } from './download'
 
@@ -567,9 +568,11 @@ export function TrainerCharts() {
     if (open !== undefined) setOpenId(open)
   }
 
+  const remote = useRemoteVersion() // влитое с другого устройства (#265) — «Мои чарты» перечитываются
+
   useEffect(() => {
     void reload()
-  }, [])
+  }, [remote])
 
   function choosePos(p: ChartPosition) {
     setPos(p)

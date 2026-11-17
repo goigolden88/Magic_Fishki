@@ -21,6 +21,7 @@ import { countsView, type HudView } from '../calc/pokerView'
 import { trainerHashOf } from '../calc/trainerFromHand'
 import { formatDate, formatDayMonth } from '../dates'
 import { allHands, getSettings, listGames } from '../store/db'
+import { useRemoteVersion } from '../sync/instance'
 import { HudRows } from './Hud'
 import { NoteCard } from './PlayerNote'
 import { StatBody, sign } from './Players'
@@ -197,6 +198,7 @@ export function PlayerScreen({ id }: { id: string }) {
   const [data, setData] = useState<Data | null | undefined>(undefined)
   // Открытая раздача из лучших и худших — поверх карточки, как вечер в «Прошлых вечерах»
   const [open, setOpen] = useState<OutcomeView | null>(null)
+  const remote = useRemoteVersion() // влитое с другого устройства (#265) — карточка перечитывается
 
   useEffect(() => {
     // Раздачи не прочитались — карточка без покера, а не пустой экран
@@ -219,7 +221,7 @@ export function PlayerScreen({ id }: { id: string }) {
           : null,
       )
     })
-  }, [id])
+  }, [id, remote])
 
   if (data && open) {
     return (

@@ -287,6 +287,42 @@ a {
   font-weight: 400;
 }
 
+/* Синхронизация (#265): точка состояния у заголовка — серая (не отправлено), красная (ошибка); «Как завести» */
+.dot {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--muted);
+  vertical-align: middle;
+  margin-left: 0.4rem;
+}
+
+.dot--error {
+  background: var(--red);
+}
+
+.sync-how {
+  margin: 0.5rem 0;
+  overflow-wrap: anywhere;
+}
+
+.sync-how summary {
+  min-height: 44px;
+  padding: 0.6rem 0;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sync-how ol {
+  margin: 0;
+  padding-left: 1.4rem;
+}
+
+.sync-how li {
+  margin-bottom: 0.4rem;
+}
+
 /* Справка: раздел свёрнут, заголовок — во всю ширину, длинные слова переносятся */
 .help {
   padding: 0;

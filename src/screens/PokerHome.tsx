@@ -36,6 +36,7 @@ import { DEFAULT_SETTINGS, type AutoStart, type Felt } from '../poker/table'
 import { formatDate, today } from '../dates'
 import { handsFileName, handsText } from '../calc/handText'
 import { allHands, deleteEvening, eveningRecords, getSettings, listEvenings } from '../store/db'
+import { useRemoteVersion } from '../sync/instance'
 import { download } from './download'
 import { ulid } from '../ulid'
 import { LookFields } from './LookFields'
@@ -348,7 +349,8 @@ function PastEvenings() {
     listEvenings().then(setEvenings, () => setEvenings([]))
   }
 
-  useEffect(reload, [])
+  const remote = useRemoteVersion() // влитое с другого устройства (#265) — список вечеров перечитывается
+  useEffect(reload, [remote])
 
   async function show(evening: EveningSummary) {
     try {

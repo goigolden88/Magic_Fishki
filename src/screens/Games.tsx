@@ -14,6 +14,7 @@ import {
   type Regular,
 } from '../model'
 import { getSettings, listGames, saveGame } from '../store/db'
+import { useRemoteVersion } from '../sync/instance'
 import { formatDate, today } from '../dates'
 import { ulid } from '../ulid'
 import { GuestField, GuestList } from './GuestField'
@@ -37,9 +38,11 @@ export function GamesScreen() {
   // Стол с ботами или на этом телефоне идёт — напоминание под «Играть», чтобы не потерять его
   const [tableGoing] = useState(() => loadLocalTable() !== null || loadBotTable() !== null)
 
+  const remote = useRemoteVersion() // влитое с другого устройства (#265) — список перечитывается
+
   useEffect(() => {
     void listGames().then(setGames)
-  }, [])
+  }, [remote])
 
   async function openForm() {
     const settings = await getSettings()
