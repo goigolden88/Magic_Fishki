@@ -35,7 +35,6 @@ import {
   defaultWinners,
   finalStacks,
   historyHandView,
-  historyList,
   lastHandRecord,
   lastHandWins,
   liveHandView,
@@ -60,6 +59,19 @@ import {
   type PreActionMark,
 } from '../calc/preAction'
 import { roomEvening, savedHands, type SavedHand } from '../calc/evenings'
+import {
+  historyRows,
+  isPicked,
+  NO_PICK,
+  pickHistory,
+  pickOptions,
+  SORT_LABELS,
+  type HistoryPick,
+  type HistorySort,
+  type PickOptions,
+} from '../calc/historyFilter'
+import { RANGE_EXAMPLE } from '../calc/rangeText'
+import type { Street } from '../poker/hand'
 import { mixView, type MixView } from '../calc/pokerMix'
 import { runView, type RunView } from '../calc/pokerRuns'
 import { muckView, type MuckView } from '../calc/pokerMuck'
@@ -969,6 +981,112 @@ function HistoryBody({ view: v, trainer }: { view: HistoryHandView; trainer: str
   )
 }
 
+const SORTS: HistorySort[] = ['new', 'old', 'won', 'lost', 'pot']
+const PICK_STREETS: [Street, string][] = [
+  ['preflop', 'Префлоп'],
+  ['flop', 'Флоп'],
+  ['turn', 'Тёрн'],
+  ['river', 'Ривер'],
+]
+
+// Ряд кнопок выбора одного из вариантов
+function PickRow<T>(props: { title: string; items: [T, string][]; value: T; onPick: (value: T) => void }) {
+  const { title, items, value, onPick } = props
+  return (
+    <fieldset className="players-pick">
+      <legend className="muted">{title}</legend>
+      <div className="amounts">
+        {items.map(([v, label]) => (
+          <button key={label} type="button" className={v === value ? 'big primary' : 'big'} aria-pressed={v === value} onClick={() => onPick(v)}>
+            {label}
+          </button>
+        ))}
+      </div>
+    </fieldset>
+  )
+}
+
+// «Отбор» над списком раздач (#294), как в покер-румах: свёрнут по умолчанию; раскрыт — сортировка и отборы
+// (сочетаются). Чего в этом списке нет (меня в раздачах, рук из двух карт, записей с картами) — того и не видно
+function HistoryPickPanel(props: {
+  open: boolean
+  onToggle: () => void
+  pick: HistoryPick
+  options: PickOptions
+  rangeError: string | null
+  onChange: (pick: HistoryPick) => void
+}) {
+  const { open, onToggle, pick, options: o, rangeError, onChange } = props
+  const set = (part: Partial<HistoryPick>) => onChange({ ...pick, ...part })
+  return (
+    <div className="history-pick">
+      <button type="button" className="big wide" aria-expanded={open} onClick={onToggle}>
+        {open ? 'Отбор ▴' : 'Отбор ▾'}
+      </button>
+      {open && (
+        <div className="history-pick-body">
+          <PickRow<HistorySort>
+            title="Сортировка"
+            items={SORTS.map((s): [HistorySort, string] => [s, SORT_LABELS[s]])}
+            value={pick.sort}
+            onPick={(sort) => set({ sort })}
+          />
+          {o.result && (
+            <PickRow<HistoryPick['result']>
+              title="Итог"
+              items={[
+                ['all', 'Все'],
+                ['plus', 'В плюс'],
+                ['minus', 'В минус'],
+              ]}
+              value={pick.result}
+              onPick={(result) => set({ result })}
+            />
+          )}
+          {o.range && (
+            <label className="field">
+              Моя рука — диапазоном, как в чартах
+              <input
+                className={rangeError ? 'bad' : undefined}
+                value={pick.range}
+                onChange={(e) => set({ range: e.target.value })}
+                placeholder={RANGE_EXAMPLE}
+                autoCapitalize="characters"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+              {rangeError && <span className="warn">{rangeError}</span>}
+            </label>
+          )}
+          {o.positions.length > 0 && (
+            <PickRow<string | null>
+              title="Позиция"
+              items={[[null, 'Все'], ...o.positions.map((p): [string, string] => [p, p])]}
+              value={pick.position}
+              onPick={(position) => set({ position })}
+            />
+          )}
+          {o.streets && (
+            <PickRow<Street | null> title="Дошла до улицы" items={[[null, 'Все'], ...PICK_STREETS]} value={pick.street} onPick={(street) => set({ street })} />
+          )}
+          {o.showdown && (
+            <PickRow<HistoryPick['showdown']>
+              title="Вскрытие"
+              items={[
+                ['all', 'Все'],
+                ['yes', 'Было'],
+                ['no', 'Не было'],
+              ]}
+              value={pick.showdown}
+              onPick={(showdown) => set({ showdown })}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // «История раздач» вечера (#113): список — новые сверху, тап — раздача целиком, «← Все раздачи» — назад.
 // Карточкой под столом: панель хода внизу экрана не закрывает, игра идёт. hands — null: ещё не пришла;
 // note — почему не приходит (нет связи); старый список при этом остаётся.
@@ -992,8 +1110,13 @@ export function HandHistory(props: {
   const { hands, note = null, title = 'История раздач', back = 'Закрыть', initial, top, noList, toTrainer, onClose } = props
   const [open, setOpen] = useState<number | null>(initial ?? null)
   const ref = useRef<HTMLElement>(null)
+  // «Отбор» (#294): свёрнут — список как раньше; выбор помнится, пока открыта история, и никуда не пишется
+  const [picking, setPicking] = useState(false)
+  const [pick, setPick] = useState<HistoryPick>(NO_PICK)
   const hand = hands?.find((h) => h.number === open) ?? null
-  const list = hands ? historyList(hands) : []
+  const all = hands ? historyRows(hands) : []
+  const picked = picking ? pickHistory(all, pick) : { rows: all, rangeError: null }
+  const list = picked.rows
 
   // Открыли историю или раздачу — к её началу. Тело в фигурных скобках: плавная прокрутка в новом Chrome
   // возвращает обещание, а React принял бы его за функцию уборки и снял бы весь экран
@@ -1017,28 +1140,52 @@ export function HandHistory(props: {
           {typeof top === 'function' ? top(setOpen) : top}
           {noList ? null : hands === null ? (
             !note && <p className="muted">Загружаем…</p>
-          ) : list.length === 0 ? (
+          ) : all.length === 0 ? (
             <p className="muted">Раздач ещё не было</p>
           ) : (
-            <ul className="list history-list">
-              {list.map((item) => (
-                <li key={item.number}>
-                  {/* Строка (#239): № · мои карты · позиция · мой итог · борд, кто взял — мельче под ней */}
-                  <button type="button" className="history-item history-hand" onClick={() => setOpen(item.number)}>
-                    <span className="history-line">
-                      <span className="history-number">№ {item.number}</span>
-                      {item.cooler && <span className="history-cooler">кулер</span>}
-                      {item.mine?.cards && <CardRow cards={item.mine.cards} size="small" />}
-                      {item.mine && <span className="history-pos">{item.mine.position}</span>}
-                      {item.mine && <NetText mine={item.mine} />}
-                      {item.board.length > 0 && <CardRow cards={item.board} size="small" />}
-                      {item.more?.map((board, k) => <CardRow key={k} cards={board} size="small" />)}
-                    </span>
-                    <span className="history-wins">{item.wins.map((w) => `${w.name} +${formatNumber(w.amount)}`).join(', ')}</span>
+            <>
+              <HistoryPickPanel
+                open={picking}
+                onToggle={() => setPicking(!picking)}
+                pick={pick}
+                options={pickOptions(all)}
+                rangeError={picked.rangeError}
+                onChange={setPick}
+              />
+              {picking && isPicked(pick) && (
+                <div className="row history-found">
+                  <span className="grow">
+                    Найдено {formatNumber(list.length)} из {formatNumber(all.length)}
+                  </span>
+                  <button type="button" className="big" onClick={() => setPick(NO_PICK)}>
+                    Сбросить
                   </button>
-                </li>
-              ))}
-            </ul>
+                </div>
+              )}
+              {list.length === 0 ? (
+                <p className="muted">Нет раздач под отбор</p>
+              ) : (
+                <ul className="list history-list">
+                  {list.map((item) => (
+                    <li key={item.number}>
+                      {/* Строка (#239): № · мои карты · позиция · мой итог · борд, кто взял — мельче под ней */}
+                      <button type="button" className="history-item history-hand" onClick={() => setOpen(item.number)}>
+                        <span className="history-line">
+                          <span className="history-number">№ {item.number}</span>
+                          {item.cooler && <span className="history-cooler">кулер</span>}
+                          {item.mine?.cards && <CardRow cards={item.mine.cards} size="small" />}
+                          {item.mine && <span className="history-pos">{item.mine.position}</span>}
+                          {item.mine && <NetText mine={item.mine} />}
+                          {item.board.length > 0 && <CardRow cards={item.board} size="small" />}
+                          {item.more?.map((board, k) => <CardRow key={k} cards={board} size="small" />)}
+                        </span>
+                        <span className="history-wins">{item.wins.map((w) => `${w.name} +${formatNumber(w.amount)}`).join(', ')}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           )}
         </>
       )}

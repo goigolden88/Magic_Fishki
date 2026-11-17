@@ -2203,6 +2203,13 @@ async function historyStep(d: Device): Promise<void> {
     await d.shot('03h0-proshlye-vechera') // #242: строка вечера — с моим итогом
     await openEvening(false)
     await d.shot('03h-proshlye-vechera-spisok')
+    // #294: «Отбор» раскрыт, сортировка «Старые» — над списком «Найдено N из M» и «Сбросить»; затем свёрнут
+    await d.click('Отбор')
+    await d.waitText('Сортировка')
+    await d.click('Старые')
+    await d.waitText('Найдено')
+    await d.shot('03h1-istoriya-otbor')
+    await d.click('Отбор')
     await d.eval(`document.querySelector('.history-hand').click()`)
     await d.waitText('Вам сдано')
     await d.waitText('Ваш итог за раздачу')
