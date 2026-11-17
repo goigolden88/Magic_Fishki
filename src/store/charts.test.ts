@@ -64,7 +64,8 @@ describe('миграция базы 3 → 4: хранилище своих ча�
     expect(await getGame('01A')).toEqual(GAME)
     expect(await listGames()).toEqual([GAME])
     expect(await getSettings()).toEqual(SETTINGS)
-    expect(await allHands()).toEqual([HAND])
+    // Версия 5 (#264) ставит раздаче время правки — начало её вечера
+    expect(await allHands()).toEqual([{ ...HAND, updatedAt: '1970-01-01T00:00:01.000Z' }])
     expect(await listEvenings()).toEqual([{ id: HAND.evening, code: HAND.code, startedAt: HAND.startedAt, hands: 1 }])
     expect(await listCharts()).toEqual([])
   })

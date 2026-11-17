@@ -35,7 +35,8 @@ export type EveningTable = {
 }
 
 // Запись хранилища: раздача и её вечер; раздача — как пришла за столом (HistoryHand).
-// mine — свои карты этого телефона в раздаче (Р-54): запись раздачи карт сбросивших не хранит
+// mine — свои карты этого телефона в раздаче (Р-54): запись раздачи карт сбросивших не хранит.
+// updatedAt — время правки (#264): в базе есть у каждой записи, ставит store/db.ts; deleted — помечена удалённой
 export type SavedHand = {
   evening: string
   code: string | null
@@ -44,6 +45,8 @@ export type SavedHand = {
   hand: HistoryHand
   table?: EveningTable
   mine?: Card[]
+  updatedAt?: string // ISO 8601
+  deleted?: true
 }
 
 // hands — сколько раздач записано; myNet — мой итог за вечер фишками (#242): меня в вечере нет — поля нет

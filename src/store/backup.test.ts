@@ -12,7 +12,6 @@ import {
   chartIds,
   deleteChart,
   deleteEvening,
-  deleteGame,
   eveningRecords,
   getSettings,
   handKeys,
@@ -64,9 +63,23 @@ async function restore(text: string) {
   return plan
 }
 
+function request<T>(req: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+// «Очистить данные сайта» — базы нет совсем (своё соединение приложение закрывает само, onversionchange в db.ts)
 async function clearAll() {
-  for (const g of await listGames()) await deleteGame(g.id)
-  await saveSettings({ defaultRate: 0.5, players: [], quickAmounts: [500, 1000, 2000], defaultBuyin: 1000, compareWindow: 5 })
+  await request(indexedDB.deleteDatabase('magic_fishki'))
+}
+
+// Запись без времени правки — сравнить содержимое
+function content<T extends { updatedAt?: string }>(record: T | undefined) {
+  if (!record) return record
+  const { updatedAt: _at, ...rest } = record
+  return rest
 }
 
 describe('файл-копия через базу (Р-11)', () => {
@@ -175,9 +188,13 @@ describe('файл-копия через базу (Р-11)', () => {
     await deleteEvening(bots.id)
     expect(await listEvenings()).toEqual([])
 
+    // Удалённые встают обратно (#264): то же содержимое, время правки — позже удаления
+    const restoredAt = new Date().toISOString()
     const plan = await restore(text)
     expect(plan.hands).toHaveLength(3)
-    expect(await allHands()).toEqual(before)
+    const after = await allHands()
+    expect(after.map(content)).toEqual(before.map(content))
+    for (const h of after) expect(h.updatedAt! >= restoredAt).toBe(true)
     expect((await listEvenings()).map((e) => [e.id, e.hands])).toEqual([
       ['bots-B1', 1],
       ['KQ7MZP-1000', 2],
@@ -216,6 +233,6 @@ describe('файл-копия через базу (Р-11)', () => {
       ['c2', 'Второй'],
       ['c1', 'Мой, переименован'],
     ])
-    expect(after.find((c) => c.id === 'c2')).toEqual(before.find((c) => c.id === 'c2'))
+    expect(content(after.find((c) => c.id === 'c2'))).toEqual(content(before.find((c) => c.id === 'c2')))
   })
 })

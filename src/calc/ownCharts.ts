@@ -13,6 +13,7 @@ export type OwnChart = {
   actions: string[] // первым — «fold», как у встроенных
   cells: Record<string, number[]>
   updatedAt: string // ISO 8601
+  deleted?: true // помечен удалённым (#264): для человека его нет, чтения базы пропускают
 }
 
 // Правка на экране — то же без id и времени
