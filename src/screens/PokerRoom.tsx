@@ -62,6 +62,7 @@ import {
 import { roomEvening, savedHands, type SavedHand } from '../calc/evenings'
 import { mixView, type MixView } from '../calc/pokerMix'
 import { runView, type RunView } from '../calc/pokerRuns'
+import { muckView, type MuckView } from '../calc/pokerMuck'
 import { runsText } from '../calc/quickRoom'
 import { gameFromTable, gameFromTournament } from '../calc/pokerGame'
 import { deckOf, faceOf, lookClass, lookOf, suitClass } from '../calc/pokerLook'
@@ -372,6 +373,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   const v = tableView(table, me, room.serverNow(), loadQuickBets()) // свои быстрые ставки (Р-62)
   const mix = mixView(table, me, room.serverNow()) // «Микс» (#166) — между раздачами, над кнопками ведущего
   const runs = runView(table, me, room.serverNow()) // «Сколько раз прогнать» (#167) — вместо полосы «Ждём хода»
+  const muck = muckView(table, me, room.serverNow()) // «Мак по выбору» (#286) — пауза после раздачи, над кнопками ведущего
   // Копия раздач (#114) — со своими картами каждой раздачи (Р-54): к ответу истории они уже запомнены,
   // до записи раздачи — и на устройстве (#239): перезагрузка посреди раздачи их не теряет
   const evening = roomEvening(code, table, me)
@@ -503,12 +505,13 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
           ) : (
             <p className="dock wait-strip">{waitLine(v)}</p>
           ))}
+        {muck && <MuckDock muck={muck} online={room.online} onAnswer={(show) => room.send({ type: 'muck', show })} />}
         {mix && <MixDock mix={mix} online={room.online} onSend={(body) => room.send(body)} />}
         {dock === 'host' && (
           <HostDock
             view={v}
             pause
-            voting={mix?.kind === 'vote'}
+            voting={mix?.kind === 'vote' || muck !== null}
             onStart={() => room.send({ type: 'start' })}
             onPause={() => room.send({ type: 'pause', paused: !v.paused })}
           />
@@ -650,6 +653,42 @@ function MixDock(props: { mix: MixView; online: boolean; onSend: (body: ClientBo
           </button>
         )}
       </div>
+    </section>
+  )
+}
+
+// «Мак по выбору» (#286) — внизу экрана после раздачи банков: решающему — карточка «Показать карты?» со своими картами,
+// двумя крупными кнопками и отсчётом; остальным — строка, кто решает. Не ответил — карты открываются
+export function MuckDock(props: { muck: MuckView; online: boolean; onAnswer: (show: boolean) => void }) {
+  const { muck, online, onAnswer } = props
+  if (!muck.canChoose) {
+    return (
+      <p className="dock wait-strip">
+        {muck.line} · {muck.left} с
+      </p>
+    )
+  }
+  return (
+    <section className="dock muck-dock">
+      <p className="dock-title">
+        {muck.line} · {muck.left} с
+      </p>
+      {muck.cards && (
+        <div className="muck-cards">
+          {muck.cards.map((c) => (
+            <PlayingCard key={c} card={c} size="mid" />
+          ))}
+        </div>
+      )}
+      <div className="dock-row">
+        <button type="button" className="big primary grow" disabled={!online} onClick={() => onAnswer(true)}>
+          Показать
+        </button>
+        <button type="button" className="big grow" disabled={!online} onClick={() => onAnswer(false)}>
+          Сбросить
+        </button>
+      </div>
+      <p className="muted dock-note">Соперники ваших карт не видели · не ответите — карты откроются</p>
     </section>
   )
 }

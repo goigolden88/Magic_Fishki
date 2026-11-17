@@ -39,7 +39,8 @@ import type { AutoStart, CardBack, Felt, MuckMode, Settings, TableState } from '
 //      (взявший без вскрытия и сбросившие), каждому телефону — только свои
 // 25 — мак на вскрытии (#279): настройка muck при создании и в tableSettings (null — все открывают); в записи
 //      раздачи сбросившие без показа (mucked), их карты — в hidden, рука и пятёрка — только им
-export const PROTOCOL_VERSION = 25
+// 26 — «Мак по выбору» (#286): значение muck 'manual'; пауза выбора в столе (muckVote), ответ решающего (muck)
+export const PROTOCOL_VERSION = 26
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -114,6 +115,8 @@ export type ClientBody =
   | { type: 'mixCancel' }
   // «Прогнать несколько раз» (#167): дошедший до вскрытия олл-ин — сколько раз прогнать, 1…runVote.max
   | { type: 'runChoice'; times: number }
+  // «Мак по выбору» (#286): решающий на паузе muckVote — «Показать» (show: true) или «Сбросить»; один раз
+  | { type: 'muck'; show: boolean }
 
 export type ClientMessage = ClientBody & { v: number }
 

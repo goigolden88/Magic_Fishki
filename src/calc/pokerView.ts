@@ -17,6 +17,7 @@ import { handMoney, handNet, handPositions, positionLabels, type HandMoney } fro
 import { isOwnGameId } from '../poker/ownGame'
 import { boardAtOf, handText } from './handText'
 import { runBoards, type RunBoardView } from './pokerRuns'
+import { MUCK_DECIDING_NOTE, muckDeciding } from './pokerMuck'
 import {
   buildLevels,
   clockAt,
@@ -247,7 +248,8 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
           cards.game.hiLo ? bestLow(cards.game.variant, myCards, cards.board)?.name : null,
         )
       : null
-  const hidden = hiddenOf(record)[meId] ?? null
+  // «Мак по выбору» (#286): пока решаю — не «Показать» после раздачи, а кнопки паузы (muckView)
+  const hidden = muckDeciding(table).includes(meId) ? null : (hiddenOf(record)[meId] ?? null)
   const maxSeats = table.settings.maxSeats
   const taken = new Set(table.players.map((p) => p.seat))
 
@@ -268,6 +270,7 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
     canStart:
       isHost &&
       !hand &&
+      !table.muckVote &&
       !tournament?.ended &&
       table.players.filter((p) => p.chips > 0 && !p.sittingOut).length >= 2,
     canTakeHost:
@@ -562,11 +565,12 @@ export function lastHandRecord(table: TableState): LastHandView | null {
   const runs = runBoards(record, labels)
   const split = runs ? null : splitOf(record, labels)
   const hidden = hiddenOf(record)
+  const deciding = muckDeciding(table) // «Мак по выбору» (#286): идёт пауза
   return {
     number: last.number,
     board: record.board,
     players: record.seats.map((s) => {
-      const note = muckNote(record, s.id)
+      const note = deciding.includes(s.id) ? MUCK_DECIDING_NOTE : muckNote(record, s.id)
       return {
         name: s.name,
         // Сбросил без показа я (#279) — мои карты, с пометкой «не показаны»

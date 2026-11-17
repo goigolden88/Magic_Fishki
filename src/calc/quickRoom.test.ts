@@ -6,6 +6,7 @@ import { turnChoiceOf, turnSecondsOf } from './pokerTimer'
 import {
   DEFAULT_GAME,
   gameSettings,
+  MUCK_CHOICES,
   parseQuickRoom,
   QUICK_ROOM_DEFAULT,
   quickRoomChoice,
@@ -170,7 +171,15 @@ describe('своя «Быстрая комната» (Р-62)', () => {
     expect(quickRoomSettings(1000, { ...ROOM, cards: 'phones' })).not.toHaveProperty('muck')
     expect(parseQuickRoom(JSON.parse(JSON.stringify(muck)))).toEqual(muck)
     expect(parseQuickRoom({ ...ROOM, cards: 'phones' })).not.toHaveProperty('muck')
-    expect(parseQuickRoom({ ...muck, muck: 'manual' })).toBeNull()
+    expect(parseQuickRoom({ ...muck, muck: 'другой' })).toBeNull()
+  })
+
+  it('вскрытие (#286): «Мак по выбору» — в настройки и обратно из копии', () => {
+    const manual: QuickRoom = { ...ROOM, cards: 'phones', muck: 'manual' }
+    expect(quickRoomSettings(1000, manual)).toMatchObject({ muck: 'manual' })
+    expect(quickRoomSettings(1000, { ...manual, cards: 'live' })).not.toHaveProperty('muck')
+    expect(parseQuickRoom(JSON.parse(JSON.stringify(manual)))).toEqual(manual)
+    expect(MUCK_CHOICES.map(([, label]) => label)).toEqual(['Все открывают', 'Мак сам', 'Мак по выбору'])
   })
 
   it('сохранить нельзя: блайнды не годятся, стек меньше большого блайнда', () => {

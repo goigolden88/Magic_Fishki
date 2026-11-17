@@ -87,13 +87,26 @@ export type Settings = {
   // У столов до него поля нет — нет
   maxRuns?: MaxRuns
   // Вскрытие (#279): нет поля — все открывают; 'auto' — «Мак сам»: проигравший, которого не обязывают показывать,
-  // сбрасывает карты без показа (showdownOpen). Только карты на телефонах; меняется между раздачами
+  // сбрасывает карты без показа (showdownOpen); 'manual' (#286) — «Мак по выбору»: он же решает сам кнопками
+  // за паузу MuckVote, не решил — карты открываются. Только карты на телефонах; меняется между раздачами
   muck?: MuckMode
 }
 
-// Режимы вскрытия (#279): «Мак сам»; «Мак по выбору» ('manual') — следующей задачей
-export const MUCK_MODES = ['auto'] as const
+// Режимы вскрытия: «Мак сам» (#279), «Мак по выбору» (#286)
+export const MUCK_MODES = ['auto', 'manual'] as const
 export type MuckMode = (typeof MUCK_MODES)[number]
+
+// «Мак по выбору» (#286): сколько идёт пауза выбора, мс
+export const MUCK_VOTE_MS = 7000
+
+// Пауза выбора «Показать или сбросить» после раздачи банков (#286). hand — номер раздачи; players — кто решает
+// (кого «Мак сам» сбросил бы), по местам; answers — ответ каждого: true — «Показать», false — «Сбросить»
+export type MuckVote = {
+  hand: number
+  deadline: number
+  players: string[]
+  answers: Record<string, boolean>
+}
 
 export type TableFormat = 'cash' | 'tournament'
 
@@ -284,6 +297,8 @@ export type TableState = {
   mixResult?: MixResult | null
   // «Прогнать несколько раз» (#167): идущий выбор в раздаче; у столов до него поля нет — нет
   runVote?: RunVote | null
+  // «Мак по выбору» (#286): идущая пауза выбора после раздачи; у столов до него поля нет — нет
+  muckVote?: MuckVote | null
 }
 
 // Срок хода: ход — номер раздачи и число ходов в ней (log), чтобы будильник не принял старый срок за новый.
@@ -331,6 +346,7 @@ export function handle(state: TableState, from: string, message: unknown, now: n
   const error = apply(next, from, message as ClientBody, now, deck) ?? settle(next, now)
   if (error) return { ok: false, error }
   closeVote(next, now)
+  closeMuck(next, now)
   endWait(next, now)
   rearm(next, now)
   clock(next, now)
@@ -338,20 +354,21 @@ export function handle(state: TableState, from: string, message: unknown, now: n
 }
 
 // Ближайший срок стола — истечение хода, раздача «сама», закрытие ребая, пока его ждут (#94), или
-// конец голосования «Микса» (#166) или выбора «сколько раз прогнать» (#167); нет — null. По нему сервер ставит будильник
+// конец голосования «Микса» (#166), выбора «сколько раз прогнать» (#167) или паузы «Мак по выбору» (#286); нет — null.
+// По нему сервер ставит будильник
 export function nextDeadline(state: TableState): number | null {
   const t = state.settings.tournament
   const rebuyCloses = t && state.tournament && alone(state) ? rebuyClosesAt(t, state.tournament) : null
-  const times = [state.turn?.deadline, state.nextHandAt, rebuyCloses, state.mixVote?.deadline, state.runVote?.deadline].filter(
-    (x): x is number => typeof x === 'number',
-  )
+  const votes = [state.mixVote?.deadline, state.runVote?.deadline, state.muckVote?.deadline]
+  const times = [state.turn?.deadline, state.nextHandAt, rebuyCloses, ...votes].filter((x): x is number => typeof x === 'number')
   return times.length > 0 ? Math.min(...times) : null
 }
 
 // Будильник сервера: ребай закрылся, пока его ждали, — турнир окончен; истёк ход — за игрока
 // чек, если можно, иначе пас («время вышло»); кончилось голосование «Микса» — итог, раздача «сама»
 // взводится заново (раздача тем же будильником не начинается: колоду сервер тасует по игре стола до вызова);
-// кончился выбор «сколько раз прогнать» (#167) — прогон и раздача банков;
+// кончился выбор «сколько раз прогнать» (#167) — прогон и раздача банков; кончилась пауза «Мак по выбору» (#286) —
+// карты не ответивших открываются, раздача «сама» взводится с полной паузы;
 // пора — новая раздача (deck — колода от сервера, как на start). Сверяет срок с состоянием: сработал
 // раньше срока или повторно — null, стол не меняется
 export function onTime(state: TableState, now: number, deck?: Card[]): TableState | null {
@@ -361,6 +378,16 @@ export function onTime(state: TableState, now: number, deck?: Card[]): TableStat
   if (runs && now >= runs.deadline) {
     const next = structuredClone(state)
     if (settle(next, now)) return null
+    closeMuck(next, now)
+    endWait(next, now)
+    rearm(next, now)
+    clock(next, now)
+    return next
+  }
+  const muck = state.muckVote
+  if (muck && now >= muck.deadline) {
+    const next = structuredClone(state)
+    closeMuck(next, now)
     endWait(next, now)
     rearm(next, now)
     clock(next, now)
@@ -474,7 +501,7 @@ function refillBanks(state: TableState, handNumber: number): void {
 
 // Раздача «сама» — через паузу из настроек; выкл, перерыв, идёт раздача, раздач ещё не было,
 // турнир окончен или ждёт ребая, играть некому (с фишками и не пропускают меньше двоих),
-// идёт голосование «Микса» (#166: ждёт его конца) — нет
+// идёт голосование «Микса» (#166) или пауза «Мак по выбору» (#286: ждёт её конца) — нет
 function armNext(state: TableState, now: number): void {
   const mode = state.settings.autoStart ?? 'off'
   state.nextHandAt = mode !== 'off' && autoReady(state) ? now + AUTO_START_MS[mode] : null
@@ -483,7 +510,8 @@ function armNext(state: TableState, now: number): void {
 function autoReady(state: TableState): boolean {
   const ended = typeof state.tournament?.endedAt === 'number'
   const playing = state.players.filter((p) => p.chips > 0 && !p.sittingOut).length
-  return !state.hand && !state.paused && !state.mixVote && state.handCount > 0 && !ended && !alone(state) && playing >= 2
+  const voting = Boolean(state.mixVote) || Boolean(state.muckVote)
+  return !state.hand && !state.paused && !voting && state.handCount > 0 && !ended && !alone(state) && playing >= 2
 }
 
 // После любой перемены между раздачами (#106): снова двое с фишками — докуп, возврат в раздачи,
@@ -562,6 +590,7 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
     case 'start':
       if (!isHost) return hostOnly
       if (state.mixVote) return 'Идёт голосование за игру — дождитесь итога или нажмите «Без смены»'
+      if (state.muckVote) return MUCK_WAIT
       return state.paused ? 'Перерыв — сначала «Продолжить»' : start(state, deck, now)
     case 'tournamentRebuy':
       return tournamentRebuy(state, me, now)
@@ -622,6 +651,8 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
       return isHost ? cancelVote(state) : hostOnly
     case 'runChoice':
       return chooseRuns(state, from, msg.times)
+    case 'muck':
+      return answerMuck(state, from, msg.show)
     default:
       return 'Неизвестное сообщение — обновите приложение'
   }
@@ -892,8 +923,9 @@ function settle(state: TableState, now: number): string | null {
       const split = hand.pots.map((pot, k) => ({ hi: winners[k], lo: lowWinners(variant, board, contenders(pot.eligible)) }))
       return { board, hands, best, winners, lows, lowBest, split }
     })
-    // «Мак сам» (#279): открываются по порядку вскрытия те, кого обязывают; остальные — сброс без показа
-    const open = state.settings.muck === 'auto' ? showdownOpen(hand, variant, runs, hole) : live
+    // «Мак сам» (#279): открываются по порядку вскрытия те, кого обязывают; остальные — сброс без показа.
+    // «Мак по выбору» (#286): те же остальные — пока закрыты, решают за паузу (muckVote ниже)
+    const open = state.settings.muck !== undefined ? showdownOpen(hand, variant, runs, hole) : live
     for (const id of live) {
       if (open.includes(id)) shown[id] = hole(id)
       else hidden[id] = hole(id)
@@ -934,8 +966,55 @@ function settle(state: TableState, now: number): string | null {
     ...(first.split ? { lows: first.lows ?? {}, lowBest: first.lowBest ?? {}, split: first.split } : {}),
     ...(mucked.length > 0 ? { mucked } : {}),
   }
+  // «Мак по выбору» (#286): банк уже отдан, решающие — в hidden и mucked; пауза — до finishHand, чтобы раздача «сама»
+  // не взвелась раньше её конца (autoReady)
+  if (state.settings.muck === 'manual' && mucked.length > 0) {
+    state.muckVote = { hand: hand.number, deadline: now + MUCK_VOTE_MS, players: mucked, answers: {} }
+  }
   finishHand(state, hand, winners, payouts, now, record)
   return null
+}
+
+// Почему ведущий не начинает раздачу во время паузы «Мак по выбору» (#286)
+export const MUCK_WAIT = 'Игроки решают, показать ли карты, — подождите несколько секунд'
+
+// «Мак по выбору» (#286): решающий отвечает один раз, пока идёт пауза. «Показать» — его карты сразу из hidden
+// в shown (как «Показать» все, #278); «Сбросить» — остаются закрытыми
+function answerMuck(state: TableState, from: string, show: unknown): string | null {
+  const vote = state.muckVote
+  if (!vote) return 'Выбора «показать или сбросить» сейчас нет'
+  if (!vote.players.includes(from)) return 'Показать или сбросить решает тот, кто проиграл на вскрытии'
+  if (Object.hasOwn(vote.answers, from)) return 'Вы уже ответили'
+  if (typeof show !== 'boolean') return 'Неизвестное сообщение — обновите приложение'
+  vote.answers[from] = show
+  if (show) revealMucked(state, vote.hand, from)
+  return null
+}
+
+// Пауза «Мак по выбору» окончена — ответили все, кто ещё за столом и в сети, или вышел срок: у кого нет ответа
+// «Сбросить», карты открываются (по умолчанию — вскрытие). Запас времени (#223) не тратится: хода нет
+function closeMuck(state: TableState, now: number): void {
+  const vote = state.muckVote
+  if (!vote) return
+  const online = new Set(state.players.filter((p) => p.online).map((p) => p.id))
+  const waiting = vote.players.some((id) => online.has(id) && !Object.hasOwn(vote.answers, id))
+  if (waiting && now < vote.deadline) return
+  for (const id of vote.players) if (vote.answers[id] !== false) revealMucked(state, vote.hand, id)
+  state.muckVote = null
+}
+
+// Карты сбросившего без показа — всем: из hidden в shown, из mucked — вон (мака не осталось — поля нет)
+function revealMucked(state: TableState, number: number, id: string): void {
+  const record = state.lastHand?.number === number ? state.lastHand.record : undefined
+  const cards = record ? hiddenOf(record)[id] : undefined
+  if (!record || !cards) return
+  record.shown[id] = [...cards]
+  const rest: HiddenCards = { ...hiddenOf(record) }
+  delete rest[id]
+  record.hidden = rest
+  const mucked = (record.mucked ?? []).filter((x) => x !== id)
+  if (mucked.length > 0) record.mucked = mucked
+  else delete record.mucked
 }
 
 // Порядок вскрытия (#279): первым — последний, кто ставил или повышал на последнем круге торговли; не ставил
@@ -1046,7 +1125,7 @@ function pause(state: TableState, paused: boolean, now: number): string | null {
 }
 
 // Время на ход, запас времени (#223), раздача «сама», кому виден HUD (#79), ход раздачи по касанию банка (#258)
-// и вскрытие (#279) — ведущий, между раздачами;
+// и вскрытие (#279, #286) — ведущий, между раздачами (и во время паузы «Мак по выбору» — она идёт по старому режиму);
 // действуют со следующей раздачи. Запас сменился — у всех новый начальный, выключен — запаса нет
 function changeSettings(state: TableState, msg: Extract<ClientBody, { type: 'tableSettings' }>, now: number): string | null {
   if (state.hand) return 'Настройки стола меняются между раздачами'
@@ -1179,6 +1258,9 @@ function resetTimeouts(state: TableState, playerId: string): null {
 // свои карты — все или часть (по номерам). Во время раздачи — нет: это подсказка оставшимся
 function show(state: TableState, from: string, which: unknown): string | null {
   if (state.hand) return 'Показать карты можно, когда раздача кончится, — до новой'
+  // «Мак по выбору» (#286): пока решает — ответ кнопками паузы
+  const vote = state.muckVote
+  if (vote?.players.includes(from) && !Object.hasOwn(vote.answers, from)) return 'Сначала ответьте: показать или сбросить'
   const record = state.lastHand?.record
   const hidden = hiddenOf(record)
   const cards = hidden[from]
@@ -1309,7 +1391,7 @@ function settingsError(s: Settings): string | null {
   if (s.straddle !== undefined && typeof s.straddle !== 'boolean') return 'Страддл — включён или выключен'
   if (s.publicHud !== undefined && typeof s.publicHud !== 'boolean') return 'HUD видят — все или каждый только свою'
   if (s.liveHand !== undefined && typeof s.liveHand !== 'boolean') return 'Ход раздачи по касанию банка — включён или выключен'
-  if (s.muck !== undefined && !(MUCK_MODES as readonly unknown[]).includes(s.muck)) return 'Вскрытие — все открывают или мак сам'
+  if (s.muck !== undefined && !(MUCK_MODES as readonly unknown[]).includes(s.muck)) return 'Вскрытие — все открывают, мак сам или мак по выбору'
   if (s.muck !== undefined && s.cards !== 'phones') return 'Мак на вскрытии — только с картами на телефонах'
   // Свои игры (#224): верные описания, каждой хватает карт на все места; только карты на телефонах
   if (s.games !== undefined) {
