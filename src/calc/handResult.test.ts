@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Card } from '../poker/cards'
-import { finishedHand, keepHand, type HistoryHand } from '../poker/history'
+import { finishedHand, handFor, keepHand, type HistoryHand } from '../poker/history'
 import type { Settings, TableState } from '../poker/table'
 import { allin, award, call, check, fold, newTable, play, raise, stackedDeck, start, type Step } from '../poker/testing'
 import {
@@ -128,15 +128,19 @@ describe('итог игрока за раздачу (#239)', () => {
 describe('история раздач: моя рука (#239)', () => {
   const before = newTable(['p0', 'p1', 'p2'], PHONES)
   const deck = deckOf([['Qc', 'Jd'], ['7c', '2d'], ['Ks', 'Kh']], BOARD)
-  // p1 сбросил на флопе — его карт в записи нет, они есть только у его телефона
+  // p1 сбросил на флопе — его карты в записи только среди закрытых (#278): их видит лишь его телефон
   const steps = [start('p0', deck), raise('p0', 30), call('p1'), fold('p2'), check('p1'), raise('p0', 50), fold('p1')]
   const { after, hand } = playHand(before, steps)
   const evening = roomEvening('KQ7MZP', after, 'p1')
 
   it('строка списка: мои карты и после паса, позиция, итог; без своих карт — без карт', () => {
-    const [withCards] = savedHands(evening, [hand], new Map([[1, ['Qc', 'Jd'] as Card[]]]))
+    const [withCards] = savedHands(evening, [handFor(hand, 'p1')], new Map([[1, ['Qc', 'Jd'] as Card[]]]))
     expect(historyList([withCards])[0].mine).toEqual({ cards: ['Qc', 'Jd'], position: 'SB', net: -30, bb: 10 })
-    const [old] = savedHands(evening, [hand])
+    // Свои сброшенные — и из записи раздачи (#278), без карт, что видел телефон
+    const [own] = savedHands(evening, [handFor(hand, 'p1')])
+    expect(historyList([own])[0].mine).toEqual({ cards: ['Qc', 'Jd'], position: 'SB', net: -30, bb: 10 })
+    // Запись до #278: карт сбросивших в ней нет
+    const [old] = savedHands(evening, [handFor(hand, null)])
     expect(historyList([old])[0].mine).toEqual({ cards: null, position: 'SB', net: -30, bb: 10 })
   })
 

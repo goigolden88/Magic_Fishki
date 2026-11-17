@@ -8,8 +8,8 @@ import { formatDate } from '../dates'
 import { potLimit, type HandLogEntry, type Stage, type Street } from '../poker/hand'
 import { HUD_FEW_HANDS, type HudCounts } from '../poker/hud'
 import { buildPots } from '../poker/pots'
-import { handFor, type HistoryHand } from '../poker/history'
-import { bankOf, blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type HandRecord, type HandResult, type TableState } from '../poker/table'
+import { handFor, hiddenOwner, hiddenWinner, type HistoryHand } from '../poker/history'
+import { bankOf, blindsNow, hiddenOf, HOST_TAKEOVER_MS, waitingRebuy, type HandRecord, type HandResult, type TableState } from '../poker/table'
 import { allInOdds } from './allInOdds'
 import { coolerOf, type Cooler } from './cooler'
 import { handBlinds as tableBlinds, type SavedHand } from './evenings'
@@ -154,7 +154,8 @@ export type TableView = {
   // Моя лучшая комбинация сейчас (#105) — с флопа, пока я в раздаче и не спасовал: «Пара, дамы».
   // Видна только вместе с открытыми картами — это решает экран. Префлоп, пас, живые карты — null
   myHand: string | null
-  canShow: { cards: Card[]; shown: boolean[] } | null // взял банк без вскрытия: что можно показать
+  // После раздачи — взял банк без вскрытия (won) или сбросил (#278): что можно показать
+  canShow: { cards: Card[]; shown: boolean[]; won: boolean } | null
   paused: boolean // «Перерыв»
   turnLeft: number | null // секунд на ход у того, чей ход; таймера нет — null
   turnBank: boolean // у того, чей ход, идёт запас (#223): turnLeft — секунды запаса
@@ -245,7 +246,7 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
           cards.game.hiLo ? bestLow(cards.game.variant, myCards, cards.board)?.name : null,
         )
       : null
-  const hidden = record?.hidden?.playerId === meId ? record.hidden : null
+  const hidden = hiddenOf(record)[meId] ?? null
   const maxSeats = table.settings.maxSeats
   const taken = new Set(table.players.map((p) => p.seat))
 
@@ -278,7 +279,14 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
     runs: runBoards(record, potLabels(table.lastHand?.pots.length ?? 0)),
     myCards,
     myHand,
-    canShow: hidden && record ? { cards: hidden.cards, shown: hidden.cards.map((_, i) => Boolean(record.shown[meId]?.[i])) } : null,
+    canShow:
+      hidden && record
+        ? {
+            cards: hidden,
+            shown: hidden.map((_, i) => Boolean(record.shown[meId]?.[i])),
+            won: table.lastHand?.pots.some((p) => p.winners.includes(meId)) === true,
+          }
+        : null,
     paused: table.paused === true,
     turnLeft,
     turnBank,
@@ -636,16 +644,17 @@ const BOARD_AT: Record<Street, number> = { preflop: 0, flop: 3, turn: 4, river: 
 const GAME_LABELS: Record<string, string> = { holdem: 'Холдем', omaha: 'Омаха', shortdeck: 'Шорт-дек' }
 
 // Чей телефон: игрок стола (стол на одном телефоне — никто); у записей до Р-54 стола нет —
-// взявший банк без вскрытия (чужим эти карты не приходят), как в выгрузке
+// чьи закрытые карты в записи (чужим они не приходят), как в выгрузке
 function heroOf(s: SavedHand): string | null {
-  return s.table ? s.table.me : (s.hand.record?.hidden?.playerId ?? null)
+  return s.table ? s.table.me : hiddenOwner(s.hand)
 }
 
 // Свои карты — как в выгрузке: что видел телефон в раздаче, иначе из записи (взял без вскрытия или вскрылся)
 function heroCards(s: SavedHand, hero: string): Card[] | null {
   if (s.mine && s.mine.length > 0) return s.mine
   const record = s.hand.record
-  if (record?.hidden?.playerId === hero) return record.hidden.cards
+  const closed = hiddenOf(record)[hero]
+  if (closed) return closed
   const shown = record?.shown[hero]
   return shown && shown.length > 0 && shown.every((c) => c !== null) ? (shown as Card[]) : null
 }
@@ -686,7 +695,7 @@ export function historyList(hands: SavedHand[]): HistoryItem[] {
 // вскрытия видны, как до #239 и как в тексте выгрузки (handText)
 export function historyHandView(s: SavedHand): HistoryHandView {
   const hero = heroOf(s)
-  const h = handFor(s.hand, hero ?? s.hand.record?.hidden?.playerId ?? null)
+  const h = handFor(s.hand, hero ?? hiddenWinner(s.hand))
   const names = namesOf(h)
   const record = h.record
   // Хай/лоу (#227), прогон один — у банка ещё делёж: кто взял хай, кто лоу
@@ -699,7 +708,7 @@ export function historyHandView(s: SavedHand): HistoryHandView {
     ...(split?.[k] && record ? { split: splitText(split[k], record.hands, record.lows ?? {}, nameOf) } : {}),
   }))
   const seats = record?.seats ?? h.live?.seats ?? []
-  const hidden = record?.hidden ?? null
+  const hidden = hiddenOf(record)
   const fives = fivesOf(h)
   const runs = runBoards(record, potLabels(h.pots.length))
   const log = record?.log ?? h.live?.log ?? []
@@ -709,7 +718,7 @@ export function historyHandView(s: SavedHand): HistoryHandView {
     board: record?.board ?? [],
     players: seats.map((x) => ({
       name: x.name,
-      cards: hidden?.playerId === x.id ? hidden.cards : (record?.shown[x.id] ?? null),
+      cards: hidden[x.id] ?? record?.shown[x.id] ?? null,
       hand: runs ? null : withLow(record?.hands[x.id] ?? null, record?.lows?.[x.id]),
       best: fives.get(x.id) ?? null,
       won: h.payouts[x.id] ?? 0,

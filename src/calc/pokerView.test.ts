@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { SHORT_DECK } from '../poker/cards'
 import { finishedHand, handFor, keepHand, type HistoryHand } from '../poker/history'
 import { allin, award, call, check, fold, newTable, play, raise, stackedDeck, start, type Step } from '../poker/testing'
-import { HOST_TAKEOVER_MS, onTime, viewFor, type TableState } from '../poker/table'
+import { hiddenOf, HOST_TAKEOVER_MS, onTime, viewFor, type TableState } from '../poker/table'
 import type { SavedHand } from './evenings'
 import {
   cardFace,
@@ -311,15 +311,24 @@ describe('экран стола: карты на телефонах', () => {
     ])
   })
 
-  it('банк без вскрытия: «Показать» — только у взявшего', () => {
+  it('банк без вскрытия: «Показать» — у взявшего и у сбросивших (#278), каждому — свои', () => {
     const s = play(newTable(['p0', 'p1', 'p2'], PHONES), [start('p0', deck), raise('p0', 30), fold('p1'), fold('p2')], false)
     const folded = tableView(viewFor(s, 'p1'), 'p1', 0)
     expect([folded.boardWin, folded.seats.map((x) => x.best)]).toEqual([null, [null, null, null]]) // пятёрки нет
-    expect(tableView(viewFor(s, 'p0'), 'p0', 0).canShow).toEqual({ cards: ['Ah', 'Ad'], shown: [false, false] })
-    expect(tableView(viewFor(s, 'p1'), 'p1', 0).canShow).toBeNull()
+    expect(tableView(viewFor(s, 'p0'), 'p0', 0).canShow).toEqual({ cards: ['Ah', 'Ad'], shown: [false, false], won: true })
+    const p1 = hiddenOf(s.lastHand?.record).p1
+    expect(folded.canShow).toEqual({ cards: p1, shown: [false, false], won: false })
     const shown = play(s, [{ from: 'p0', msg: { type: 'show', cards: [1] } }], false)
-    expect(tableView(viewFor(shown, 'p0'), 'p0', 0).canShow).toEqual({ cards: ['Ah', 'Ad'], shown: [false, true] })
+    expect(tableView(viewFor(shown, 'p0'), 'p0', 0).canShow).toEqual({ cards: ['Ah', 'Ad'], shown: [false, true], won: true })
     expect(tableView(viewFor(shown, 'p1'), 'p1', 0).seats[0].cards).toEqual([null, 'Ad'])
+    // Сбросивший показал обе — карточки больше нет, карты у его места видны всем
+    const both = play(shown, [{ from: 'p1', msg: { type: 'show', cards: [0, 1] } }], false)
+    expect(tableView(viewFor(both, 'p1'), 'p1', 0).canShow).toBeNull()
+    expect(tableView(viewFor(both, 'p2'), 'p2', 0).seats[1].cards).toEqual(p1)
+    expect(lastHandRecord(viewFor(both, 'p2'))?.players[1].cards).toEqual(p1)
+    // Новая раздача — карточки нет
+    const next = play(both, [start('p0', deck)], false)
+    expect(tableView(viewFor(next, 'p2'), 'p2', 0).canShow).toBeNull()
   })
 
   it('моя комбинация сейчас (#105): с флопа и по улицам; префлоп, пас и чужие места — без неё', () => {
@@ -534,27 +543,47 @@ describe('история раздач (#113)', () => {
     const last = lastHandRecord(viewFor(s, 'p1'))
     ;[s, history] = playKeeping(s, [start('p0', quiet), raise('p1', 30), fold('p2'), fold('p0')], history)
 
-    expect(historyList(history.map(savedOf))).toEqual([
-      // Запись без стола вечера (до Р-54): «я» — взявший без вскрытия
+    // Записи телефона P1 без стола вечера (до Р-54): «я» — чьи закрытые в записи; в первой он сбросил (#278)
+    expect(historyList(history.map((h) => savedOf(handFor(h, 'p1'))))).toEqual([
       { number: 2, board: [], wins: [{ name: 'P1', amount: 25 }], mine: { cards: ['Kc', 'Ks'], position: 'BTN', net: 15, bb: 10 } },
-      { number: 1, board: ['2s', '7h', '9d', 'Jc', '3s'], wins: [{ name: 'P2', amount: 65 }], mine: null },
+      { number: 1, board: ['2s', '7h', '9d', 'Jc', '3s'], wins: [{ name: 'P2', amount: 65 }], mine: { cards: ['Kh', 'Qh'], position: 'SB', net: -5, bb: 10 } },
     ])
+    // У своего места в истории — и свои сброшенные (#278): блок «Показали» их не берёт, они в «Вам сдано»
     expect(historyHandView(savedOf(handFor(history[0], 'p1')))).toMatchObject({
       ...last,
+      players: last!.players.map((p, i) => (i === 1 ? { ...p, cards: ['Kh', 'Qh'] } : p)),
       chips: [1000, 1000, 1000],
       pots: [{ label: 'Банк', amount: 65, winners: ['P2'] }],
     })
-    // Карты сбросивших — нигде; взявший без вскрытия видит свои, остальные — нет
-    expect(JSON.stringify(history)).not.toContain('"Qh"')
+    // Карты сбросивших (#278) и взявшего без вскрытия — каждому только свои
+    for (const me of ['p0', 'p2', null]) expect(JSON.stringify(history.map((h) => handFor(h, me)))).not.toContain('"Qh"')
+    expect(JSON.stringify(handFor(history[0], 'p1'))).toContain('"Qh"')
     const cardsOf = (me: string) => historyHandView(savedOf(handFor(history[1], me))).players.map((p) => p.cards)
     expect(cardsOf('p1')).toEqual([null, ['Kc', 'Ks'], null])
-    expect(cardsOf('p0')).toEqual([null, null, null])
+    expect(cardsOf('p0')).toEqual([['6c', '6d'], null, null])
     expect(JSON.stringify(handFor(history[1], 'p0'))).not.toContain('"Kc"')
+    expect(JSON.stringify(handFor(history[1], 'p0'))).not.toContain('"5c"')
 
     // «Показать» одну — запись той же раздачи переписана, а не добавлена
     ;[s, history] = playKeeping(s, [{ from: 'p1', msg: { type: 'show', cards: [1] } }], history)
     expect(history.map((h) => h.number)).toEqual([1, 2])
-    expect(cardsOf('p0')).toEqual([null, [null, 'Ks'], null])
+    expect(cardsOf('p0')).toEqual([['6c', '6d'], [null, 'Ks'], null])
+    // Сбросивший показал обе — в истории их видят все, блок «Показали»
+    ;[s, history] = playKeeping(s, [{ from: 'p2', msg: { type: 'show', cards: [0, 1] } }], history)
+    expect(cardsOf('p0')).toEqual([['6c', '6d'], [null, 'Ks'], ['5c', '5d']])
+  })
+
+  it('запись до #278 (один взявший без вскрытия): история, «Вам сдано» и текст читаются как раньше', () => {
+    const s = play(newTable(['p0', 'p1', 'p2'], { cards: 'phones' }), [start('p0', stackedDeck([['5c', '5d'], ['6c', '6d'], ['Kc', 'Ks']])), raise('p0', 30), fold('p1'), fold('p2')], false)
+    const old: HistoryHand = structuredClone(s.lastHand!)
+    old.record!.hidden = { playerId: 'p0', cards: ['Kc', 'Ks'] }
+    // Без стола вечера (до Р-54): «я» — взявший без вскрытия
+    expect(historyList([savedOf(old)])[0].mine?.cards).toEqual(['Kc', 'Ks'])
+    const view = historyHandView(savedOf(old))
+    expect(view.players.map((p) => p.cards)).toEqual([['Kc', 'Ks'], null, null])
+    expect(view.text).toContain('Dealt to P0 [Kc Ks]')
+    // Чужому телефону — без них
+    expect(JSON.stringify(handFor(old, 'p1'))).not.toContain('"Kc"')
   })
 
   it('живые карты: без карт — места со стеками, ходы и банки', () => {

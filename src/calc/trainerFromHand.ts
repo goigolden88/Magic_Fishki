@@ -4,6 +4,7 @@
 import { SUITS, type Card } from '../poker/cards'
 import type { Street } from '../poker/hand'
 import { handFor } from '../poker/history'
+import { hiddenOf } from '../poker/table'
 import type { SavedHand } from './evenings'
 import { BOARD_MAX, HAND_CARDS, STREET_CARDS, TRAINER_SIDES_MAX, TRAINER_SIDES_MIN } from './trainerView'
 
@@ -52,7 +53,7 @@ export function trainerStart(saved: SavedHand): TrainerStart | null {
 
   let mine: Card[] | null = null
   if (me && record.seats.some((s) => s.id === me)) {
-    mine = known(saved.mine) ?? (record.hidden?.playerId === me ? known(record.hidden.cards) : null) ?? known(record.shown[me])
+    mine = known(saved.mine) ?? known(hiddenOf(record)[me]) ?? known(record.shown[me])
   }
 
   const others = order.filter((id) => id !== me)

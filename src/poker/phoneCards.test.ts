@@ -61,19 +61,81 @@ describe.each(MODES)('карты на телефонах (%s)', (_, roundtrip) =
         expect(view.hand?.cards?.hole[id]).toEqual(id === me ? s.hand?.cards?.hole[id] : [null, null])
       }
     }
-    // p1 сбросил, двое дошли до вскрытия: их карты видят все, карты сбросившего — никто
+    // p1 сбросил, двое дошли до вскрытия: их карты видят все, карты сбросившего — только он сам
     s = play(s, [call('p0'), fold('p1'), check('p2')], roundtrip)
     s = play(s, [check('p2'), check('p0'), check('p2'), check('p0'), check('p2'), check('p0')], roundtrip)
     expect(s.hand).toBeNull()
     expect(s.lastHand?.record?.shown).toEqual({ p0: ['Ah', 'Ad'], p2: ['2c', '7d'] })
-    for (const me of ['p0', 'p1', 'p2']) {
+    for (const me of ['p0', 'p2', null]) {
       const text = JSON.stringify(viewFor(s, me))
       expect(text).not.toContain('"Kh"')
       expect(text).not.toContain('"Qh"')
       expect(text).toContain('"Ah"')
       expect(text).toContain('"7d"')
     }
-    expect(JSON.stringify(s)).not.toContain('"Qh"') // и в записи раздачи карт сбросившего нет
+    // В записи раздачи карты сбросившего — только среди закрытых (#278): видны лишь ему
+    expect(s.lastHand?.record?.hidden).toEqual({ p1: ['Kh', 'Qh'] })
+    expect(viewFor(s, 'p1').lastHand?.record?.hidden).toEqual({ p1: ['Kh', 'Qh'] })
+    for (const me of ['p0', 'p2', null]) expect(viewFor(s, me).lastHand?.record?.hidden).toEqual({})
+  })
+
+  it('сбросивший показывает после раздачи одну, затем все; во время раздачи и после новой — нет (#278)', () => {
+    const t = newTable(['p0', 'p1', 'p2'], PHONES)
+    // Кнопка p0, сдача с p1: у p1 — Kh Qh, у p2 — 2c 7d, у p0 — Ah Ad
+    const deck = stackedDeck([['Kh', 'Qh'], ['2c', '7d'], ['Ah', 'Ad']], ['2s', '7h', '9d', 'Jc', '3s'])
+    let s = play(t, [start('p0', deck), call('p0'), fold('p1')], roundtrip)
+    // Раздача идёт — показывать нельзя: это подсказка оставшимся
+    expect(tryStep(s, 'p1', { type: 'show', cards: [0] })).toBe('Показать карты можно, когда раздача кончится, — до новой')
+    s = play(s, [check('p2'), check('p2'), check('p0'), check('p2'), check('p0'), check('p2'), check('p0')], roundtrip)
+    expect(s.hand).toBeNull()
+    // Дошедшие до вскрытия показали всё — показывать им нечего
+    expect(tryStep(s, 'p0', { type: 'show', cards: [0] })).toBe('Показать карты может взявший банк без вскрытия или сбросивший — до новой раздачи')
+    s = play(s, [{ from: 'p1', msg: { type: 'show', cards: [1] } }], roundtrip)
+    expect(s.lastHand?.record?.shown.p1).toEqual([null, 'Qh'])
+    expect(s.lastHand?.record?.hidden).toEqual({ p1: ['Kh', 'Qh'] })
+    for (const me of ['p0', 'p2', null]) {
+      const text = JSON.stringify(viewFor(s, me))
+      expect(text).not.toContain('"Kh"')
+      expect(text).toContain('"Qh"')
+    }
+    s = play(s, [{ from: 'p1', msg: { type: 'show', cards: [0] } }], roundtrip)
+    expect(s.lastHand?.record?.shown.p1).toEqual(['Kh', 'Qh'])
+    expect(s.lastHand?.record?.hidden).toEqual({})
+    expect(JSON.stringify(viewFor(s, 'p2'))).toContain('"Kh"')
+    // Новая раздача — показывать прошлую поздно
+    s = play(s, [start('p0', deckFor(HOLDEM_GAME))], roundtrip)
+    expect(tryStep(s, 'p1', { type: 'show', cards: [0] })).toBe('Показать карты можно, когда раздача кончится, — до новой')
+  })
+
+  it('сбросивший показывает обе разом; карты сбросившего, не показавшего, не уходят другим (#278)', () => {
+    const t = newTable(['p0', 'p1', 'p2'], PHONES)
+    const deck = stackedDeck([['Kh', 'Qh'], ['2c', '7d'], ['Ah', 'Ad']])
+    // p0 повышает, p1 и p2 сбрасывают: p0 берёт без вскрытия
+    let s = play(t, [start('p0', deck), raise('p0', 30), fold('p1'), fold('p2')], roundtrip)
+    expect(s.lastHand?.record?.hidden).toEqual({ p0: ['Ah', 'Ad'], p1: ['Kh', 'Qh'], p2: ['2c', '7d'] })
+    expect(viewFor(s, 'p0').lastHand?.record?.hidden).toEqual({ p0: ['Ah', 'Ad'] })
+    expect(viewFor(s, 'p1').lastHand?.record?.hidden).toEqual({ p1: ['Kh', 'Qh'] })
+    expect(viewFor(s, 'p2').lastHand?.record?.hidden).toEqual({ p2: ['2c', '7d'] })
+    expect(viewFor(s, null).lastHand?.record?.hidden).toEqual({})
+    s = play(s, [{ from: 'p2', msg: { type: 'show', cards: [0, 1] } }], roundtrip)
+    expect(s.lastHand?.record?.shown).toEqual({ p2: ['2c', '7d'] })
+    expect(s.lastHand?.record?.hidden).toEqual({ p0: ['Ah', 'Ad'], p1: ['Kh', 'Qh'] })
+    const text = JSON.stringify(viewFor(s, 'p0'))
+    expect(text).toContain('"7d"')
+    expect(text).not.toContain('"Kh"')
+  })
+
+  it('запись до #278 — один взявший без вскрытия: читается и «Показать» работает', () => {
+    const t = newTable(['p0', 'p1'], PHONES)
+    let s = play(t, [start('p0', stackedDeck([['Kc', 'Kd'], ['As', '7h']])), raise('p0', 30), fold('p1')], roundtrip)
+    // Как записывали до #278: карт сбросившего нет, у взявшего — { playerId, cards }
+    s.lastHand!.record!.hidden = { playerId: 'p0', cards: ['As', '7h'] }
+    expect(viewFor(s, 'p0').lastHand?.record?.hidden).toEqual({ p0: ['As', '7h'] })
+    expect(JSON.stringify(viewFor(s, 'p1'))).not.toContain('"As"')
+    expect(tryStep(s, 'p1', { type: 'show', cards: [0] })).toBe('Показать карты может взявший банк без вскрытия или сбросивший — до новой раздачи')
+    s = play(s, [{ from: 'p0', msg: { type: 'show', cards: [0] } }], roundtrip)
+    expect(s.lastHand?.record?.shown).toEqual({ p0: ['As', null] })
+    expect(s.lastHand?.record?.hidden).toEqual({ p0: ['As', '7h'] })
   })
 
   it('олл-ин до ривера: стол досдаётся, карты открываются, банк отдаётся сам', () => {
@@ -151,13 +213,15 @@ describe.each(MODES)('карты на телефонах (%s)', (_, roundtrip) =
     expect(record.hands).toEqual({})
     expect(record.best).toEqual({}) // без вскрытия пятёрки нет
     expect(record.board).toEqual([])
-    expect(record.hidden).toEqual({ playerId: 'p0', cards: ['As', '7h'] })
+    // Взявший и сбросивший (#278) — у каждого свои закрытые
+    expect(record.hidden).toEqual({ p0: ['As', '7h'], p1: ['Kc', 'Kd'] })
     expect(s.players.map((p) => p.chips)).toEqual([1010, 990])
     // Чужому телефону карты взявшего не уходят, ему — да
     expect(JSON.stringify(viewFor(s, 'p1'))).not.toContain('"As"')
-    expect(viewFor(s, 'p0').lastHand?.record?.hidden?.cards).toEqual(['As', '7h'])
+    expect(JSON.stringify(viewFor(s, 'p0'))).not.toContain('"Kc"')
+    expect(viewFor(s, 'p0').lastHand?.record?.hidden).toEqual({ p0: ['As', '7h'] })
 
-    expect(tryStep(s, 'p1', { type: 'show', cards: [0] })).toBe('Показать карты может взявший банк без вскрытия — до новой раздачи')
+    expect(tryStep(s, 'p2', { type: 'show', cards: [0] })).toBe('Вас нет за столом')
     expect(tryStep(s, 'p0', { type: 'show', cards: [] })).toBe('Выберите, какие карты показать')
     expect(tryStep(s, 'p0', { type: 'show', cards: [2] })).toBe('Выберите, какие карты показать')
     s = play(s, [{ from: 'p0', msg: { type: 'show', cards: [1] } }], roundtrip)
@@ -166,7 +230,7 @@ describe.each(MODES)('карты на телефонах (%s)', (_, roundtrip) =
     expect(JSON.stringify(viewFor(s, 'p1'))).toContain('"7h"')
     s = play(s, [{ from: 'p0', msg: { type: 'show', cards: [0] } }], roundtrip)
     expect(s.lastHand?.record?.shown).toEqual({ p0: ['As', '7h'] })
-    expect(s.lastHand?.record?.hidden).toBeNull()
+    expect(s.lastHand?.record?.hidden).toEqual({ p1: ['Kc', 'Kd'] })
   })
 
   it('запись раздачи: места со стеками в начале, ходы по кругам, общие карты, кто что взял', () => {
@@ -245,16 +309,19 @@ describe.each(MODES)('открытые карты своей игры (%s)', (_,
     for (const c of ['9h', '9c', 'Qc', 'Jc']) expect(text).not.toContain(`"${c}"`)
   })
 
-  it('сбросивший: его открытая — в записи раздачи, закрытые — нет; на ва-банке открытые сбросивших — вне колоды досдачи', () => {
+  it('сбросивший: его открытая — в записи раздачи, закрытые — только ему; на ва-банке открытые сбросивших — вне колоды досдачи', () => {
     // p0 повышает, p1 отвечает, p2 сбрасывает; флоп — чек, на тёрне ва-банк и колл
     const steps: Step[] = [raise('p0', 40), call('p1'), fold('p2'), check('p1'), check('p0'), allin('p1'), call('p0')]
     const s = play(dealt(), steps, roundtrip)
     expect(s.hand).toBeNull()
     const record = s.lastHand!.record!
     expect(record.shown).toEqual({ p0: P0, p1: P1, p2: [null, null, '9d'] })
-    expect(record.hidden).toBeNull()
-    expect(JSON.stringify(s)).not.toContain('"Qc"')
-    expect(JSON.stringify(s)).not.toContain('"Jc"')
+    expect(record.hidden).toEqual({ p2: P2 })
+    for (const me of ['p0', 'p1', null]) {
+      const text = JSON.stringify(viewFor(s, me))
+      expect(text).not.toContain('"Qc"')
+      expect(text).not.toContain('"Jc"')
+    }
     // Ва-банк на тёрне: у p0 (две девятки и туз) против тузов p1 выигрывает только девятка на ривере (последний туз даст
     // p1 тройку). Девятка бубен — открытая
     // у сбросившего p2: в колоде досдачи из 41 карты одна девятка — 1/41 ≈ 2 %, а не 2/42 ≈ 5 %
@@ -272,19 +339,22 @@ describe.each(MODES)('открытые карты своей игры (%s)', (_,
     let s = play(dealt(), [raise('p0', 40), fold('p1'), fold('p2')], roundtrip)
     const record = s.lastHand!.record!
     expect(record.shown).toEqual({ p0: [null, null, 'Ac'], p1: [null, null, '7c'], p2: [null, null, '9d'] })
-    expect(record.hidden).toEqual({ playerId: 'p0', cards: P0 })
+    expect(record.hidden).toEqual({ p0: P0, p1: P1, p2: P2 })
     const theirs = JSON.stringify(viewFor(s, 'p1'))
     expect(theirs).not.toContain('"9h"')
     expect(theirs).not.toContain('"9c"')
     expect(theirs).toContain('"Ac"')
-    expect(viewFor(s, 'p0').lastHand?.record?.hidden?.cards).toEqual(P0)
+    expect(viewFor(s, 'p0').lastHand?.record?.hidden).toEqual({ p0: P0 })
     // Показать одну закрытую — открытая на месте; вторую — открыто всё
     s = play(s, [{ from: 'p0', msg: { type: 'show', cards: [0] } }], roundtrip)
     expect(s.lastHand?.record?.shown.p0).toEqual(['9h', null, 'Ac'])
-    expect(s.lastHand?.record?.hidden).not.toBeNull()
+    expect(s.lastHand?.record?.hidden).toEqual({ p0: P0, p1: P1, p2: P2 })
     s = play(s, [{ from: 'p0', msg: { type: 'show', cards: [1] } }], roundtrip)
     expect(s.lastHand?.record?.shown.p0).toEqual(P0)
-    expect(s.lastHand?.record?.hidden).toBeNull()
+    expect(s.lastHand?.record?.hidden).toEqual({ p1: P1, p2: P2 })
+    // Сбросивший показывает свою закрытую — открытая на месте
+    s = play(s, [{ from: 'p2', msg: { type: 'show', cards: [1] } }], roundtrip)
+    expect(s.lastHand?.record?.shown.p2).toEqual([null, 'Jc', '9d'])
   })
 })
 

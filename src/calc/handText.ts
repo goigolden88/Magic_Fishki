@@ -4,7 +4,8 @@
 import type { Card } from '../poker/cards'
 import type { GameId, GameRound, Limit } from '../poker/game'
 import type { HandLogEntry, Street } from '../poker/hand'
-import { handFor } from '../poker/history'
+import { handFor, hiddenOwner, hiddenWinner } from '../poker/history'
+import { hiddenOf } from '../poker/table'
 import { isOwnGameId } from '../poker/ownGame'
 import { eveningName, type SavedHand } from './evenings'
 import { withLow } from './hiLoView'
@@ -78,7 +79,8 @@ function handId(s: SavedHand): string {
 export function handText(saved: SavedHand): string {
   const t = saved.table
   // Чей телефон: у записей до Р-54 — взявший банк без вскрытия (чужим эти карты не приходят)
-  const hero = t?.me ?? saved.hand.record?.hidden?.playerId ?? null
+  // Стол на одном телефоне — карты взявшего без вскрытия видны (#242)
+  const hero = t ? (t.me ?? hiddenWinner(saved.hand)) : hiddenOwner(saved.hand)
   const h = handFor(saved.hand, hero)
   const record = h.record
   const seats = record?.seats ?? h.live?.seats ?? []
@@ -273,7 +275,8 @@ export function handText(saved: SavedHand): string {
 function heroCards(saved: SavedHand, hero: string): Card[] | null {
   if (saved.mine && saved.mine.length > 0) return saved.mine
   const record = saved.hand.record
-  if (record?.hidden?.playerId === hero) return record.hidden.cards
+  const closed = hiddenOf(record)[hero]
+  if (closed) return closed
   const shown = record?.shown[hero]
   return shown && shown.length > 0 && shown.every((c) => c !== null) ? (shown as Card[]) : null
 }
