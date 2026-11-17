@@ -5,7 +5,8 @@
 // (10 гостей, панель хода), «Против ботов» (мой ход, панель хода; после паса — «История раздач» за столом
 // и в «Прошлых вечерах», #239; только она — npm run shots -- history), «Казино» (столы идут; на телефоне — ещё
 // на шестерых), «Справка».
-// Сервер комнат не нужен — всё без сети; комнаты на снимках нет. Демо-игры и гости — выдуманные (src/calc/demo.ts).
+// Сервер комнат не нужен — всё без сети; комната — только в шаге «Показать» (#278), с подменённым на странице
+// соединением (npm run shots -- pokazat). Демо-игры и гости — выдуманные (src/calc/demo.ts).
 // Chrome — по DevTools-протоколу (обычный --screenshot не умеет нажимать кнопки), без сторонних библиотек.
 // Размеры: 390 × 844 (телефон), 1366 × 768 (ноутбук), 1920 × 1080 (монитор); у каждого — своё хранилище.
 // PNG — в shots/ (не в репо), имя — «ширина-номер-экран.png». Сбой — код выхода 1 и строка, какой экран.
@@ -1252,6 +1253,109 @@ async function rulesOnly(cdp: Cdp): Promise<void> {
   }
 }
 
+// npm run shots -- pokazat (#278): карточка «Вы сбросили» с «Показать» у сбросившего после конца раздачи — в комнате.
+// Сервера в сценарии нет: стол собирают правила стола (как у открытых карт), а соединение комнаты на странице
+// подменено своим — отвечает на вход «welcome» и столом в виде моего телефона (viewFor), на историю — пустой.
+// Все, кроме Веры, сбросили (и я) — банк ей без вскрытия; она показала одну карту. Снимки — стол (09i) и карточка
+// под ним (09j), на 390 и 1366
+async function showOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES.slice(0, 2)) {
+    console.log(`«Показать» у сбросившего, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await themeOnly(d)
+    await screen('Комната: «Вы сбросили»', size, async () => {
+      const table = await showTable()
+      await d.goto('#/poker')
+      await d.waitText('Войти по ссылке')
+      await d.eval(`(localStorage.setItem('fishki.poker.seats', ${JSON.stringify(JSON.stringify({ [SHOW_CODE]: { playerId: 'me', token: 'shots' } }))}), true)`)
+      await d.eval(`(${fakeRoomSocket.toString()})(${JSON.stringify(table)}), true`)
+      await d.goto(`#/poker/${SHOW_CODE}`) // смена хеша — та же страница: подменённое соединение на месте
+      await d.waitText('Вы сбросили')
+      await d.waitText('Показать все')
+      await d.shot('09i-pokazat-posle-pasa', false)
+      // Карточка — под столом, а прокручивается не страница, а свой блок: прокрутить к ней
+      await d.eval(`([...document.querySelectorAll('h2')].find((h) => h.innerText === 'Вы сбросили').closest('section').scrollIntoView({ block: 'center' }), true)`)
+      await sleep(500)
+      await d.shot('09j-pokazat-kartochka', false)
+    })
+  }
+}
+
+const SHOW_CODE = 'KQ7MZP'
+
+// Соединение комнаты на странице вместо WebSocket: открывается сразу, на «join» — «welcome» и стол, на «history» — пусто
+function fakeRoomSocket(table: unknown): void {
+  const w = window as unknown as Record<string, unknown>
+  class FakeSocket {
+    static CONNECTING = 0
+    static OPEN = 1
+    static CLOSING = 2
+    static CLOSED = 3
+    readyState = 0
+    onopen: (() => void) | null = null
+    onmessage: ((e: { data: string }) => void) | null = null
+    onclose: ((e: { code: number }) => void) | null = null
+    constructor() {
+      setTimeout(() => {
+        this.readyState = 1
+        this.onopen?.()
+      }, 50)
+    }
+    send(raw: string) {
+      if (raw === 'ping') return setTimeout(() => this.onmessage?.({ data: 'pong' }), 10)
+      const msg = JSON.parse(raw) as { v: number; type: string }
+      const reply = (body: Record<string, unknown>) => setTimeout(() => this.onmessage?.({ data: JSON.stringify({ v: msg.v, ...body }) }), 10)
+      if (msg.type === 'join') {
+        reply({ type: 'welcome', playerId: 'me', token: 'shots' })
+        reply({ type: 'state', table, now: Date.now() })
+      }
+      if (msg.type === 'history') reply({ type: 'history', hands: [] })
+    }
+    close() {
+      this.readyState = 3
+    }
+  }
+  w.WebSocket = FakeSocket
+}
+
+// Комната с картами на телефонах после раздачи без вскрытия, в виде моего телефона: я сбросил
+async function showTable(): Promise<unknown> {
+  const load = async (file: string) =>
+    (await runnerImport<Record<string, any>>(join(process.cwd(), 'src/poker', file), { configFile: false, logLevel: 'silent' })).module
+  const table = await load('table.ts')
+  const rules = await load('game.ts')
+  const { PROTOCOL_VERSION } = await load('protocol.ts')
+  const now = Date.now()
+  const settings = { sb: 5, bb: 10, startingStack: 1000, maxSeats: 6, cards: 'phones', autoStart: 'off' }
+  const created = table.createTable('host', 'Аня', settings, now)
+  if (!created.ok) throw new Error(created.error)
+  let state = created.state
+  const send = (from: string, body: Record<string, unknown>, deck?: string[]) => {
+    const r = table.handle(state, from, { v: PROTOCOL_VERSION, ...body }, now, deck)
+    if (!r.ok) throw new Error(`${from} ${String(body.type)}: ${r.error}`)
+    state = r.state
+  }
+  send('me', { type: 'sit', name: 'Борис' })
+  send('vera', { type: 'sit', name: 'Вера' })
+  send('gosha', { type: 'sit', name: 'Гоша' })
+  let seed = 278
+  const bytes = (b: Uint8Array) => {
+    for (let i = 0; i < b.length; i++) b[i] = (seed = (seed * 1103515245 + 12345) >>> 0) >>> 24
+    return b
+  }
+  send('host', { type: 'start' }, rules.shuffle(rules.deckFor(rules.HOLDEM_GAME), bytes))
+  // Кнопка — Аня: ходят Вера (после большого блайнда), Гоша, Аня, Борис — Вера поднимает, остальные сбрасывают
+  for (let i = 0; i < 8 && state.hand; i++) {
+    const seat = state.hand.seats[state.hand.toAct]
+    send(seat.id, { type: 'act', action: seat.id === 'vera' ? { type: 'raise', to: 30 } : { type: 'fold' } })
+  }
+  if (state.hand || !state.lastHand?.record) throw new Error('раздача без вскрытия не доиграна')
+  const winner = state.lastHand.pots[0].winners[0]
+  if (winner === 'me') throw new Error('банк взял я — карточки «Вы сбросили» не будет')
+  send(winner, { type: 'show', cards: [0] })
+  return table.viewFor(state, 'me')
+}
+
 // Стол на этом телефоне (LocalTable строкой): своя игра — 4 карты, 1 открытая, ровно 2 из руки, пот-лимит, хай/лоу;
 // четверо, раздача началась
 async function rulesTable(): Promise<string> {
@@ -2316,7 +2420,9 @@ async function main(): Promise<void> {
     const onlyCooler = process.argv.includes('kuler') // npm run shots -- kuler: кулер за столом с ботами (#262)
     const onlyReport = process.argv.includes('otchet') // npm run shots -- otchet: отчёт сессии (#263)
     const onlyRules = process.argv.includes('pravila') // npm run shots -- pravila: правила игры за столом (#277)
+    const onlyShow = process.argv.includes('pokazat') // npm run shots -- pokazat: «Показать» у сбросившего (#278)
     const part =
+      onlyShow ||
       onlyRules ||
       onlyReport ||
       onlyCooler ||
@@ -2335,6 +2441,7 @@ async function main(): Promise<void> {
       onlyOwnGames
     if (onlyOwnGames) await ownGamesOnly(cdp)
     if (onlyRules) await rulesOnly(cdp)
+    if (onlyShow) await showOnly(cdp)
     if (onlyHandLog) await handLogOnly(cdp)
     if (onlyWhatsNew) await whatsNewOnly(cdp)
     if (onlyCooler) await coolerOnly(cdp)
@@ -2358,6 +2465,7 @@ async function main(): Promise<void> {
     if (!onlyTable && !uchet && !part) await handLogOnly(cdp)
     if (!onlyTable && !uchet && !part) await coolerOnly(cdp)
     if (!onlyTable && !uchet && !part) await reportOnly(cdp)
+    if (!onlyTable && !uchet && !part) await showOnly(cdp)
     if (!onlyTable && !part) await whatsNewOnly(cdp)
     if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !part) {
       for (const other of ['club', 'day'] as const) for (const size of SIZES) await themeScenario(cdp, size, other)
