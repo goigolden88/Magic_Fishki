@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { bet, call, fold, newTable, play, raise, start } from '../poker/testing'
 import { activePreAction, preActionMove, preActionNow, showPreActions, streetKey, togglePreAction, type PreActionMark } from './preAction'
 import { actionsView } from './pokerView'
+import type { RandomBytes } from '../poker/tokens'
 import { seededRandom, type Random } from './bot'
 import { botStep, botTableView, botToAct, dealBotHand, myMove, startBotTable, type BotStep, type BotTable } from './botTable'
 
@@ -87,7 +88,7 @@ describe('ход заранее за столом с ботами', () => {
     if (!r.ok) throw new Error(r.error)
     return r.bots
   }
-  const bytesOf = (random: Random) => (b: Uint8Array) => {
+  const bytesOf = (random: Random): RandomBytes => (b) => {
     for (let i = 0; i < b.length; i++) b[i] = Math.floor(random() * 256)
     return b
   }
