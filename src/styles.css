@@ -252,6 +252,41 @@ a {
   column-gap: 16px;
 }
 
+/* Справка (#245): группа разделов свёрнута; заголовок — как у раздела «Настроек»: шрифт заголовка, во всю
+   ширину, черта снизу, справа — число разделов и ▸ / ▾ */
+.help-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 3rem;
+  margin-top: 0.75rem;
+  padding: 0.4rem 0.25rem;
+  border-bottom: 1px solid var(--line);
+  font-family: 'Geologica', 'Golos Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 1.35rem;
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
+}
+
+.help-group > summary::-webkit-details-marker {
+  display: none;
+}
+
+.help-group > summary::after {
+  content: '▸';
+  color: var(--muted);
+}
+
+.help-group[open] > summary::after {
+  content: '▾';
+}
+
+.help-group > summary .muted {
+  font-size: 1rem;
+  font-weight: 400;
+}
+
 /* Справка: раздел свёрнут, заголовок — во всю ширину, длинные слова переносятся */
 .help {
   padding: 0;
@@ -269,6 +304,10 @@ a {
 .help p {
   margin: 0;
   padding: 0 14px 12px;
+}
+
+.help a {
+  color: var(--gold);
 }
 
 .card {
