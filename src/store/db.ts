@@ -3,7 +3,8 @@
 // С версии 5 (#264) — под синхронизацию между устройствами: у каждой записи — время правки, dirty — что изменилось
 // и ещё не отправлено, syncMeta — память синхронизации. dirty и syncMeta — этого устройства: не синхронизируются
 // и в копию не входят. С версии 6 (#301) удаление стирает содержимое: вместо записи — метка (ключ, deleted, время
-// правки), чтения её пропускают; через TOMBSTONE_DAYS метка стирается при открытии базы (purgeTombstones)
+// правки), чтения её пропускают; через TOMBSTONE_DAYS метка стирается при открытии базы (purgeTombstones).
+// Синхронизация (#265, src/sync/) ходит сюда же: syncSnapshot, mergeRemote, forgetRecords и событие изменения onChange
 import { eveningSummaries, isBotsEvening, type EveningCounts, type EveningSummary, type SavedHand } from '../calc/evenings'
 import { byName, type OwnChart } from '../calc/ownCharts'
 import { linkRegulars, regularsFromNames, settingsWithDefaults, type Game, type Regular, type Settings } from '../model'

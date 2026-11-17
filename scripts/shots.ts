@@ -48,6 +48,8 @@
 // npm run shots -- chto — только они.
 // Кулер (#262): стол против ботов, мой колл на ривере — флеш против фулл-хауса, «Кулер!» у обоих мест (16), на 390
 // и 1366; npm run shots -- kuler — только он.
+// «Синхронизация» (#265): раздел в «Настройках» на 390 px — не настроено (05i) и настроено с подставным GitHub на
+// странице (05j); npm run shots -- sinhr — только они.
 // Chrome — google-chrome, google-chrome-stable или chromium; свой путь — переменная CHROME
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -336,6 +338,11 @@ class Device {
     await this.cdp.send('Page.navigate', { url: SITE + hash }, this.session)
   }
 
+  // Скрипт — в каждую новую страницу этого устройства до её скриптов (#265: подставной GitHub для снимка синхронизации)
+  async beforeLoad(script: string): Promise<void> {
+    await this.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: script }, this.session)
+  }
+
   // Перезагрузить страницу (смена одного хеша её не перезагружает) и дождаться новой
   async reload(): Promise<void> {
     await this.eval('window.__beforeReload = true')
@@ -581,6 +588,54 @@ async function settingsGroup(d: Device, group: string, open = true): Promise<voi
     await sleep(200)
   }
   throw new Error(`раздел «${group}» не ${open ? 'развернулся' : 'свернулся'}`)
+}
+
+// Подставной GitHub для снимка «Синхронизация настроена» (#265): до скриптов страницы — выдуманные репо и токен
+// в памяти браузера и fetch, который на api.github.com отвечает как пустой репо с README и принимает коммит;
+// остальные адреса — настоящим fetch. Срок токена — заголовком ответа, как у GitHub
+const FAKE_GITHUB = `(() => {
+  try {
+    if (location.protocol !== 'http:') return
+    localStorage.setItem('fishki.sync.repo', 'vasya-test/fishki-data')
+    localStorage.setItem('fishki.sync.token', 'github_pat_vydumannyj_dlya_snimka')
+  } catch (e) { return }
+  const real = window.fetch.bind(window)
+  window.fetch = async (input, init = {}) => {
+    const url = String(input instanceof Request ? input.url : input)
+    if (!url.startsWith('https://api.github.com/')) return real(input, init)
+    const method = (init.method || 'GET').toUpperCase()
+    const json = (body) => new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', 'github-authentication-token-expiration': '2027-11-01 12:00:00 +0300' },
+    })
+    if (url.includes('/git/ref/heads/')) return json({ object: { sha: 'c0' } })
+    if (url.includes('/git/trees/') && method === 'GET') return json({ tree: [{ path: 'README.md', sha: 'r0', type: 'blob' }] })
+    if (url.endsWith('/git/trees')) return json({ sha: 't1' })
+    if (url.endsWith('/git/commits')) return json({ sha: 'c1' })
+    if (url.includes('/git/refs/heads/')) return json({})
+    return json({ full_name: 'vasya-test/fishki-data', private: true, default_branch: 'main', permissions: { push: true } })
+  }
+})()`
+
+// «Синхронизация» в «Настройках» (#265) на 390 px: не настроено (05i) и настроено — с подставным GitHub, после
+// обмена (05j). npm run shots -- sinhr — только они
+async function syncOnly(cdp: Cdp): Promise<void> {
+  const size = SIZES[0]
+  console.log(`Синхронизация, ${size.width} × ${size.height}`)
+  const d = await Device.open(cdp, size)
+  await screen('Синхронизация', size, async () => {
+    await openSettings(d, 'Синхронизация')
+    await d.waitText('Как завести репозиторий и токен')
+    await d.shot('05i-sinhronizaciya')
+  })
+  const s = await Device.open(cdp, size)
+  await s.beforeLoad(FAKE_GITHUB)
+  await screen('Синхронизация настроена', size, async () => {
+    await openSettings(s, 'Синхронизация')
+    await s.waitText('Отправлено в')
+    await s.waitText('Токен действует до')
+    await s.shot('05j-sinhronizaciya-nastroena')
+  })
 }
 
 // Открыть «Настройки» и развернуть нужные разделы (#234): в первый раз развёрнуто только «Оформление».
@@ -2526,7 +2581,9 @@ async function main(): Promise<void> {
     // npm run shots -- mak: «сбросил без показа» на вскрытии (#279) и «Показать карты?» «Мака по выбору» (#286)
     const onlyMuck = process.argv.includes('mak')
     const onlyHelp = process.argv.includes('spravka') // npm run shots -- spravka: справка группами (#245)
+    const onlySync = process.argv.includes('sinhr') // npm run shots -- sinhr: «Синхронизация» в «Настройках» (#265)
     const part =
+      onlySync ||
       onlyHelp ||
       onlyShow ||
       onlyMuck ||
@@ -2546,6 +2603,7 @@ async function main(): Promise<void> {
       onlyOwnBack ||
       onlyStraddle ||
       onlyOwnGames
+    if (onlySync) await syncOnly(cdp)
     if (onlyHelp) await helpOnly(cdp)
     if (onlyOwnGames) await ownGamesOnly(cdp)
     if (onlyRules) await rulesOnly(cdp)
@@ -2577,6 +2635,7 @@ async function main(): Promise<void> {
     if (!onlyTable && !uchet && !part) await showOnly(cdp)
     if (!onlyTable && !uchet && !part) await muckOnly(cdp)
     if (!onlyTable && !part) await whatsNewOnly(cdp)
+    if (!onlyTable && !part) await syncOnly(cdp)
     if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !part) {
       for (const other of ['club', 'day'] as const) for (const size of SIZES) await themeScenario(cdp, size, other)
     }

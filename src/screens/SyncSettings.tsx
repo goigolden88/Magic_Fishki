@@ -72,6 +72,11 @@ export function SyncCard({ onSynced }: { onSynced?: () => void }) {
   const [note, setNote] = useState('')
   const [error, setError] = useState('')
 
+  // Проход сам дописывает срок токена из ответа GitHub — после каждой смены состояния настройка перечитывается
+  useEffect(() => {
+    setConfig(sync.readConfig())
+  }, [status])
+
   function patch(change: Partial<SyncConfig>) {
     sync.saveConfig(change)
     setConfig(sync.readConfig())
