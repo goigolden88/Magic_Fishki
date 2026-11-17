@@ -146,15 +146,31 @@ export function ownSeatsLine(form: OwnGameForm): string {
   return `За столом — до ${seatsFor(ownGameOf(form, DRAFT_ID))} игроков`
 }
 
+// Кусочки слов своей игры — общие для строки игры (ownGameLine) и правил за столом (gameRules, #277):
+// «5 карт», «1 открытая», «любые из руки» / «ровно 2 из руки», «пот-лимит» / «без лимита»
+export function holeText(hole: number): string {
+  return `${hole} ${pluralForm(hole, 'карта', 'карты', 'карт')}`
+}
+
+export function openText(up: number): string {
+  return `${up} ${pluralForm(up, 'открытая', 'открытые', 'открытых')}`
+}
+
+export function fromHandText(fromHand: OwnGameForm['fromHand']): string {
+  return fromHand === 'any' ? 'любые из руки' : `ровно ${fromHand} из руки`
+}
+
+export function limitText(limit: Limit): string {
+  return limit === 'pot' ? 'пот-лимит' : 'без лимита'
+}
+
 // Строка игры в списке и в форме комнаты: «5 карт, ровно 2 из руки · стол 3-1-1 · пот-лимит · до 9 игроков»;
 // с открытыми — «3 карты (1 открытая), любые из руки · …»; колода 36 и старшинство — только если они не обычные;
 // хай/лоу (#227) — «… · пот-лимит · хай/лоу · до 9 игроков»
 export function ownGameLine(form: OwnGameForm): string {
   const up = upOf(form)
-  const open = up > 0 ? ` (${up} ${pluralForm(up, 'открытая', 'открытые', 'открытых')})` : ''
-  const hand = `${form.hole} ${pluralForm(form.hole, 'карта', 'карты', 'карт')}${open}, ${
-    form.fromHand === 'any' ? 'любые из руки' : `ровно ${form.fromHand} из руки`
-  }`
+  const open = up > 0 ? ` (${openText(up)})` : ''
+  const hand = `${holeText(form.hole)}${open}, ${fromHandText(form.fromHand)}`
   const deck =
     form.deck === 36
       ? form.order === 'shortdeck'
@@ -167,7 +183,7 @@ export function ownGameLine(form: OwnGameForm): string {
     hand,
     `стол ${form.board.join('-')}`,
     ...(deck ? [deck] : []),
-    form.limit === 'pot' ? 'пот-лимит' : 'без лимита',
+    limitText(form.limit),
     ...(form.hiLo ? ['хай/лоу'] : []),
     `до ${seatsFor(ownGameOf(form, DRAFT_ID))} игроков`,
   ].join(' · ')
