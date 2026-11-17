@@ -12,7 +12,6 @@ import {
   chartIds,
   deleteChart,
   deleteEvening,
-  deleteGame,
   eveningRecords,
   getSettings,
   handKeys,
