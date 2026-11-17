@@ -2973,6 +2973,25 @@ input.own-back-file {
   font-size: 1rem;
 }
 
+/* «Отбор» над списком раздач (#294): кнопка во всю ширину, под ней — ряды выбора с переносом */
+.history-pick {
+  margin: 0.5rem 0;
+}
+
+.history-pick-body {
+  margin-top: 0.5rem;
+}
+
+.history-pick-body .field .warn {
+  display: block;
+  margin-top: 0.25rem;
+}
+
+.history-found {
+  align-items: center;
+  margin: 0.5rem 0;
+}
+
 /* Итог прошлого вечера (#242): таблица во всю ширину карточки, числа — по правому краю; моя строка — жирно */
 .evening-result {
   margin-bottom: 0.75rem;
