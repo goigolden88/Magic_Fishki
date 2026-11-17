@@ -1,7 +1,9 @@
 // Экран «Тренажёр» (#213, Р-73): ввод сторон и борда → вход счёта rangeEquity, ответ — словами и числами экрана.
 // Сам счёт и запись диапазона текстом — rangeEquity и rangeText (#212), здесь их только зовут
 import { SUITS, type Card } from '../poker/cards'
+import type { Street } from '../poker/hand'
 import { formatNumber, pluralForm } from './format'
+import { STAGE_LABELS } from './pokerView'
 import type { EquitySide, RangeEquity } from './rangeEquity'
 import { CLASSES, RANKS_DOWN, RANGE_SIZE } from './rangeText'
 
@@ -96,6 +98,20 @@ export function trainerInput(sides: TrainerSide[], board: Card[]): { sides: Equi
     }
   }
   return { sides: out }
+}
+
+// Карт борда к улице — как в истории раздач (BOARD_AT в pokerView)
+export const STREET_CARDS: Record<Street, number> = { preflop: 0, flop: 3, turn: 4, river: 5 }
+const STREETS: Street[] = ['preflop', 'flop', 'turn', 'river']
+
+// Улицы раздачи из истории (#273): те, до которых дошёл полный борд, и борд к каждой — его первые 0 / 3 / 4 / 5 карт.
+// Борд из 1–2 карт улиц не даёт — только префлоп
+export function streetBoards(full: Card[]): { street: Street; label: string; board: Card[] }[] {
+  return STREETS.filter((s) => s === 'preflop' || STREET_CARDS[s] <= full.length).map((street) => ({
+    street,
+    label: STAGE_LABELS[street],
+    board: full.slice(0, STREET_CARDS[street]),
+  }))
 }
 
 // Строка над итогом: выборка — «≈, 20 000 досдач», перебор — «точно, N досдач»; на ривере досдач нет

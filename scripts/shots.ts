@@ -815,6 +815,22 @@ async function trainerStep(d: Device): Promise<void> {
   })
 }
 
+// Раздача из истории по улицам (#273): адрес «В калькулятор» с полным бордом и street=preflop — касание «Флоп»
+async function trainerStreetsStep(d: Device): Promise<void> {
+  await screen('Тренажёр: раздача по улицам', d.size, async () => {
+    await d.goto('#/poker/trainer?side=KhQh&side=AcAd&board=2s7h9dJd3s&street=preflop')
+    await d.waitFor('.trainer-streets')
+    await d.waitText('Ривер')
+    await d.click('Флоп')
+    await d.waitFor('.trainer-board .card-slots .playing-card')
+    await d.waitText('победа')
+    await waitGone(d, 'Считаем…')
+    await d.shot('02c2-trenazher-ulicy')
+    await d.goto('#/poker') // дальше сценарий идёт с «Играть»
+    await d.waitText('Сесть за стол')
+  })
+}
+
 // npm run shots -- trainer: только «Играть» и «Тренажёр», на телефоне и ноутбуке; «Тренажёр» — ещё в «Клубе» и «Дне»
 async function trainerOnly(cdp: Cdp): Promise<void> {
   for (const size of SIZES.slice(0, 2)) {
@@ -822,6 +838,7 @@ async function trainerOnly(cdp: Cdp): Promise<void> {
     const d = await Device.open(cdp, size)
     await playStep(d)
     await trainerStep(d)
+    await trainerStreetsStep(d)
     for (const other of ['club', 'day'] as const) {
       const t = await Device.open(cdp, size, `${other}-`)
       await openSettings(t)
@@ -904,6 +921,7 @@ async function pokerSteps(d: Device): Promise<void> {
   const size = d.size
   await playStep(d)
   await trainerStep(d)
+  await trainerStreetsStep(d)
 
   await roomFormStep(d)
 

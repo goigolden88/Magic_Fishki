@@ -8,6 +8,7 @@ import {
   rangeSizeText,
   runsText,
   shareText,
+  streetBoards,
   takenCards,
   TRAINER_DECK,
   trainerInput,
@@ -82,5 +83,25 @@ describe('тренажёр: вид экрана', () => {
     expect(runsText(result(true, 990), 3)).toBe('точно, 990 досдач')
     expect(runsText(result(true, 44), 4)).toBe('точно, 44 досдачи')
     expect(runsText(result(true, 1), 5)).toBe('точно, без досдачи')
+  })
+
+  it('улицы раздачи из истории (#273): до каких дошёл борд, борд к каждой', () => {
+    const full = ['2s', '7h', '9d', 'Jc', '3s']
+    expect(streetBoards([])).toEqual([{ street: 'preflop', label: 'Префлоп', board: [] }])
+    expect(streetBoards(full.slice(0, 3))).toEqual([
+      { street: 'preflop', label: 'Префлоп', board: [] },
+      { street: 'flop', label: 'Флоп', board: ['2s', '7h', '9d'] },
+    ])
+    expect(streetBoards(full.slice(0, 4)).map((s) => [s.label, s.board.length])).toEqual([
+      ['Префлоп', 0],
+      ['Флоп', 3],
+      ['Тёрн', 4],
+    ])
+    expect(streetBoards(full)).toEqual([
+      { street: 'preflop', label: 'Префлоп', board: [] },
+      { street: 'flop', label: 'Флоп', board: ['2s', '7h', '9d'] },
+      { street: 'turn', label: 'Тёрн', board: ['2s', '7h', '9d', 'Jc'] },
+      { street: 'river', label: 'Ривер', board: full },
+    ])
   })
 })
