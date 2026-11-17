@@ -1204,6 +1204,75 @@ async function openCardsTable(game: { name: string; hole: number; up: number }):
   return JSON.stringify({ id: 'shots-open', table: state, meId: 'me', level: 'amateur', open: false, showStyles: true, autoFinish: false, hudAll: false, history: [] })
 }
 
+// npm run shots -- hod: «Ход раздачи» по касанию банка (#258) — стол против ботов на тёрне, мой ход: префлоп, флоп
+// и тёрн с ходами; на телефоне и ноутбуке. Стол собирают правила стола (как openCardsTable), колода — всякий раз одна
+async function handLogOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES.slice(0, 2)) {
+    console.log(`Ход раздачи, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await screen('Против ботов, ход раздачи', size, async () => {
+      await themeOnly(d)
+      const text = await handLogTable()
+      await d.goto('#/poker')
+      await d.waitText('Войти по ссылке')
+      await d.eval(`(localStorage.setItem('fishki.poker.bots', ${JSON.stringify(text)}), true)`)
+      await d.goto('#/poker/bots')
+      await d.reload()
+      await d.waitFor('.dock.actions')
+      await sleep(1500) // раздача долетела
+      await d.eval(`(document.querySelector('button.pot-total')?.click(), true)`)
+      await d.waitFor('.log-pop')
+      await d.waitText('Тёрн')
+      await sleep(300)
+      await d.shot('15a-hod-razdachi', false)
+      // Esc закрывает, стол на месте
+      await d.eval(`(document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })), true)`)
+      await waitGone(d, 'Ход раздачи 1')
+    })
+  }
+}
+
+// Стол против ботов (BotTable строкой) на тёрне в мой ход: до флопа бот повышает до 30, остальные уравнивают;
+// на флопе первый бот ставит 40, остальные уравнивают; на тёрне первый бот чекает, следующий ставит 60
+async function handLogTable(): Promise<string> {
+  const load = async (file: string) =>
+    (await runnerImport<Record<string, any>>(join(process.cwd(), 'src/poker', file), { configFile: false, logLevel: 'silent' })).module
+  const table = await load('table.ts')
+  const rules = await load('game.ts')
+  const { PROTOCOL_VERSION } = await load('protocol.ts')
+  const now = Date.now()
+  const settings = { sb: 5, bb: 10, startingStack: 1000, maxSeats: 4, cards: 'phones', autoStart: 'off' }
+  const created = table.createTable('me', 'Вы', settings, now)
+  if (!created.ok) throw new Error(created.error)
+  let state = created.state
+  const send = (from: string, body: Record<string, unknown>, deck?: string[]) => {
+    const r = table.handle(state, from, { v: PROTOCOL_VERSION, ...body }, now, deck)
+    if (!r.ok) throw new Error(`${from} ${String(body.type)}: ${r.error}`)
+    state = r.state
+  }
+  ;['Бот Север', 'Бот Юг', 'Бот Запад'].forEach((name, i) => send(`bot${i + 1}`, { type: 'sit', name }))
+  let seed = 258
+  const bytes = (b: Uint8Array) => {
+    for (let i = 0; i < b.length; i++) b[i] = (seed = (seed * 1103515245 + 12345) >>> 0) >>> 24
+    return b
+  }
+  send('me', { type: 'start' }, rules.shuffle(rules.deckFor(rules.HOLDEM_GAME), bytes))
+  const bets: Record<string, number> = { preflop: 30, flop: 40, turn: 60 }
+  for (let i = 0; i < 40 && state.hand; i++) {
+    const hand = state.hand
+    const seat = hand.seats[hand.toAct]
+    const onStreet = hand.log.filter((e: { street: string; type: string }) => e.street === hand.stage && e.type !== 'ante')
+    if (hand.stage === 'turn' && seat.id === 'me' && onStreet.length > 0) break
+    const facing = seat.bet < hand.currentBet
+    // Бот открывает торги улицы (на тёрне — вторым: первый чекает)
+    const opens = seat.id !== 'me' && hand.currentBet <= (hand.stage === 'preflop' ? 10 : 0) && (hand.stage !== 'turn' || onStreet.length > 0)
+    const action = opens ? { type: 'raise', to: bets[hand.stage] } : { type: facing ? 'call' : 'check' }
+    send(seat.id, { type: 'act', action })
+  }
+  if (state.hand?.stage !== 'turn' || state.hand.seats[state.hand.toAct].id !== 'me') throw new Error('не дошёл мой ход на тёрне')
+  return JSON.stringify({ id: 'shots-hod', table: state, meId: 'me', level: 'amateur', open: false, showStyles: true, autoFinish: false, hudAll: false, history: [] })
+}
+
 // Кнопка «Запаса времени» (#223): те же надписи «30 с», «60 с» есть и у «Времени на ход» — ищем в своём ряду
 async function pickTimeBank(d: Device, label: string): Promise<void> {
   const done = await d.eval<boolean>(`(() => {
@@ -1937,7 +2006,9 @@ async function main(): Promise<void> {
     const onlyOwnBack = process.argv.includes('rubashka') // npm run shots -- rubashka: своя рубашка картинкой (#220)
     const onlyStraddle = process.argv.includes('straddl') // npm run shots -- straddl: страддл на столе на телефоне (#222)
     const onlyOwnGames = process.argv.includes('svoi') // npm run shots -- svoi: свои игры (#225)
+    const onlyHandLog = process.argv.includes('hod') // npm run shots -- hod: «Ход раздачи» по касанию банка (#258)
     const part =
+      onlyHandLog ||
       onlyTrainer ||
       onlyChoices ||
       onlyHistory ||
@@ -1950,6 +2021,7 @@ async function main(): Promise<void> {
       onlyStraddle ||
       onlyOwnGames
     if (onlyOwnGames) await ownGamesOnly(cdp)
+    if (onlyHandLog) await handLogOnly(cdp)
     if (onlyStraddle) for (const size of SIZES) await straddleStep(cdp, size)
     if (onlyOwnBack) await ownBackOnly(cdp)
     if (onlyNames) await namesOnly(cdp)
@@ -1966,6 +2038,7 @@ async function main(): Promise<void> {
     if (!uchet && !part) for (const size of SIZES) await wideTableStep(cdp, size)
     if (!onlyTable && !uchet && !part) await gearOnly(cdp)
     if (!onlyTable && !uchet && !part) await watchOnly(cdp)
+    if (!onlyTable && !uchet && !part) await handLogOnly(cdp)
     if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !part) {
       for (const other of ['club', 'day'] as const) for (const size of SIZES) await themeScenario(cdp, size, other)
     }

@@ -26,6 +26,7 @@ import {
   myRebuy,
   resumeBotTable,
   setBotAutoStart,
+  setBotLiveHand,
   setBotFlag,
   topUpAll,
   watchError,
@@ -39,6 +40,7 @@ import { handFor } from '../poker/history'
 import { NO_STORAGE } from './PokerLocal'
 import { BotFlagFields } from './BotFlagFields'
 import { ActionsCard, blindsLine, HandHistory, HostDock, LastHand, PokerTable, PotList, useBigBlinds, useLookVersion } from './PokerRoom'
+import { LiveHandField } from './RoomFields'
 import { GearPop, MyLookPart } from './TableGear'
 import { AutoStartField } from './TimerFields'
 import {
@@ -238,7 +240,7 @@ function BotTableCard(props: {
             {v.stageLabel}
           </p>
           {/* Свои карты — лицом: телефон только мой */}
-          <PokerTable view={v} open />
+          <PokerTable view={v} table={table} open />
         </div>
 
         <div className="table-below">
@@ -359,6 +361,12 @@ function BotGear({ bots, apply, onClose }: { bots: BotTable; apply: Apply; onClo
         disabled={Boolean(bots.table.hand)}
         onChange={(mode) => apply((bt, now) => setBotAutoStart(bt, mode, now))}
       />
+      <LiveHandField
+        on={bots.table.settings.liveHand !== false}
+        disabled={Boolean(bots.table.hand)}
+        onChange={(on) => apply((bt, now) => setBotLiveHand(bt, on, now))}
+      />
+      {bots.table.hand && <p className="muted">«Ход раздачи» меняется между раздачами.</p>}
       <button
         type="button"
         className={watch ? 'big primary wide' : 'big wide'}

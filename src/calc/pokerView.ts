@@ -3,7 +3,7 @@
 // скажет сервер. Время — параметром now, как у стола
 import { bestHand, bestLow, type Card } from '../poker/cards'
 import { splitFives, splitLines, splitText, withLow } from './hiLoView'
-import { publicCards } from '../poker/game'
+import { publicCards, type GameRound } from '../poker/game'
 import { formatDate } from '../dates'
 import { potLimit, type HandLogEntry, type Stage, type Street } from '../poker/hand'
 import { HUD_FEW_HANDS, type HudCounts } from '../poker/hud'
@@ -12,7 +12,7 @@ import { handFor, type HistoryHand } from '../poker/history'
 import { bankOf, blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type HandRecord, type HandResult, type TableState } from '../poker/table'
 import { allInOdds } from './allInOdds'
 import { handBlinds as tableBlinds, type SavedHand } from './evenings'
-import { handMoney, handNet, handPositions, positionLabels } from './handResult'
+import { handMoney, handNet, handPositions, positionLabels, type HandMoney } from './handResult'
 import { isOwnGameId } from '../poker/ownGame'
 import { boardAtOf, handText } from './handText'
 import { runBoards, type RunBoardView } from './pokerRuns'
@@ -27,7 +27,7 @@ import {
   standings,
   type Level,
 } from '../poker/tournament'
-import { formatNumber, formatTenths } from './format'
+import { formatNumber, formatTenths, stackText } from './format'
 import type { BetSpot } from './pokerLayout'
 import { PRE_RERAISE, QUICK_BETS_DEFAULT, quickRaises, type QuickBets } from './quickBets'
 
@@ -754,25 +754,67 @@ function timeOf(ms: number): string {
 
 // Улицы по порядку: префлоп — всегда, дальше — с ходами или открытые (ва-банк, карты без ходов).
 // Прогнали несколько раз (#167) — у улиц только общая часть бордов, остальное — в runs
-function streetsOf(h: HistoryHand, blinds: { sb: number; bb: number } | null): HistoryStreet[] {
+function streetsOf(h: HistoryHand, blinds: { sb: number; bb: number } | null, bb: number | null = null): HistoryStreet[] {
   const record = h.record
-  const seats = record?.seats ?? h.live?.seats ?? []
-  const log = record?.log ?? h.live?.log ?? []
-  const names = new Map(seats.map((x) => [x.id, x.name]))
   const runs = record?.runs && record.runs.length > 1 ? record.runs.map((r) => r.board) : null
-  const board = runs ? runs[0].slice(0, commonLength(runs)) : (record?.board ?? [])
-  const money = handMoney(h, blinds)
+  return streetsFrom(h, record?.board ?? [], runs, record?.game.rounds, handMoney(h, blinds), bb)
+}
+
+// Улицы раздачи по её ходам, общим картам (boards — все борды, когда прогнали несколько раз) и описанию игры;
+// bb — суммы ходов в ББ (Р-62), null — в фишках
+function streetsFrom(
+  h: HistoryHand,
+  first: Card[],
+  boards: Card[][] | null,
+  gameRounds: GameRound[] | undefined,
+  money: HandMoney | null,
+  bb: number | null,
+): HistoryStreet[] {
+  const seats = h.record?.seats ?? h.live?.seats ?? []
+  const log = h.record?.log ?? h.live?.log ?? []
+  const names = new Map(seats.map((x) => [x.id, x.name]))
+  const board = boards ? boards[0].slice(0, commonLength(boards)) : first
   // Улицы и карт стола к каждой — по описанию игры раздачи (своя игра, #224); у живых карт — как в холдеме
-  const rounds = Array.isArray(record?.game.rounds) && record.game.rounds.length > 0 ? record.game.rounds : null
+  const rounds = Array.isArray(gameRounds) && gameRounds.length > 0 ? gameRounds : null
   const boardAt = rounds ? boardAtOf(rounds) : BOARD_AT
   const out: HistoryStreet[] = []
   for (const street of rounds ? rounds.map((r) => r.street) : STREETS) {
-    const moves = log.filter((e) => e.street === street).map((e) => `${names.get(e.playerId) ?? 'Ушёл'}: ${moveText(e)}`)
+    const moves = log.filter((e) => e.street === street).map((e) => `${names.get(e.playerId) ?? 'Ушёл'}: ${moveText(e, bb)}`)
     const at = boardAt[street]
     if (street !== 'preflop' && moves.length === 0 && board.length < at) continue
     out.push({ label: STAGE_LABELS[street], board: board.slice(0, at), pot: money?.potAt[street] ?? null, moves })
   }
   return out
+}
+
+// Ход раздачи по касанию банка (#258): улицы текущей раздачи — те же, что в «Истории раздач» (#239), вживую:
+// название, общие карты, банк на начало, ходы. Только общее: стол — в виде телефона (viewFor), а в панель
+// идут лишь журнал ходов и открытые карты стола. Раздачи нет — прошлая с записью (карты на телефонах), ended;
+// у живых карт журнал прошлой в столе не хранится — null. Настройка стола выкл (liveHand: false) — null.
+// inBB — суммы ходов в ББ раздачи (Р-62); bb — её большой блайнд, для банка улиц в ББ.
+// Прогнали несколько раз (#167) — у улиц общая часть, все борды — в boards; прогон один — null
+export type LiveHandView = { number: number; ended: boolean; bb: number; streets: HistoryStreet[]; boards: Card[][] | null }
+
+export function liveHandView(table: TableState, inBB = false): LiveHandView | null {
+  if (table.settings.liveHand === false) return null
+  const hand = table.hand
+  if (hand) {
+    const names = new Map(table.players.map((p) => [p.id, p.name]))
+    const seats = hand.seats.map((s) => ({ id: s.id, name: names.get(s.id) ?? 'Ушёл', chips: s.chips + s.committed }))
+    // Банков раздачи до конца торгов нет — handMoney считает банк улиц по журналу и блайндам
+    const pots = hand.pots.map((p) => ({ amount: p.amount, winners: [] }))
+    const h: HistoryHand = { number: hand.number, pots, payouts: {}, live: { seats, button: hand.button, log: hand.log } }
+    const cards = hand.cards
+    const boards = cards?.boards && cards.boards.length > 1 ? cards.boards : null
+    const money = handMoney(h, { sb: hand.sb, bb: hand.bb })
+    const streets = streetsFrom(h, cards?.board ?? [], boards, cards?.game.rounds, money, inBB ? hand.bb : null)
+    return { number: hand.number, ended: false, bb: hand.bb, streets, boards }
+  }
+  const last = table.lastHand
+  const record = last?.record
+  if (!last || !record) return null
+  const runs = record.runs && record.runs.length > 1 ? record.runs.map((r) => r.board) : null
+  return { number: last.number, ended: true, bb: record.bb, streets: streetsOf(last, null, inBB ? record.bb : null), boards: runs }
 }
 
 // Сколько первых карт у всех бордов общие
@@ -786,14 +828,14 @@ function namesOf(h: HistoryHand): Map<string, string> {
   return new Map((h.record?.seats ?? h.live?.seats ?? []).map((s) => [s.id, s.name]))
 }
 
-// Ход словами; сумма — до какой ставки на этой улице; за игрока по таймеру — «время вышло»
-function moveText(e: HandLogEntry): string {
-  const text = betText(e)
+// Ход словами; сумма — до какой ставки на этой улице (bb — в ББ, null — в фишках); за игрока по таймеру — «время вышло»
+function moveText(e: HandLogEntry, bb: number | null = null): string {
+  const text = betText(e, bb)
   return e.timeout ? `${text}, время вышло` : text
 }
 
-function betText(e: HandLogEntry): string {
-  const to = formatNumber(e.bet)
+function betText(e: HandLogEntry, bb: number | null): string {
+  const to = stackText(e.bet, bb)
   switch (e.type) {
     case 'ante':
       return e.allIn ? `анте ${to}, олл-ин` : `анте ${to}`

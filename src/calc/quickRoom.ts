@@ -43,6 +43,8 @@ export type RoomChoice = {
   look: Look
   format: FormatSettings // кэш — с анте и страддлом (#222), турнир — со структурой
   publicHud: boolean
+  // «Ход раздачи по касанию банка» (#258): false — выкл; нет поля — вкл
+  liveHand?: boolean
   // «Микс» (#166): доля «против», при которой смена игры ещё проходит; нет или null — выкл.
   // Только с картами на телефонах: при живых не уходит
   mix?: MixShare | null
@@ -136,6 +138,7 @@ export function roomSettings(c: RoomChoice, own: OwnGame[] = []): Partial<Settin
     ...c.look,
     ...c.format,
     publicHud: c.publicHud,
+    ...(c.liveHand === false ? { liveHand: false } : {}),
     ...(c.mix && c.cards === 'phones' ? { mix: true, mixAgainst: c.mix } : {}),
     ...(c.maxRuns && c.maxRuns > 1 && c.cards === 'phones' ? { maxRuns: c.maxRuns } : {}),
   }
@@ -175,7 +178,7 @@ function isPositive(x: unknown): x is number {
 // приложение, или своя (#224): есть ли она ещё на телефоне — решает roomSettings; знает ли её сервер — скажет он сам
 export function parseQuickRoom(raw: unknown): QuickRoom | null {
   if (!isRecord(raw)) return null
-  const { sb, bb, startingStack, cards, variant, turnSeconds, timeBank, autoStart, look, format, publicHud, mix, maxRuns } = raw
+  const { sb, bb, startingStack, cards, variant, turnSeconds, timeBank, autoStart, look, format, publicHud, liveHand, mix, maxRuns } = raw
   if (!isPositive(sb) || !isPositive(bb) || sb > bb) return null
   if (startingStack !== null && (!isPositive(startingStack) || startingStack < bb)) return null
   if (cards !== 'live' && cards !== 'phones') return null
@@ -202,6 +205,8 @@ export function parseQuickRoom(raw: unknown): QuickRoom | null {
     f = { format: 'tournament', tournament: format.tournament as TournamentSettings }
   } else return null
   if (typeof publicHud !== 'boolean') return null
+  // Ход раздачи по касанию банка (#258): у выбора до него поля нет — вкл
+  if (liveHand !== undefined && typeof liveHand !== 'boolean') return null
   if (mix !== undefined && mix !== null && !isMixShare(mix)) return null
   if (maxRuns !== undefined && !isMaxRuns(maxRuns)) return null
   return {
@@ -216,6 +221,7 @@ export function parseQuickRoom(raw: unknown): QuickRoom | null {
     look: { felt: look.felt as Look['felt'], cardBack: look.cardBack as Look['cardBack'] },
     format: f,
     publicHud,
+    ...(liveHand === false ? { liveHand: false } : {}),
     mix: mix ?? null,
     maxRuns: maxRuns ?? 1,
   }

@@ -35,6 +35,7 @@ export type RoomForm = {
   look: Look
   format: TournamentForm
   publicHud: boolean
+  liveHand: boolean // ход раздачи по касанию банка (#258)
   mix: MixShare | null
   maxRuns: MaxRuns
 }
@@ -52,6 +53,7 @@ export function roomFormOf(room: QuickRoom, stack: string, players: number, own:
     look: room.look,
     format: tournamentFormOf(room.format, players),
     publicHud: room.publicHud,
+    liveHand: room.liveHand !== false,
     mix: room.mix ?? null,
     maxRuns: room.maxRuns ?? 1,
   }
@@ -78,6 +80,7 @@ export function roomChoiceOf(form: RoomForm, own: OwnGame[]): RoomChoice | null 
     look: form.look,
     format: game.settings,
     publicHud: form.publicHud,
+    ...(form.liveHand ? {} : { liveHand: false }),
     mix: form.mix,
     maxRuns: form.maxRuns,
   }
@@ -152,7 +155,28 @@ export function RoomFields(props: { form: RoomForm; players: number; own: OwnGam
 
       {/* #79: стол на одном телефоне — HUD видят все, выбора там нет */}
       <HudFields all={form.publicHud} onChange={(publicHud) => set({ publicHud })} />
+      <LiveHandField on={form.liveHand} onChange={(liveHand) => set({ liveHand })} />
     </>
+  )
+}
+
+// «Ход раздачи по касанию банка» (#258): галочка стола — у комнаты при создании и в «Настройках стола» ведущего,
+// у стола с ботами — в «⚙ Стол», у стола на одном телефоне — при создании. Выкл скрывает только панель
+export function LiveHandField(props: { on: boolean; onChange: (on: boolean) => void; disabled?: boolean }) {
+  const { on, onChange, disabled } = props
+  return (
+    <fieldset className="players-pick">
+      <legend className="muted">Ход раздачи</legend>
+      <label className="check">
+        <input type="checkbox" checked={on} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+        Ход раздачи по касанию банка
+      </label>
+      <p className="muted">
+        {on
+          ? 'Касание банка за столом — кто что сделал по улицам в этой раздаче. Подсказка для удобства, не тайна: те же ходы — в истории раздач.'
+          : 'Касание банка панель не открывает. Ходы всё равно записываются — в истории раздач и для HUD.'}
+      </p>
+    </fieldset>
   )
 }
 

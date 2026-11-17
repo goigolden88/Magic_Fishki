@@ -34,7 +34,8 @@ import type { AutoStart, CardBack, Felt, Settings, TableState } from './table'
 //      телефон до 21 открытые карты как «видны всем» не покажет
 // 22 — хай/лоу своей игры (#227): поле hiLo в описании (settings.games) и в описании раздачи (game.hiLo),
 //      в записи раздачи — лоу дошедших и делёж банков (lows, lowBest, split), так же у каждого борда (runs)
-export const PROTOCOL_VERSION = 22
+// 23 — ход раздачи по касанию банка (#258): настройка liveHand при создании и в tableSettings
+export const PROTOCOL_VERSION = 23
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -87,7 +88,8 @@ export type ClientBody =
   | { type: 'tournamentRebuy' } // выбывший в турнире: ребай за бай-ин, стек — стартовый
   | { type: 'endTournament' } // ведущий: «Закончить турнир», пока с фишками один и ждём ребая
   // ведущий, между раздачами: время на ход (null — без таймера), запас времени (#223, null — нет), раздача «сама»,
-  // анте кэша, призы турнира до его начала (null — по числу игроков) и кому виден HUD; нет поля — не меняется
+  // анте кэша, призы турнира до его начала (null — по числу игроков), кому виден HUD и ход раздачи по касанию
+  // банка (#258); нет поля — не меняется
   | {
       type: 'tableSettings'
       turnSeconds?: number | null
@@ -96,6 +98,7 @@ export type ClientBody =
       ante?: number
       prizes?: number[] | null
       publicHud?: boolean
+      liveHand?: boolean
     }
   // ведущий, в любой момент: вид стола — сукно и рубашка карт; нет поля — не меняется
   | { type: 'look'; felt?: Felt; cardBack?: CardBack }

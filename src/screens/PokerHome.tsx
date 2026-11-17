@@ -67,7 +67,7 @@ import {
   saveSeat,
   storageWorks,
 } from './pokerStorage'
-import { GameFields, RoomFields, roomChoiceOf, roomFormOf, TableFields, type RoomForm } from './RoomFields'
+import { GameFields, LiveHandField, RoomFields, roomChoiceOf, roomFormOf, TableFields, type RoomForm } from './RoomFields'
 import { AutoStartField } from './TimerFields'
 import { BotFlagFields, type BotFlags } from './BotFlagFields'
 import { FormatFields } from './Tournament'
@@ -797,6 +797,7 @@ function NewLocalCard({ onCancel }: { onCancel: () => void }) {
   const [felt, setFelt] = useState<Felt>(() => lookOf(DEFAULT_SETTINGS).felt)
   const [variant, setVariant] = useState<GameChoice>(DEFAULT_GAME)
   const [format, setFormat] = useState<TournamentForm>(() => tournamentForm(0))
+  const [liveHand, setLiveHand] = useState(true) // ход раздачи по касанию банка (#258)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -839,7 +840,8 @@ function NewLocalCard({ onCancel }: { onCancel: () => void }) {
       setError('Стол на этом телефоне уже идёт — закончите или удалите его')
       return
     }
-    const r = startLocalTable(players, { sb, bb, startingStack: stack, felt, ...game.settings, ...gameSettings(variant) }, Date.now(), () => ulid())
+    const settings = { sb, bb, startingStack: stack, felt, ...game.settings, ...gameSettings(variant), ...(liveHand ? {} : { liveHand }) }
+    const r = startLocalTable(players, settings, Date.now(), () => ulid())
     if (!r.ok) {
       setError(r.error)
       return
@@ -918,6 +920,8 @@ function NewLocalCard({ onCancel }: { onCancel: () => void }) {
       {/* Карты живые (Р-21) — рубашки нет, только сукно */}
       <LookFields look={{ ...lookOf(DEFAULT_SETTINGS), felt }} backs={false} onChange={(l) => l.felt && setFelt(l.felt)} />
       <p className="muted">Сукно этого стола; свой вид на этом телефоне — в «Настройках», «Вид стола».</p>
+
+      <LiveHandField on={liveHand} onChange={setLiveHand} />
 
       <p className="muted">За столом: {players.length}</p>
       {countError && <p className="warn">{countError}</p>}

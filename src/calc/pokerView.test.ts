@@ -12,6 +12,7 @@ import {
   historyList,
   lastHandRecord,
   lastHandWins,
+  liveHandView,
   myTurnMark,
   positionLabels,
   tableView,
@@ -371,6 +372,78 @@ describe('экран стола: карты на телефонах', () => {
   it('карта на экране: ранг, масть значком, красные — черви и бубны', () => {
     expect(cardFace('Td')).toEqual({ rank: '10', suit: '♦', red: true })
     expect(cardFace('As')).toEqual({ rank: 'A', suit: '♠', red: false })
+  })
+})
+
+describe('ход раздачи по касанию банка (#258)', () => {
+  const PHONES = { cards: 'phones' as const }
+  // Кнопка p0, сдача с p1: p1 — Kh Qh, p2 — 2c 7d, p0 — Ah Ad
+  const hole = ['Kh', 'Qh', '2c', '7d', 'Ah', 'Ad']
+  const deck = stackedDeck([['Kh', 'Qh'], ['2c', '7d'], ['Ah', 'Ad']], ['2s', '7h', '9d', 'Jc', '3s'])
+  // Префлоп, флоп с ходами и тёрн с первым ходом
+  const toTurn = [start('p0', deck), raise('p0', 30), fold('p1'), call('p2'), check('p2'), raise('p0', 40), call('p2'), check('p2')]
+  const turnStreets = [
+    { label: 'Префлоп', board: [], pot: 15, moves: ['P0: рейз до 30', 'P1: пас', 'P2: колл до 30'] },
+    { label: 'Флоп', board: ['2s', '7h', '9d'], pot: 65, moves: ['P2: чек', 'P0: рейз до 40', 'P2: колл до 40'] },
+    { label: 'Тёрн', board: ['2s', '7h', '9d', 'Jc'], pot: 145, moves: ['P2: чек'] },
+  ]
+
+  it('из текущей раздачи: улицы по порядку — общие карты, банк на начало, ходы; новая ставка — сразу', () => {
+    const s = play(newTable(['p0', 'p1', 'p2'], PHONES), toTurn, false)
+    expect(liveHandView(viewFor(s, 'p1'))).toEqual({ number: 1, ended: false, bb: 10, streets: turnStreets, boards: null })
+    const next = play(s, [raise('p0', 100)], false)
+    expect(liveHandView(viewFor(next, 'p1'))?.streets.at(-1)?.moves).toEqual(['P2: чек', 'P0: рейз до 100'])
+    // Префлоп, ходов ещё нет: банк — блайнды
+    const pre = play(newTable(['p0', 'p1', 'p2'], PHONES), [start('p0', deck)], false)
+    expect(liveHandView(viewFor(pre, 'p0'))?.streets).toEqual([{ label: 'Префлоп', board: [], pot: 15, moves: [] }])
+  })
+
+  it('только общее: ни своих, ни чужих закрытых карт — и в полном столе сервера', () => {
+    const s = play(newTable(['p0', 'p1', 'p2'], PHONES), toTurn, false)
+    expect(s.hand?.cards?.hole.p2).toEqual(['2c', '7d']) // в столе сервера карты есть
+    for (const table of [s, viewFor(s, 'p0'), viewFor(s, 'p2'), viewFor(s, null)]) {
+      const text = JSON.stringify(liveHandView(table))
+      for (const card of hole) expect(text).not.toContain(card)
+    }
+  })
+
+  it('суммы в ББ раздачи; живые карты — те же ходы и банки, без общих карт', () => {
+    const s = play(newTable(['p0', 'p1', 'p2'], PHONES), toTurn, false)
+    expect(liveHandView(viewFor(s, 'p1'), true)?.streets[0].moves).toEqual(['P0: рейз до 3 ББ', 'P1: пас', 'P2: колл до 3 ББ'])
+    const live = play(three(), toTurn.map((x) => ({ ...x, deck: undefined })), false)
+    expect(liveHandView(live)?.streets).toEqual(turnStreets.map((x) => ({ ...x, board: [] })))
+  })
+
+  it('раздача кончилась — прошлая целиком, «закончена»; у живых карт журнала прошлой нет', () => {
+    const steps = [...toTurn, check('p0'), check('p2'), check('p0')]
+    const s = play(newTable(['p0', 'p1', 'p2'], PHONES), steps, false)
+    const v = liveHandView(viewFor(s, 'p1'))
+    expect(v?.ended).toBe(true)
+    expect(v?.number).toBe(1)
+    expect(v?.streets.map((x) => [x.label, x.moves.length])).toEqual([
+      ['Префлоп', 3],
+      ['Флоп', 3],
+      ['Тёрн', 2],
+      ['Ривер', 2],
+    ])
+    expect(v?.streets[3].board).toEqual(['2s', '7h', '9d', 'Jc', '3s'])
+    const live = play(three(), [...steps.map((x) => ({ ...x, deck: undefined })), award('p0', [['p0']])], false)
+    expect(live.hand).toBeNull()
+    expect(liveHandView(live)).toBeNull()
+  })
+
+  it('настройка стола: нет поля и вкл — панель есть; выкл — нет, а журнал ходов в столе остаётся', () => {
+    const on = play(newTable(['p0', 'p1', 'p2'], { ...PHONES, liveHand: true }), toTurn, false)
+    expect(liveHandView(on)?.streets).toEqual(turnStreets)
+    const off = play(newTable(['p0', 'p1', 'p2'], { ...PHONES, liveHand: false }), toTurn, false)
+    expect(liveHandView(off)).toBeNull()
+    expect(off.hand?.log).toHaveLength(on.hand?.log.length ?? -1)
+    // Ведущий меняет между раздачами
+    const changed = play(three(), [{ from: 'p0', msg: { type: 'tableSettings', liveHand: false } }], true)
+    expect(changed.settings.liveHand).toBe(false)
+    expect(() => play(three(), [{ from: 'p0', msg: { type: 'tableSettings', liveHand: 'да' as unknown as boolean } }], false)).toThrow(
+      'Ход раздачи по касанию банка — включён или выключен',
+    )
   })
 })
 
