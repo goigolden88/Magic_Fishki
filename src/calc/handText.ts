@@ -225,7 +225,10 @@ export function handText(saved: SavedHand): string {
   const hands = record?.hands ?? {}
   const shown = record?.shown ?? {}
   const shownOf = (id: string) => (shown[id] ?? []).filter((c): c is Card => c !== null)
-  const atShowdown = seats.filter((s) => hands[s.id] !== undefined)
+  // Сбросил без показа на вскрытии (#279), пока не показал все: «mucks hand», как у покер-румов; у себя в итоге — свои карты
+  const open = (id: string) => (shown[id]?.length ?? 0) > 0 && shownOf(id).length === shown[id].length
+  const mucked = new Set((record?.mucked ?? []).filter((id) => !open(id)))
+  const atShowdown = seats.filter((s) => hands[s.id] !== undefined && !mucked.has(s.id))
   // Хай/лоу (#227) — рука с лоу: «(Тройка, короли · лоу 7-4-3-2-A)»
   if (runs) {
     runs.forEach((run, b) => {
@@ -233,10 +236,12 @@ export function handText(saved: SavedHand): string {
       for (const s of atShowdown) {
         lines.push(`${s.name}: shows ${cardsText(shownOf(s.id))} (${withLow(run.hands[s.id] ?? hands[s.id], run.lows?.[s.id])})`)
       }
+      for (const s of seats) if (mucked.has(s.id)) lines.push(`${s.name}: mucks hand`)
     })
   } else if (atShowdown.length > 0) {
     lines.push('*** SHOW DOWN ***')
     for (const s of atShowdown) lines.push(`${s.name}: shows ${cardsText(shownOf(s.id))} (${withLow(hands[s.id], record?.lows?.[s.id])})`)
+    for (const s of seats) if (mucked.has(s.id)) lines.push(`${s.name}: mucks hand`)
   }
   for (const s of seats) {
     const won = h.payouts[s.id] ?? 0
@@ -244,7 +249,7 @@ export function handText(saved: SavedHand): string {
   }
   // «Показать» после банка без вскрытия — видно всем
   for (const s of seats) {
-    if (hands[s.id] === undefined && shownOf(s.id).length > 0) lines.push(`${s.name}: shows ${cardsText(shownOf(s.id))}`)
+    if ((hands[s.id] === undefined || mucked.has(s.id)) && shownOf(s.id).length > 0) lines.push(`${s.name}: shows ${cardsText(shownOf(s.id))}`)
   }
 
   lines.push('*** SUMMARY ***')
@@ -259,7 +264,9 @@ export function handText(saved: SavedHand): string {
     const fold = folded.get(s.id)
     const result = fold
       ? FOLDED[fold]
-      : hands[s.id] !== undefined
+      : mucked.has(s.id)
+        ? `mucked${s.id === hero && mine ? ` ${cardsText(mine)}` : ''}`
+        : hands[s.id] !== undefined
         ? won > 0
           ? `showed ${cardsText(shownOf(s.id))} and won (${won})${runs ? '' : ` with ${hands[s.id]}`}`
           : `showed ${cardsText(shownOf(s.id))} and lost${runs ? '' : ` with ${hands[s.id]}`}`

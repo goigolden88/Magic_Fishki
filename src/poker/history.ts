@@ -3,7 +3,7 @@
 // и ограничен по размеру. На одном телефоне — рядом со столом (localTable.ts). Здесь — что
 // записать после хода и что из записи видит игрок
 import type { HandLogEntry } from './hand'
-import { hiddenOf, ownHidden, type HandResult, type TableState } from './table'
+import { hiddenOf, recordFor, type HandResult, type TableState } from './table'
 
 // Живые карты: записи раздачи (record) у стола нет — места в начале и ходы берутся из самой раздачи
 export type LiveRecord = {
@@ -35,10 +35,11 @@ export function keepHand(history: HistoryHand[], hand: HistoryHand | null): Hist
 }
 
 // Что из записи видит игрок: закрытые карты взявшего банк без вскрытия и сбросивших (#278) — каждый только свои,
-// пока не показал (как прошлая раздача в viewFor). null — не вошедший
+// пока не показал; у сбросившего без показа на вскрытии (#279) — и рука, пятёрка, лоу (как прошлая раздача в viewFor,
+// recordFor). null — не вошедший
 export function handFor(hand: HistoryHand, playerId: string | null): HistoryHand {
   if (!hand.record?.hidden) return hand
-  return { ...hand, record: { ...hand.record, hidden: ownHidden(hand.record, playerId) } }
+  return { ...hand, record: recordFor(hand.record, playerId) }
 }
 
 // Взявший банк без вскрытия, чьи карты ещё закрыты: на столе на одном телефоне — чьи карты видны всем,

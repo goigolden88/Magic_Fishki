@@ -163,6 +163,16 @@ describe('своя «Быстрая комната» (Р-62)', () => {
     expect(parseQuickRoom({ ...ROOM, liveHand: 'нет' })).toBeNull()
   })
 
+  it('вскрытие (#279): «Мак сам» — в настройки и обратно из копии; при живых картах и без поля — поля нет', () => {
+    const muck: QuickRoom = { ...ROOM, cards: 'phones', muck: 'auto' }
+    expect(quickRoomSettings(1000, muck)).toMatchObject({ muck: 'auto' })
+    expect(quickRoomSettings(1000, { ...muck, cards: 'live' })).not.toHaveProperty('muck')
+    expect(quickRoomSettings(1000, { ...ROOM, cards: 'phones' })).not.toHaveProperty('muck')
+    expect(parseQuickRoom(JSON.parse(JSON.stringify(muck)))).toEqual(muck)
+    expect(parseQuickRoom({ ...ROOM, cards: 'phones' })).not.toHaveProperty('muck')
+    expect(parseQuickRoom({ ...muck, muck: 'manual' })).toBeNull()
+  })
+
   it('сохранить нельзя: блайнды не годятся, стек меньше большого блайнда', () => {
     expect(quickRoomError({ sb: 5, bb: 10, startingStack: 1000 })).toBeNull()
     expect(quickRoomError({ sb: 10, bb: 10, startingStack: 10 })).toBeNull()

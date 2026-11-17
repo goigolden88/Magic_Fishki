@@ -71,7 +71,7 @@ import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS } from '../model'
 import type { Card } from '../poker/cards'
 import { FINISHED, type ClientBody } from '../poker/protocol'
-import { limitFor, ownGameOf, type TableState } from '../poker/table'
+import { limitFor, ownGameOf, type MuckMode, type TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 import { NO_COPY, useHandCopy, useMyCards } from './handCopy'
@@ -81,7 +81,7 @@ import { TableInfo } from './GameRules'
 import { noteOf, type NoteLabels, type PlayerNote } from '../calc/playerNotes'
 import { NoteDot, NotePop, useNotes } from './PlayerNote'
 import { LookFields } from './LookFields'
-import { LiveHandField } from './RoomFields'
+import { LiveHandField, MuckFields } from './RoomFields'
 import { LookGear } from './TableGear'
 import { playFlights, useLandOnHide } from './cardFly'
 import {
@@ -783,6 +783,8 @@ function PlayerRow({ player: p, extra }: { player: LastHandView['players'][numbe
       <span className="grow">
         {p.name}
         {extra && <span className="muted"> · {extra}</span>}
+        {/* #279: «Имя — сбросил без показа»; у себя — свои карты, «не показаны» */}
+        {p.note && <span className="muted"> — {p.note}</span>}
         {p.hand && <span className="muted"> · {p.hand}</span>}
         {p.best && (
           <span className="last-best">
@@ -839,8 +841,8 @@ function NetText({ mine }: { mine: MyHandView }) {
 function HistoryBody({ view: v, trainer }: { view: HistoryHandView; trainer: string | null }) {
   const [text, setText] = useState(false)
   const [note, setNote] = useState<string | null>(null)
-  // Вскрытие и показанные: мои карты взятого без вскрытия — уже в «Вам сдано»
-  const shown = v.players.filter((p, i) => p.cards && (p.hand !== null || i !== v.meIndex))
+  // Вскрытие и показанные: мои карты взятого без вскрытия — уже в «Вам сдано»; сбросившие без показа (#279) — тоже здесь
+  const shown = v.players.filter((p, i) => (p.cards || p.note) && (p.hand !== null || p.note !== null || i !== v.meIndex))
 
   async function copy() {
     try {
@@ -2186,7 +2188,7 @@ export function MoveSeat(props: { view: TableView; seat: number; online: boolean
 // «Настройки стола» ведущего между раздачами (#75): время на ход, запас времени (#223) и раздача «сама» — со следующей раздачи.
 // Сохранили — форма заново из стола (key)
 // Кэш (#78) — ещё и анте; турнир до «Начать турнир» — призы по местам: тогда видно, сколько пришло.
-// Кому виден HUD (#79) и ход раздачи по касанию банка (#258) — здесь же
+// Кому виден HUD (#79), ход раздачи по касанию банка (#258) и вскрытие (#279, только карты на телефонах) — здесь же
 function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableState; view: TableView }) {
   const saved = timerSettings(table.settings)
   const [form, setForm] = useState<TimerForm>(() => timerForm(saved.turnSeconds, saved.autoStart, saved.timeBank))
@@ -2196,6 +2198,9 @@ function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableS
   const [publicHud, setPublicHud] = useState(savedHud)
   const savedLog = table.settings.liveHand !== false // ход раздачи по касанию банка (#258); нет поля — вкл
   const [liveHand, setLiveHand] = useState(savedLog)
+  const phones = table.settings.cards === 'phones'
+  const savedMuck = table.settings.muck ?? null // вскрытие (#279); нет поля — все открывают
+  const [muck, setMuck] = useState<MuckMode | null>(savedMuck)
   const savedPrizes = table.settings.tournament?.prizes ?? null
   const [prizesOwn, setPrizesOwn] = useState(savedPrizes !== null)
   const [prizes, setPrizes] = useState<string[]>(() => (savedPrizes ?? []).map(String))
@@ -2216,7 +2221,8 @@ function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableS
       ante !== savedAnte ||
       prizesChanged ||
       publicHud !== savedHud ||
-      liveHand !== savedLog)
+      liveHand !== savedLog ||
+      muck !== savedMuck)
 
   function save() {
     if (!turn.ok || ante === null) return
@@ -2227,6 +2233,7 @@ function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableS
       autoStart: form.autoStart,
       publicHud,
       liveHand,
+      ...(phones && muck !== savedMuck ? { muck } : {}),
       ...(t ? {} : { ante }),
       ...(prizesChanged && newPrizes !== undefined ? { prizes: newPrizes } : {}),
     })
@@ -2259,6 +2266,7 @@ function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableS
       )}
       <HudFields all={publicHud} onChange={setPublicHud} />
       <LiveHandField on={liveHand} onChange={setLiveHand} />
+      {phones && <MuckFields muck={muck} onChange={setMuck} />}
       <button type="button" className="big primary wide" disabled={!changed || !ok || !room.online} onClick={save}>
         Сохранить
       </button>

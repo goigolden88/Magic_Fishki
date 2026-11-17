@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest'
+import type { Card } from '../../src/poker/cards'
+import { deckFor, HOLDEM_GAME } from '../../src/poker/game'
 import type { HistoryHand } from '../../src/poker/history'
 import type { OwnGame } from '../../src/poker/ownGame'
 import { PING_MS, PROTOCOL_VERSION, VERSION_ERROR } from '../../src/poker/protocol'
@@ -390,6 +392,132 @@ describe('карты на телефонах', () => {
     const { r, host } = await twoPlayers()
     await send(r, host, { type: 'start' })
     expect((await stored(r))?.table.hand?.cards).toBeUndefined()
+  })
+})
+
+// Мак на вскрытии (#279): раздача с картами, подложенными в хранилище после «Начать». hole — по местам от кнопки:
+// первый слева от неё, …, кнопка последней; stacks — остаток стека у мест так же, по порядку (нет — как был)
+async function rig(r: ReturnType<typeof fakeRoom>, hole: Card[][], board: Card[], stacks: (number | null)[] = []) {
+  const room = (await stored(r)) as RoomRecord
+  const hand = room.table.hand as NonNullable<TableState['hand']>
+  const n = hand.seats.length
+  const ids = Array.from({ length: n }, (_, k) => hand.seats[(hand.button + 1 + k) % n].id)
+  const cards = hand.cards as NonNullable<typeof hand.cards>
+  cards.hole = Object.fromEntries(ids.map((id, k) => [id, hole[k]]))
+  const used = [...hole.flat(), ...board]
+  cards.deck = [...board, ...deckFor(HOLDEM_GAME).filter((c) => !used.includes(c))]
+  stacks.forEach((chips, k) => {
+    const seat = hand.seats.find((s) => s.id === ids[k])
+    if (seat && chips !== null) seat.chips = chips
+  })
+  r.storage.data.set('room', JSON.stringify(room))
+  return ids
+}
+
+// Ходы по очереди: ход — от того, чья очередь; 'pass' — чек, а есть что уравнять — колл
+async function moves(r: ReturnType<typeof fakeRoom>, peers: Map<string, FakePeer>, list: (Record<string, unknown> | 'pass')[]) {
+  for (const m of list) {
+    const hand = (await stored(r))?.table.hand
+    if (!hand) throw new Error('раздача уже кончилась')
+    const seat = hand.seats[hand.toAct]
+    const action = m === 'pass' ? { type: hand.currentBet > seat.bet ? 'call' : 'check' } : m
+    await send(r, peers.get(seat.id) as FakePeer, { type: 'act', action })
+  }
+}
+
+const recordOf = (peer: FakePeer) => tableOf(peer).lastHand?.record
+
+describe('мак на вскрытии (#279)', () => {
+  const BOARD: Card[] = ['2s', '7h', '9d', 'Jc', '3c']
+
+  async function headsUp(settings: Partial<Settings>, hole: Card[][]) {
+    const t = await twoPlayers({ cards: 'phones', ...settings })
+    await send(t.r, t.host, { type: 'start' })
+    const ids = await rig(t.r, hole, BOARD)
+    const peers = new Map([
+      [t.hostId, t.host],
+      [t.guestId, t.guest],
+    ])
+    return { ...t, ids, peers }
+  }
+
+  it('двое на вскрытии, проигравший второй — сброшен: его карт и руки нет в виде соперника', async () => {
+    // Хедз-ап, ставок на ривере нет — первым открывает первый слева от кнопки: у него тузы, у кнопки — король старший
+    const t = await headsUp({ muck: 'auto' }, [['Ah', 'Ad'], ['Kh', 'Qh']])
+    const [first, second] = t.ids
+    await moves(t.r, t.peers, Array(8).fill('pass'))
+    const room = await stored(t.r)
+    expect(room?.table.lastHand?.record?.mucked).toEqual([second])
+    const winner = t.peers.get(first) as FakePeer
+    const loser = t.peers.get(second) as FakePeer
+    expect(recordOf(winner)?.shown).toEqual({ [first]: ['Ah', 'Ad'] })
+    expect(recordOf(winner)?.hands[second]).toBeUndefined()
+    expect(recordOf(winner)?.best?.[second]).toBeUndefined()
+    expect(JSON.stringify(winner.sent.filter((m) => m.type === 'state').at(-1))).not.toContain('"Kh"')
+    expect(hiddenOf(recordOf(loser))).toEqual({ [second]: ['Kh', 'Qh'] })
+    expect(recordOf(loser)?.hands[second]).toBe(room?.table.lastHand?.record?.hands[second])
+    // История раздач — так же
+    await send(t.r, winner, { type: 'history' })
+    const history = winner.last() as { type: string; hands: HistoryHand[] }
+    expect(JSON.stringify(history.hands)).not.toContain('"Kh"')
+  })
+
+  it('проигравший первый — открыт', async () => {
+    const t = await headsUp({ muck: 'auto' }, [['Kh', 'Qh'], ['Ah', 'Ad']])
+    await moves(t.r, t.peers, Array(8).fill('pass'))
+    const record = (await stored(t.r))?.table.lastHand?.record
+    expect(Object.keys(record?.shown ?? {}).sort()).toEqual([...t.ids].sort())
+    expect(record?.mucked).toBeUndefined()
+  })
+
+  it('олл-ин, торговаться больше некому, — открыты все', async () => {
+    const t = await headsUp({ muck: 'auto' }, [['Ah', 'Ad'], ['Kh', 'Qh']])
+    await moves(t.r, t.peers, [{ type: 'allin' }, 'pass'])
+    const record = (await stored(t.r))?.table.lastHand?.record
+    expect(Object.keys(record?.shown ?? {}).sort()).toEqual([...t.ids].sort())
+    expect(record?.mucked).toBeUndefined()
+  })
+
+  it('без поля muck — как раньше: открыты оба', async () => {
+    const t = await headsUp({}, [['Ah', 'Ad'], ['Kh', 'Qh']])
+    await moves(t.r, t.peers, Array(8).fill('pass'))
+    const record = (await stored(t.r))?.table.lastHand?.record
+    expect(Object.keys(record?.shown ?? {}).sort()).toEqual([...t.ids].sort())
+    expect(record?.mucked).toBeUndefined()
+  })
+
+  it('побочный банк, взятый вторым, — второй открыт; хуже его — сброшен', async () => {
+    const { r, host, hostId, guests } = await cardsRoom({ muck: 'auto' })
+    const peers = new Map([[hostId, host], ...guests.map((g) => [g.id, g.peer] as [string, FakePeer])])
+    await send(r, host, { type: 'start' })
+    // Слева от кнопки (малый блайнд) — 95 в стеке и тузы: олл-ин, основной банк его; побочный — короли у дам
+    const [short, kings, queens] = await rig(r, [['Ah', 'Ad'], ['Kh', 'Kd'], ['Qh', 'Qd']], BOARD, [95])
+    await moves(r, peers, ['pass', { type: 'allin' }, 'pass', 'pass', { type: 'raise', to: 50 }, 'pass', 'pass', 'pass', 'pass', 'pass'])
+    const last = (await stored(r))?.table.lastHand
+    expect(last?.pots.map((p) => p.winners)).toEqual([[short], [kings]])
+    expect(Object.keys(last?.record?.shown ?? {}).sort()).toEqual([short, kings].sort())
+    expect(last?.record?.mucked).toEqual([queens])
+    expect(JSON.stringify(recordOf(peers.get(kings) as FakePeer))).not.toContain('"Qd"')
+  })
+
+  it('хай/лоу: взявший лоу открыт, хуже по обеим — сброшен', async () => {
+    const game: OwnGame = { id: 'own-h8', name: 'Холдем хай/лоу', hole: 2, fromHand: 'any', deck: 52, order: 'standard', board: [3, 1, 1], limit: 'nolimit', hiLo: true }
+    const { r, host, hostId, guests } = await cardsRoom({ muck: 'auto', games: [game], game: game.id })
+    const peers = new Map([[hostId, host], ...guests.map((g) => [g.id, g.peer] as [string, FakePeer])])
+    await send(r, host, { type: 'start' })
+    expect((await stored(r))?.table.hand?.cards?.game.hiLo).toBe(true)
+    // У этой игры та же колода из 52, что у холдема: первый слева от кнопки — тройка королей, второй — валеты, кнопка — лоу
+    const [kings, jacks, low] = await rig(r, [['Ks', 'Kd'], ['Jc', 'Jh'], ['Ah', '3c']], ['2s', '4h', '7d', 'Kc', 'Qs'])
+    await moves(r, peers, Array(12).fill('pass'))
+    const record = (await stored(r))?.table.lastHand?.record
+    expect(record?.split).toEqual([{ hi: [kings], lo: [low] }])
+    expect(Object.keys(record?.shown ?? {}).sort()).toEqual([kings, low].sort())
+    expect(record?.mucked).toEqual([jacks])
+  })
+
+  it('«Мак по выбору» — пока отказ', async () => {
+    const created = await initRoom(fakeRoom().env, 'ABCDEF', 'Ведущий', { cards: 'phones', muck: 'manual' as 'auto' }, 0)
+    expect(created).toMatchObject({ ok: false, error: 'Вскрытие — все открывают или мак сам' })
   })
 })
 

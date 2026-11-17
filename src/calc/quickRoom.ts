@@ -5,7 +5,18 @@ import type { CardsMode, GameId, Limit } from '../poker/game'
 import { isMixShare, type MixShare } from '../poker/mix'
 import { isOwnGameId, OWN_GAMES_MAX, seatsFor, type OwnGame, type TableGameId } from '../poker/ownGame'
 import { isMaxRuns, type MaxRuns } from '../poker/runs'
-import { CARD_BACKS, DEFAULT_SETTINGS, FELTS, TIME_BANK_PRESETS, TURN_MAX_S, TURN_MIN_S, type AutoStart, type Settings } from '../poker/table'
+import {
+  CARD_BACKS,
+  DEFAULT_SETTINGS,
+  FELTS,
+  MUCK_MODES,
+  TIME_BANK_PRESETS,
+  TURN_MAX_S,
+  TURN_MIN_S,
+  type AutoStart,
+  type MuckMode,
+  type Settings,
+} from '../poker/table'
 import { tournamentError, type TournamentSettings } from '../poker/tournament'
 import { formatNumber } from './format'
 import { lookOf, type Look } from './pokerLook'
@@ -50,7 +61,15 @@ export type RoomChoice = {
   mix?: MixShare | null
   // «Прогнать несколько раз» (#167, Р-58): до скольких раз; нет или 1 — нет. Только с картами на телефонах
   maxRuns?: MaxRuns
+  // Вскрытие (#279): 'auto' — «Мак сам»; нет поля — все открывают. Только с картами на телефонах
+  muck?: MuckMode
 }
+
+// «Вскрытие: Все открывают · Мак сам» (#279) — выбор ведущего; сначала — все открывают. «Мак по выбору» встанет рядом
+export const MUCK_CHOICES: [MuckMode | null, string][] = [
+  [null, 'Все открывают'],
+  ['auto', 'Мак сам'],
+]
 
 // «Прогнать несколько раз: нет / до двух / до трёх» — выбор ведущего; сначала — нет
 export const MAX_RUNS_CHOICES: [MaxRuns, string][] = [
@@ -141,6 +160,7 @@ export function roomSettings(c: RoomChoice, own: OwnGame[] = []): Partial<Settin
     ...(c.liveHand === false ? { liveHand: false } : {}),
     ...(c.mix && c.cards === 'phones' ? { mix: true, mixAgainst: c.mix } : {}),
     ...(c.maxRuns && c.maxRuns > 1 && c.cards === 'phones' ? { maxRuns: c.maxRuns } : {}),
+    ...(c.muck && c.cards === 'phones' ? { muck: c.muck } : {}),
   }
 }
 
@@ -178,7 +198,7 @@ function isPositive(x: unknown): x is number {
 // приложение, или своя (#224): есть ли она ещё на телефоне — решает roomSettings; знает ли её сервер — скажет он сам
 export function parseQuickRoom(raw: unknown): QuickRoom | null {
   if (!isRecord(raw)) return null
-  const { sb, bb, startingStack, cards, variant, turnSeconds, timeBank, autoStart, look, format, publicHud, liveHand, mix, maxRuns } = raw
+  const { sb, bb, startingStack, cards, variant, turnSeconds, timeBank, autoStart, look, format, publicHud, liveHand, mix, maxRuns, muck } = raw
   if (!isPositive(sb) || !isPositive(bb) || sb > bb) return null
   if (startingStack !== null && (!isPositive(startingStack) || startingStack < bb)) return null
   if (cards !== 'live' && cards !== 'phones') return null
@@ -209,6 +229,8 @@ export function parseQuickRoom(raw: unknown): QuickRoom | null {
   if (liveHand !== undefined && typeof liveHand !== 'boolean') return null
   if (mix !== undefined && mix !== null && !isMixShare(mix)) return null
   if (maxRuns !== undefined && !isMaxRuns(maxRuns)) return null
+  // Вскрытие (#279): у выбора до него поля нет — все открывают
+  if (muck !== undefined && !(MUCK_MODES as readonly unknown[]).includes(muck)) return null
   return {
     sb,
     bb,
@@ -224,6 +246,7 @@ export function parseQuickRoom(raw: unknown): QuickRoom | null {
     ...(liveHand === false ? { liveHand: false } : {}),
     mix: mix ?? null,
     maxRuns: maxRuns ?? 1,
+    ...(muck !== undefined ? { muck: muck as MuckMode } : {}),
   }
 }
 

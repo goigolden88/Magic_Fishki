@@ -167,6 +167,18 @@ describe('создание комнаты', () => {
     expect(gameFor(table!.settings)?.hiLo).toBe(true)
   })
 
+  it('мак на вскрытии (#279): «Мак сам» доходит до стола; «Мак по выбору» — пока отказ 400', async () => {
+    const room = fakeRoom()
+    const { d } = deps('p', { init: (code, name, settings, roster, regularId) => initRoom(room.env, code, name, settings, 0, roster, regularId) })
+    expect(await createRoom(body('p', { settings: { cards: 'phones', muck: 'auto' } }), d)).toMatchObject({ status: 200 })
+    expect((await room.storage.get<RoomRecord>('room'))?.table.settings.muck).toBe('auto')
+    const bad = deps('p', { init: (code, name, settings, roster, regularId) => initRoom(fakeRoom().env, code, name, settings, 0, roster, regularId) })
+    expect(await createRoom(body('p', { settings: { cards: 'phones', muck: 'manual' } }), bad.d)).toEqual({
+      status: 400,
+      body: { v: PROTOCOL_VERSION, error: 'Вскрытие — все открывают или мак сам' },
+    })
+  })
+
   it('страддл (#222): галочка доходит до стола; не «да» и не «нет» — отказ 400, комнаты нет', async () => {
     const room = fakeRoom()
     const { d } = deps('p', { init: (code, name, settings, roster, regularId) => initRoom(room.env, code, name, settings, 0, roster, regularId) })

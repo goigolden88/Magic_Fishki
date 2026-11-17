@@ -6,6 +6,7 @@ import {
   GAME_CHOICES,
   MAX_RUNS_CHOICES,
   MIX_SHARE_CHOICES,
+  MUCK_CHOICES,
   ownSeatsNote,
   roomGameChoice,
   roomOwnGames,
@@ -18,6 +19,7 @@ import { formSettings, tournamentFormOf, type TournamentForm } from '../calc/tou
 import type { CardsMode, Limit } from '../poker/game'
 import { MIX_SHARE_DEFAULT, MIX_VOTE_MS, type MixShare } from '../poker/mix'
 import { RUN_VOTE_MS, type MaxRuns } from '../poker/runs'
+import type { MuckMode } from '../poker/table'
 import { HudFields } from './Hud'
 import { LookFields } from './LookFields'
 import { TimerFields, timerForm, type TimerForm } from './TimerFields'
@@ -38,6 +40,7 @@ export type RoomForm = {
   liveHand: boolean // ход раздачи по касанию банка (#258)
   mix: MixShare | null
   maxRuns: MaxRuns
+  muck: MuckMode | null // вскрытие (#279): null — все открывают
 }
 
 // Форма из уже разобранного выбора; stack — строкой (пусто — пока не прочитан закуп по умолчанию).
@@ -56,6 +59,7 @@ export function roomFormOf(room: QuickRoom, stack: string, players: number, own:
     liveHand: room.liveHand !== false,
     mix: room.mix ?? null,
     maxRuns: room.maxRuns ?? 1,
+    muck: room.muck ?? null,
   }
 }
 
@@ -83,6 +87,7 @@ export function roomChoiceOf(form: RoomForm, own: OwnGame[]): RoomChoice | null 
     ...(form.liveHand ? {} : { liveHand: false }),
     mix: form.mix,
     maxRuns: form.maxRuns,
+    ...(form.muck ? { muck: form.muck } : {}),
   }
 }
 
@@ -142,6 +147,8 @@ export function RoomFields(props: { form: RoomForm; players: number; own: OwnGam
       {seatsNote && <p className="muted">{seatsNote}</p>}
       {/* #167: «Прогнать несколько раз» — только карты на телефонах, кэш и турнир */}
       {cards === 'phones' && <RunsFields max={form.maxRuns} onChange={(maxRuns) => set({ maxRuns })} />}
+      {/* #279: «Вскрытие» — только карты на телефонах */}
+      {cards === 'phones' && <MuckFields muck={form.muck} onChange={(muck) => set({ muck })} />}
 
       {/* #75: стол на одном телефоне — без таймера и раздачи «сама»; запас времени (#223) — тоже только здесь */}
       <TimerFields form={form.timer} onChange={(timer) => set({ timer })} />
@@ -157,6 +164,35 @@ export function RoomFields(props: { form: RoomForm; players: number; own: OwnGam
       <HudFields all={form.publicHud} onChange={(publicHud) => set({ publicHud })} />
       <LiveHandField on={form.liveHand} onChange={(liveHand) => set({ liveHand })} />
     </>
+  )
+}
+
+// «Вскрытие» (#279): все открывают или «Мак сам» — проигравший, кого не обязывают показывать, сбрасывает карты без показа.
+// Выбор кнопками: рядом встанет «Мак по выбору». Только карты на телефонах; у комнаты при создании и в «Настройках
+// стола» ведущего. muck — null: все открывают
+export function MuckFields({ muck, onChange }: { muck: MuckMode | null; onChange: (m: MuckMode | null) => void }) {
+  return (
+    <fieldset className="players-pick">
+      <legend className="muted">Вскрытие</legend>
+      <div className="row">
+        {MUCK_CHOICES.map(([mode, label]) => (
+          <button
+            key={label}
+            type="button"
+            className={muck === mode ? 'big primary grow' : 'big grow'}
+            aria-pressed={muck === mode}
+            onClick={() => onChange(mode)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="muted">
+        {muck === 'auto'
+          ? 'Первым открывает последний, кто ставил или повышал; дальше по часовой. Чья рука хуже уже открытой, тот сбрасывает карты без показа — сам. Взявший банк открыт всегда; олл-ин без торговли — открываются все.'
+          : 'На вскрытии все, кто дошёл, открывают карты.'}
+      </p>
+    </fieldset>
   )
 }
 

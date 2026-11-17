@@ -255,9 +255,10 @@ describe('экран стола: карты на телефонах', () => {
       number: 1,
       board: ['2s', '7h', '9d', 'Jc', '3s'],
       players: [
-        { name: 'P0', cards: ['Ah', 'Ad'], hand: 'Пара, тузы', best: null, won: 0 },
-        { name: 'P1', cards: null, hand: null, best: null, won: 0 },
-        { name: 'P2', cards: ['2c', '7d'], hand: 'Две пары, семёрки и двойки', best: five, won: 65 },
+        // note — пометка мака (#279): без мака — null
+        { name: 'P0', cards: ['Ah', 'Ad'], hand: 'Пара, тузы', best: null, won: 0, note: null },
+        { name: 'P1', cards: null, hand: null, best: null, won: 0, note: null },
+        { name: 'P2', cards: ['2c', '7d'], hand: 'Две пары, семёрки и двойки', best: five, won: 65, note: null },
       ],
       rounds: [
         { label: 'Префлоп', moves: ['P0: колл до 10', 'P1: пас', 'P2: чек'] },
