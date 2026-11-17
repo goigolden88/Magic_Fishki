@@ -200,7 +200,8 @@ describe('стол на этом телефоне в памяти устройс
     s = await reload()
     expect(s.loadNotes()).toEqual(next)
     s.saveNotes({ notes: {}, labels: {} })
-    expect(storage.data.size).toBe(0)
+    // Самих заметок нет; осталось время их правки (#264) — стирание тоже дойдёт до других устройств
+    expect([...storage.data.keys()]).toEqual(['fishki.sync.stamps'])
 
     storage.data.set('fishki.poker.notes', 'не JSON')
     s = await reload()

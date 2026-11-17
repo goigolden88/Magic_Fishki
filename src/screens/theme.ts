@@ -1,4 +1,5 @@
 import { parseTheme, THEME_COLOR, THEME_KEY, themeOf, type Theme } from '../calc/theme'
+import { stampSynced } from './pokerStorage'
 
 // Гамма приложения (Р-70) на этом телефоне: localStorage, в копию идёт (poker.theme).
 // При запуске её ставит скрипт в index.html — до первой отрисовки; здесь — выбор в «Настройках» и восстановление
@@ -10,11 +11,14 @@ export function loadThemeChoice(): Theme | null {
   }
 }
 
-// Сохранить и сразу применить, без перезагрузки. null — снова не выбрано: «Ночь»
+// Сохранить и сразу применить, без перезагрузки. null — снова не выбрано: «Ночь».
+// Выбор сменился — время правки и отметка «не отправлено» (#264): гамма синхронизируется
 export function saveTheme(choice: Theme | null) {
   try {
+    const before = localStorage.getItem(THEME_KEY)
     if (choice) localStorage.setItem(THEME_KEY, choice)
     else localStorage.removeItem(THEME_KEY)
+    if (before !== choice) stampSynced(THEME_KEY)
   } catch {
     // нет места или запрещено — гамма действует до закрытия
   }

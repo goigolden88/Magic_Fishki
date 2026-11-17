@@ -10,8 +10,10 @@ import { isDefaultLook, MY_LOOK_DEFAULT, parseMyLook, type MyLook } from '../cal
 import { parseQuickBets, QUICK_BETS_DEFAULT, type QuickBets } from '../calc/quickBets'
 import { parseQuickRoom, type QuickRoom } from '../calc/quickRoom'
 import { parseDockSize, parseTableSize, tableFitVars, type DockSize } from '../calc/tableFit'
+import { THEME_KEY } from '../calc/theme'
 import type { Card } from '../poker/cards'
 import { parseOwnGames, type OwnGame } from '../poker/ownGame'
+import { markLocalDirty } from '../store/db'
 import type { CSSProperties } from 'react'
 
 // Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги,
@@ -48,6 +50,49 @@ const LAST_KEY = 'fishki.poker.last'
 const MINE_KEY = 'fishki.poker.mine'
 const HUD_DETAIL_KEY = 'fishki.poker.hudDetail'
 
+// Синхронизация между устройствами (#264): ключи, что входят в копию, — при каждой смене значения время правки
+// в SYNC_STAMPS_KEY ({ ключ: ISO }) и отметка «не отправлено» в базе (store/db.ts). Слияние — по ключу целиком,
+// позднее побеждает. Остальные ключи — этого устройства, не синхронизируются
+const SYNC_STAMPS_KEY = 'fishki.sync.stamps'
+const SYNCED_KEYS: ReadonlySet<string> = new Set([
+  NOTES_KEY,
+  LABELS_KEY,
+  LOOK_KEY,
+  OWN_GAMES_KEY,
+  QUICK_ROOM_KEY,
+  BB_KEY,
+  BETS_KEY,
+  TABLE_SIZE_KEY,
+  DOCK_SIZE_KEY,
+  BET_STEP_KEY,
+  THEME_KEY,
+])
+
+// Время правки синхронизируемых ключей; битое или нет — пусто
+export function loadSyncStamps(): Record<string, string> {
+  try {
+    const parsed: unknown = JSON.parse(read(SYNC_STAMPS_KEY) || '{}')
+    const out: Record<string, string> = {}
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return out
+    for (const [key, at] of Object.entries(parsed as Record<string, unknown>)) if (typeof at === 'string') out[key] = at
+    return out
+  } catch {
+    return {}
+  }
+}
+
+// Синхронизируемый ключ записан (и стёрт — тоже правка): время — сейчас, отметка — сразу после записи.
+// База не открылась — отметки нет, значение на месте
+export function stampSynced(key: string) {
+  if (!SYNCED_KEYS.has(key)) return
+  try {
+    localStorage.setItem(SYNC_STAMPS_KEY, JSON.stringify({ ...loadSyncStamps(), [key]: new Date().toISOString() }))
+  } catch {
+    // нет места или запрещено — время не запомним
+  }
+  markLocalDirty(key).catch(() => {})
+}
+
 function read(key: string): string {
   try {
     return localStorage.getItem(key) ?? ''
@@ -56,10 +101,13 @@ function read(key: string): string {
   }
 }
 
+// Значение не изменилось — синхронизируемому ключу времени правки не ставим (восстановление пишет всё подряд)
 function write(key: string, value: string) {
   try {
+    const before = localStorage.getItem(key) ?? ''
     if (value) localStorage.setItem(key, value)
     else localStorage.removeItem(key)
+    if (before !== value) stampSynced(key)
   } catch {
     // нет места или запрещено — просто не запомним
   }
