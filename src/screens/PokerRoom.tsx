@@ -9,6 +9,7 @@ import {
   tableSnapshot,
   type DealSnapshot,
 } from '../calc/dealAnimation'
+import type { Cooler } from '../calc/cooler'
 import { formatChips, formatNumber, formatRub, parseChips, signedStackText, stackText } from '../calc/format'
 import {
   betShareText,
@@ -981,6 +982,7 @@ export function HandHistory(props: {
                   <button type="button" className="history-item history-hand" onClick={() => setOpen(item.number)}>
                     <span className="history-line">
                       <span className="history-number">№ {item.number}</span>
+                      {item.cooler && <span className="history-cooler">кулер</span>}
                       {item.mine?.cards && <CardRow cards={item.mine.cards} size="small" />}
                       {item.mine && <span className="history-pos">{item.mine.position}</span>}
                       {item.mine && <NetText mine={item.mine} />}
@@ -1195,7 +1197,7 @@ export function PokerTable(props: {
   const [noteFor, setNoteFor] = useState<{ name: string; edit: boolean } | null>(null)
   const { notes, labels } = useNotes()
   const wrap = useRef<HTMLDivElement>(null)
-  const dealing = useTableDeal(wrap, v, live)
+  const { dealing, cooler } = useTableDeal(wrap, v, live)
   const inBB = useBigBlinds()
   const unit = inBB ? v.bb : null
   const toggleUnit = useUnitToggle(inBB)
@@ -1295,6 +1297,7 @@ export function PokerTable(props: {
               onNote={(edit) => showNote(s.name, edit)}
               unit={unit}
               onUnit={toggleUnit.toggle}
+              cooler={cooler !== null && (cooler.winner === s.id || cooler.loser === s.id)}
             />
           ))}
           {v.freeSeats.map((k) => (
@@ -1432,38 +1435,77 @@ function useUnitToggle(inBB: boolean): { hint: { text: string; at: number } | nu
 // Стол только открыли, он не live, вкладка не видна или «Анимация карт» выключена — карты сразу на местах.
 // Пока раздача летит — true: мои карты летят рубашкой и при «Всегда открыты», «Подглядеть» работает как всегда
 const WAKE_MS = 1000
+// Кулер (#262, Р-97): «Кулер!» у мест победителя и проигравшего — столько, после полёта последних карт стола
+const COOLER_MS = 2000
 
-function useTableDeal(ref: RefObject<HTMLDivElement | null>, v: TableView, live: boolean): boolean {
+// Системное «Уменьшить движение» — кулер не всплывает, даже если «Анимация карт» включена своим выбором
+function reducedMotion(): boolean {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  } catch {
+    return false
+  }
+}
+
+// Пока играет раздача — dealing; кулер прошлой раздачи на глазах — места победителя и проигравшего (иначе null).
+// Кулер — раз на раздачу: только когда он появился на глазах (не первый стол, не возврат на вкладку)
+function useTableDeal(ref: RefObject<HTMLDivElement | null>, v: TableView, live: boolean): { dealing: boolean; cooler: Cooler | null } {
   const prev = useRef<DealSnapshot | null>(null)
+  const prevCooler = useRef('')
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const coolerTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const shownAt = useRef(0) // когда вернулись на вкладку: накопленное во сне догоняет — не проигрывать
   const [dealing, setDealing] = useState(false)
+  const [cooler, setCooler] = useState<Cooler | null>(null)
   const snap = tableSnapshot(v)
   const key = JSON.stringify(snap)
+  const coolerKey = v.cooler ? JSON.stringify([v.handNumber, v.cooler.winner, v.cooler.loser]) : ''
 
   // До отрисовки: карты не мелькают на местах перед полётом
   useLayoutEffect(() => {
     const before = prev.current
     prev.current = snap
+    const coolerBefore = prevCooler.current
+    prevCooler.current = coolerKey
     const root = ref.current
     const waking = Date.now() - shownAt.current < WAKE_MS
     if (!root || !live || waking || document.visibilityState !== 'visible' || !loadCardAnim()) return
     const plan = dealPlan(before, snap)
-    if (!plan) return
-    playFlights(root, plan.flights)
-    if (plan.kind !== 'deal') return
-    clearTimeout(timer.current)
-    setDealing(true)
-    timer.current = setTimeout(() => setDealing(false), flightsEnd(plan.flights))
-  }, [key])
+    if (plan) playFlights(root, plan.flights)
+    if (plan?.kind === 'deal') {
+      clearTimeout(timer.current)
+      setDealing(true)
+      timer.current = setTimeout(() => setDealing(false), flightsEnd(plan.flights))
+    }
+    const found = v.cooler
+    if (before === null || !found || coolerKey === coolerBefore || reducedMotion()) return
+    // Досданный на олл-ине борд летит — «Кулер!» после его последней карты, не раньше ривера
+    clearTimeout(coolerTimer.current)
+    coolerTimer.current = setTimeout(
+      () => {
+        setCooler(found)
+        coolerTimer.current = setTimeout(() => setCooler(null), COOLER_MS)
+      },
+      plan ? flightsEnd(plan.flights) : 0,
+    )
+  }, [key, coolerKey])
 
   useLandOnHide(ref, () => {
     if (document.visibilityState === 'visible') shownAt.current = Date.now()
     clearTimeout(timer.current)
+    clearTimeout(coolerTimer.current)
     setDealing(false)
+    setCooler(null)
   })
-  useEffect(() => () => clearTimeout(timer.current), [])
-  return dealing
+  useEffect(
+    () => () => {
+      clearTimeout(timer.current)
+      clearTimeout(coolerTimer.current)
+    },
+    [],
+  )
+  // Новая раздача началась раньше конца — кулер прошлой не держится
+  return { dealing, cooler: v.cooler ? cooler : null }
 }
 
 // У бокового края — прижато к нему
@@ -1524,8 +1566,9 @@ function SeatSpot(props: {
   onNote: (edit: boolean) => void
   unit: number | null // стек и ставка — в ББ (Р-62); null — фишками
   onUnit: () => void
+  cooler?: boolean // кулер прошлой раздачи (#262): место подсвечено и «Кулер!» над ним, ~2 с
 }) {
-  const { seat: s, at, bottom, myCards, myHand, open, hudDetailed, onHud, note, labels, onNote, unit, onUnit } = props
+  const { seat: s, at, bottom, myCards, myHand, open, hudDetailed, onHud, note, labels, onNote, unit, onUnit, cooler = false } = props
   const unitLabel = unit === null ? 'показать суммы в ББ' : 'показать суммы в фишках'
   const marks = [
     s.place !== null && `${s.place} место`,
@@ -1545,11 +1588,17 @@ function SeatSpot(props: {
     s.isMe && 'me',
     s.best && 'winner',
     many && 'many',
+    cooler && 'cooler',
   ]
     .filter(Boolean)
     .join(' ')
   return (
     <div className={cls} style={{ left: `${at.x}%`, top: `${at.y}%` }}>
+      {cooler && (
+        <span className="seat-cooler" role="status">
+          Кулер!
+        </span>
+      )}
       {s.position && <span className="seat-pos">{s.position}</span>}
       {s.button && (
         <span className="seat-dealer" aria-label="кнопка">

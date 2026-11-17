@@ -11,6 +11,7 @@ import { buildPots } from '../poker/pots'
 import { handFor, type HistoryHand } from '../poker/history'
 import { bankOf, blindsNow, HOST_TAKEOVER_MS, waitingRebuy, type HandRecord, type HandResult, type TableState } from '../poker/table'
 import { allInOdds } from './allInOdds'
+import { coolerOf, type Cooler } from './cooler'
 import { handBlinds as tableBlinds, type SavedHand } from './evenings'
 import { handMoney, handNet, handPositions, positionLabels, type HandMoney } from './handResult'
 import { isOwnGameId } from '../poker/ownGame'
@@ -165,6 +166,7 @@ export type TableView = {
   straddle: number
   bb: number // большой блайнд: в раздаче — её, между раздачами — следующей; для показа сумм в ББ (Р-62)
   tournament: TournamentView | null // кэш — null
+  cooler: Cooler | null // между раздачами — кулер прошлой (#262, coolerOf): у мест победителя и проигравшего; иначе null
 }
 
 const STAGE_LABELS: Record<Stage, string> = {
@@ -286,6 +288,7 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
     straddle: hand ? (hand.straddle ?? 0) : table.settings.straddle && table.settings.format !== 'tournament' ? 2 * table.settings.bb : 0,
     bb: hand ? hand.bb : (tournament?.blinds.bb ?? table.settings.bb),
     tournament,
+    cooler: !hand && table.lastHand ? coolerOf(table.lastHand) : null,
   }
 }
 
@@ -605,6 +608,7 @@ export type HistoryItem = {
   wins: { name: string; amount: number }[]
   more?: Card[][]
   mine: MyHandView | null
+  cooler?: true // кулер (#262, coolerOf) — пометка «кулер» у номера; не кулер — поля нет
 }
 
 // Улица раздачи из истории: её карты (общие к ней, с прошлых улиц), банк на начало (блайнды неизвестны — null), ходы
@@ -672,6 +676,7 @@ export function historyList(hands: SavedHand[]): HistoryItem[] {
         wins,
         ...(runs && runs.length > 1 ? { more: runs.slice(1).map((r) => r.board) } : {}),
         mine: myHandOf(s),
+        ...(coolerOf(h) ? { cooler: true as const } : {}),
       }
     })
 }

@@ -45,6 +45,8 @@
 // правилами стола из готового состояния, — три карты, одна открытая (09e), и семь, две открытые (09f); входят в svoi.
 // «Что нового» (#261): окно после обновления поверх «Игр» (14) и список целиком из «Настроек» (14b), на 390 и 1366;
 // npm run shots -- chto — только они.
+// Кулер (#262): стол против ботов, мой колл на ривере — флеш против фулл-хауса, «Кулер!» у обоих мест (16), на 390
+// и 1366; npm run shots -- kuler — только он.
 // Chrome — google-chrome, google-chrome-stable или chromium; свой путь — переменная CHROME
 import { spawn, type ChildProcess } from 'node:child_process'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -1268,6 +1270,74 @@ async function handLogOnly(cdp: Cdp): Promise<void> {
   }
 }
 
+// npm run shots -- kuler: кулер (#262) — стол против ботов на ривере, мой ход: у меня флеш, у Бота Север фулл-хаус,
+// он ставит 400. Касание «Колл 400» — раздача кончилась на глазах, у обоих мест «Кулер!» (снимок 16); на телефоне
+// и ноутбуке. Стол собирают правила стола (как handLogTable), карты разложены заранее
+async function coolerOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES.slice(0, 2)) {
+    console.log(`Кулер, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await screen('Против ботов, кулер', size, async () => {
+      await themeOnly(d)
+      const text = await coolerTable()
+      await d.goto('#/poker')
+      await d.waitText('Войти по ссылке')
+      await d.eval(`(localStorage.setItem('fishki.poker.bots', ${JSON.stringify(text)}), true)`)
+      await d.goto('#/poker/bots')
+      await d.reload()
+      await d.waitFor('.dock.actions')
+      await sleep(1500) // раздача долетела
+      await d.click('Колл 400')
+      await d.waitFor('.seat-cooler', 3000)
+      const marked = await d.eval<number>("document.querySelectorAll('.seat.cooler').length")
+      if (marked !== 2) throw new Error(`«Кулер!» у ${marked} мест, а не у двух`)
+      await d.tableShot('16-kuler') // надпись видна с 0,3 до 1,6 с — снимок через 0,4 с
+      await waitGone(d, 'Кулер!') // ~2 с — и надписи нет
+    })
+  }
+}
+
+// Стол против ботов (BotTable строкой) на ривере в мой ход: я и Бот Север, до флопа он повышает до 300 (30 ББ),
+// я уравниваю; флоп и тёрн — чеки; на ривере он ставит 400. У меня флеш (Qh Jh), у него фулл-хаус (Kd Ks)
+async function coolerTable(): Promise<string> {
+  const load = async (file: string) =>
+    (await runnerImport<Record<string, any>>(join(process.cwd(), 'src/poker', file), { configFile: false, logLevel: 'silent' })).module
+  const table = await load('table.ts')
+  const rules = await load('game.ts')
+  const { PROTOCOL_VERSION } = await load('protocol.ts')
+  const now = Date.now()
+  const settings = { sb: 5, bb: 10, startingStack: 1000, maxSeats: 4, cards: 'phones', autoStart: 'off' }
+  const created = table.createTable('me', 'Вы', settings, now)
+  if (!created.ok) throw new Error(created.error)
+  let state = created.state
+  const send = (from: string, body: Record<string, unknown>, deck?: string[]) => {
+    const r = table.handle(state, from, { v: PROTOCOL_VERSION, ...body }, now, deck)
+    if (!r.ok) throw new Error(`${from} ${String(body.type)}: ${r.error}`)
+    state = r.state
+  }
+  send('bot1', { type: 'sit', name: 'Бот Север' })
+  const hands: Record<string, string[]> = { me: ['Qh', 'Jh'], bot1: ['Kd', 'Ks'] }
+  const board = ['Ah', 'Kh', '7h', '7d', '2c']
+  // Порядок сдачи — по кругу от первого после кнопки: кнопку даёт пробный старт
+  const probe = table.handle(state, 'me', { v: PROTOCOL_VERSION, type: 'start' }, now, rules.deckFor(rules.HOLDEM_GAME))
+  if (!probe.ok) throw new Error(probe.error)
+  const seats: { id: string }[] = probe.state.hand.seats
+  const order = seats.map((_, k) => seats[(probe.state.hand.button + 1 + k) % seats.length].id)
+  const top = [...[0, 1].flatMap((k) => order.map((id) => hands[id][k])), ...board]
+  send('me', { type: 'start' }, [...top, ...rules.deckFor(rules.HOLDEM_GAME).filter((c: string) => !top.includes(c))])
+  for (let i = 0; i < 20 && state.hand; i++) {
+    const hand = state.hand
+    const seat = hand.seats[hand.toAct]
+    if (hand.stage === 'river' && seat.id === 'me' && hand.currentBet > 0) break
+    const facing = seat.bet < hand.currentBet
+    const opens = seat.id === 'bot1' && ((hand.stage === 'preflop' && hand.currentBet <= 10) || (hand.stage === 'river' && hand.currentBet === 0))
+    const action = opens ? { type: 'raise', to: hand.stage === 'preflop' ? 300 : 400 } : { type: facing ? 'call' : 'check' }
+    send(seat.id, { type: 'act', action })
+  }
+  if (state.hand?.stage !== 'river' || state.hand.seats[state.hand.toAct].id !== 'me') throw new Error('не дошёл мой ход на ривере')
+  return JSON.stringify({ id: 'shots-kuler', table: state, meId: 'me', level: 'amateur', open: false, showStyles: true, autoFinish: false, hudAll: false, history: [] })
+}
+
 // Стол против ботов (BotTable строкой) на тёрне в мой ход: до флопа бот повышает до 30, остальные уравнивают;
 // на флопе первый бот ставит 40, остальные уравнивают; на тёрне первый бот чекает, следующий ставит 60
 async function handLogTable(): Promise<string> {
@@ -2044,7 +2114,9 @@ async function main(): Promise<void> {
     const onlyOwnGames = process.argv.includes('svoi') // npm run shots -- svoi: свои игры (#225)
     const onlyHandLog = process.argv.includes('hod') // npm run shots -- hod: «Ход раздачи» по касанию банка (#258)
     const onlyWhatsNew = process.argv.includes('chto') // npm run shots -- chto: «Что нового» (#261)
+    const onlyCooler = process.argv.includes('kuler') // npm run shots -- kuler: кулер за столом с ботами (#262)
     const part =
+      onlyCooler ||
       onlyWhatsNew ||
       onlyHandLog ||
       onlyTrainer ||
@@ -2061,6 +2133,7 @@ async function main(): Promise<void> {
     if (onlyOwnGames) await ownGamesOnly(cdp)
     if (onlyHandLog) await handLogOnly(cdp)
     if (onlyWhatsNew) await whatsNewOnly(cdp)
+    if (onlyCooler) await coolerOnly(cdp)
     if (onlyStraddle) for (const size of SIZES) await straddleStep(cdp, size)
     if (onlyOwnBack) await ownBackOnly(cdp)
     if (onlyNames) await namesOnly(cdp)
@@ -2078,6 +2151,7 @@ async function main(): Promise<void> {
     if (!onlyTable && !uchet && !part) await gearOnly(cdp)
     if (!onlyTable && !uchet && !part) await watchOnly(cdp)
     if (!onlyTable && !uchet && !part) await handLogOnly(cdp)
+    if (!onlyTable && !uchet && !part) await coolerOnly(cdp)
     if (!onlyTable && !part) await whatsNewOnly(cdp)
     if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !part) {
       for (const other of ['club', 'day'] as const) for (const size of SIZES) await themeScenario(cdp, size, other)

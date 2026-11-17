@@ -2207,6 +2207,64 @@ textarea.note-input {
   white-space: nowrap;
 }
 
+/* Кулер (#262, Р-97): у мест победителя и проигравшего ~2 с — подсветка рамки и «Кулер!» над местом.
+   Экран включает его только при «Анимации карт» и без системного «Уменьшить движение» */
+.seat.cooler {
+  z-index: 3;
+  animation: cooler-glow 2s ease-out both;
+}
+
+/* Надпись — поверх середины места: у мест у края стола не уходит за край */
+.seat-cooler {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 4;
+  padding: 0.1rem 0.5rem;
+  border-radius: 0.6rem;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: cooler-pop 2s ease-out both;
+}
+
+@keyframes cooler-glow {
+  0%,
+  80% {
+    border-color: var(--red);
+    box-shadow:
+      0 0 0 0.15rem var(--red),
+      var(--seat-shadow);
+  }
+  100% {
+    box-shadow: var(--seat-shadow);
+  }
+}
+
+@keyframes cooler-pop {
+  0% {
+    transform: translate(-50%, -50%) scale(0.4);
+    opacity: 0;
+  }
+  15% {
+    transform: translate(-50%, -50%) scale(1.15);
+    opacity: 1;
+  }
+  25%,
+  80% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0;
+  }
+}
+
 /* от гаммы не зависит */
 .seat-dealer {
   position: absolute;
@@ -2702,6 +2760,16 @@ input.own-back-file {
 
 .history-number {
   font-weight: 600;
+}
+
+/* Пометка «кулер» у номера раздачи (#262) */
+.history-cooler {
+  padding: 0 0.35rem;
+  border: 1px solid var(--red);
+  border-radius: 0.35rem;
+  color: var(--red);
+  font-size: 0.75rem;
+  font-weight: 700;
 }
 
 .history-wins {
