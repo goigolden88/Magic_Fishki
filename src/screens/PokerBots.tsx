@@ -36,6 +36,9 @@ import {
 import { formatNumber, stackText } from '../calc/format'
 import { dockOf, waitLine } from '../calc/pokerLayout'
 import { lookClass } from '../calc/pokerLook'
+import { myTurnMark } from '../calc/pokerView'
+import { showPreActions } from '../calc/preAction'
+import { PreActionsDock, usePreAction } from './PreActions'
 import { handFor } from '../poker/history'
 import { NO_STORAGE } from './PokerLocal'
 import { BotFlagFields } from './BotFlagFields'
@@ -215,6 +218,10 @@ function BotTableCard(props: {
     </button>
   )
   const dock = broke ? 'none' : dockOf(v)
+  // Ход заранее (#299) — тот же, что в комнате, пока ходят боты; дошла очередь — ход делается сам, сразу
+  const { pre, autoMove, toggle } = usePreAction(v, myTurnMark(table, bots.meId), true, (move) =>
+    apply((bt, now) => myMove(bt, move, now)),
+  )
   const level = BOT_LEVELS.find(([l]) => l === bots.level)?.[1] ?? ''
   const botCount = table.players.length - 1
   // «Перерыв» / «Продолжить» — у стола с раздачей «сама» (#156); кнопкой — как раньше, без него
@@ -326,7 +333,7 @@ function BotTableCard(props: {
           </p>
         )}
 
-        {dock === 'turn' && v.actions && (
+        {dock === 'turn' && v.actions && autoMove === null && (
           // Новый ход или новый минимум — сумма снова с минимума
           <ActionsCard
             key={`${v.handNumber}-${v.stage}-${table.hand?.log.length ?? 0}-${v.actions.raise?.min ?? ''}`}
@@ -346,9 +353,13 @@ function BotTableCard(props: {
           </section>
         )}
         {/* Смотрю, меня в раздаче нет — «Вы смотрите» вместо «Доиграть сразу»: раздача идёт с паузами ботов (#244) */}
-        {dock === 'wait' && !playOn && (
-          <p className="dock wait-strip">{watch && !v.me?.inHand ? `Вы смотрите · ${waitLine(v)}` : waitLine(v)}</p>
-        )}
+        {/* Я в раздаче, ходит бот — с полосой два флажка хода заранее (#299), как в комнате */}
+        {((dock === 'wait' && !playOn) || autoMove !== null) &&
+          (showPreActions(v.actions) || autoMove !== null ? (
+            <PreActionsDock line={waitLine(v)} pre={pre} onToggle={toggle} />
+          ) : (
+            <p className="dock wait-strip">{watch && !v.me?.inHand ? `Вы смотрите · ${waitLine(v)}` : waitLine(v)}</p>
+          ))}
         {dock === 'host' && topUp && <section className="dock">{topUpButton}</section>}
         {dock === 'host' && (
           <HostDock view={v} pause={auto} onStart={() => apply((bt, now) => dealBotHand(bt, now))} onPause={pause} />

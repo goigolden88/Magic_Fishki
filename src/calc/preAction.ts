@@ -28,6 +28,17 @@ export function showPreActions(actions: ActionsView | null): boolean {
   return actions !== null && !actions.myTurn
 }
 
+// Флажок по виду стола (общий для комнаты и стола с ботами, #299): улица сейчас, флажок, который на ней
+// действует, и ход по нему, если очередь моя (иначе null)
+export function preActionNow(
+  mark: PreActionMark | null,
+  view: { handNumber: number; stage: string | null; actions: ActionsView | null },
+): { street: string | null; pre: PreAction | null; move: BetAction | null } {
+  const street = streetKey(view.handNumber, view.stage)
+  const pre = activePreAction(mark, street)
+  return { street, pre, move: preActionMove(pre, view.actions) }
+}
+
 // Какой ход отправить по флажку, когда пришла очередь: «Чек/пас» — чек, если можно, иначе пас;
 // «Колл любой» — чек, если уравнивать нечего, иначе колл (не хватает фишек — сервер ставит остаток,
 // олл-ин). Не мой ход, я не в раздаче или флажка нет — null
