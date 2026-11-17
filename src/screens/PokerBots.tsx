@@ -41,6 +41,7 @@ import { NO_STORAGE } from './PokerLocal'
 import { BotFlagFields } from './BotFlagFields'
 import { ActionsCard, blindsLine, HandHistory, HostDock, LastHand, PokerTable, PotList, useBigBlinds, useLookVersion } from './PokerRoom'
 import { LiveHandField } from './RoomFields'
+import { SessionReport } from './SessionReport'
 import { GearPop, MyLookPart } from './TableGear'
 import { AutoStartField } from './TimerFields'
 import {
@@ -189,7 +190,7 @@ function BotTableCard(props: {
   onFinish: () => void
 }) {
   const { bots, error, onError, apply, onFinish } = props
-  const [showHistory, setShowHistory] = useState(false)
+  const [showHistory, setShowHistory] = useState<'list' | 'report' | null>(null)
   const [gear, setGear] = useState(false) // «⚙ Стол» открыт (#243)
   useLookVersion() // свой вид сменили в «⚙» — стол сразу в новом
   const table = bots.table
@@ -201,6 +202,7 @@ function BotTableCard(props: {
   const evening = botsEvening(bots.id, table, bots.meId)
   const mine = useMyCards(evening.id, table, v.myCards, false)
   const copyWorks = useHandCopy(evening, history, mine)
+  const saved = savedHands(evening, history, mine)
   // Мои фишки кончились — вместо «Начать раздачу» карточка «Докупиться» / «Закончить»; в наблюдении (#244) — нет:
   // боты играют и при моём нуле, «Докупиться» — в карточке стола, перед «Вернуться за стол»
   const broke = iAmBroke(bots)
@@ -258,13 +260,27 @@ function BotTableCard(props: {
           <PotList view={v} />
           <LastHand table={table} view={v} />
 
-          {/* История раздач — на этом телефоне, вместе со столом; карты бота, взявшего банк без вскрытия, не видны */}
-          {showHistory ? (
-            <HandHistory hands={savedHands(evening, history, mine)} onClose={() => setShowHistory(false)} />
+          {/* История раздач — на этом телефоне, вместе со столом; карты бота, взявшего банк без вскрытия, не видны.
+              Рядом — «Отчёт сессии» (#263): тот же блок, что в «Прошлых вечерах», по этому вечеру; касание раздачи — она */}
+          {showHistory === 'list' ? (
+            <HandHistory hands={saved} onClose={() => setShowHistory(null)} />
+          ) : showHistory === 'report' ? (
+            <HandHistory
+              hands={saved}
+              title="Отчёт сессии"
+              noList
+              top={(openHand) => <SessionReport hands={saved} onHand={openHand} empty="Ваших раздач ещё не было" heading={false} />}
+              onClose={() => setShowHistory(null)}
+            />
           ) : (
-            <button type="button" className="big wide" onClick={() => setShowHistory(true)}>
-              История раздач
-            </button>
+            <div className="row">
+              <button type="button" className="big grow" onClick={() => setShowHistory('list')}>
+                История раздач
+              </button>
+              <button type="button" className="big grow" onClick={() => setShowHistory('report')}>
+                Отчёт сессии
+              </button>
+            </div>
           )}
           {!copyWorks && <p className="warn">{NO_COPY}</p>}
 

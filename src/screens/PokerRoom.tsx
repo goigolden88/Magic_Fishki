@@ -940,11 +940,13 @@ export function HandHistory(props: {
   title?: string
   back?: string
   initial?: number
-  top?: ReactNode // над списком раздач — итог прошлого вечера (#242)
+  // Над списком раздач — итог прошлого вечера (#242) и отчёт сессии (#263); функцией — открыть раздачу по номеру
+  top?: ReactNode | ((openHand: (number: number) => void) => ReactNode)
+  noList?: boolean // только top, без списка: «Отчёт сессии» за столом с ботами (#263)
   toTrainer?: (saved: SavedHand) => string | null
   onClose: () => void
 }) {
-  const { hands, note = null, title = 'История раздач', back = 'Закрыть', initial, top, toTrainer, onClose } = props
+  const { hands, note = null, title = 'История раздач', back = 'Закрыть', initial, top, noList, toTrainer, onClose } = props
   const [open, setOpen] = useState<number | null>(initial ?? null)
   const ref = useRef<HTMLElement>(null)
   const hand = hands?.find((h) => h.number === open) ?? null
@@ -961,7 +963,7 @@ export function HandHistory(props: {
       <div className="history-head">
         <h2>{hand ? `Раздача ${hand.number}` : title}</h2>
         <button type="button" className="big" onClick={hand ? () => setOpen(null) : onClose}>
-          {hand ? '← Все раздачи' : back}
+          {hand ? (noList ? `← ${title}` : '← Все раздачи') : back}
         </button>
       </div>
       {hand ? (
@@ -969,8 +971,8 @@ export function HandHistory(props: {
       ) : (
         <>
           {note && <p className="warn">{note}</p>}
-          {top}
-          {hands === null ? (
+          {typeof top === 'function' ? top(setOpen) : top}
+          {noList ? null : hands === null ? (
             !note && <p className="muted">Загружаем…</p>
           ) : list.length === 0 ? (
             <p className="muted">Раздач ещё не было</p>
