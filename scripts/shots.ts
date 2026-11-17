@@ -1283,6 +1283,70 @@ async function showOnly(cdp: Cdp): Promise<void> {
 
 const SHOW_CODE = 'KQ7MZP'
 
+// npm run shots -- mak (#279): «Прошлая раздача» в комнате с «Мак сам» — у проигравшего на вскрытии «Гоша — сбросил без
+// показа», без карт. Соединение подменено, как у «Показать» (fakeRoomSocket); снимок — на 390
+async function muckOnly(cdp: Cdp): Promise<void> {
+  const size = SIZES[0]
+  console.log(`Мак на вскрытии, ${size.width} × ${size.height}`)
+  const d = await Device.open(cdp, size)
+  await themeOnly(d)
+  await screen('Комната: «сбросил без показа»', size, async () => {
+    const table = await muckTable()
+    await d.goto('#/poker')
+    await d.waitText('Войти по ссылке')
+    await d.eval(`(localStorage.setItem('fishki.poker.seats', ${JSON.stringify(JSON.stringify({ [SHOW_CODE]: { playerId: 'me', token: 'shots' } }))}), true)`)
+    await d.eval(`(${fakeRoomSocket.toString()})(${JSON.stringify(table)}), true`)
+    await d.goto(`#/poker/${SHOW_CODE}`)
+    await d.waitText('сбросил без показа')
+    // «Прошлая раздача» — под столом, в своём прокручиваемом блоке
+    await d.eval(`([...document.querySelectorAll('h2')].find((h) => h.innerText.startsWith('Прошлая раздача')).closest('section').scrollIntoView({ block: 'start' }), true)`)
+    await sleep(500)
+    await d.shot('09k-mak-sbrosil-bez-pokaza', false)
+  })
+}
+
+// Комната с картами на телефонах и «Мак сам» после вскрытия, в виде моего телефона: кнопка — Аня, я (Борис) ставлю на
+// ривере и открываю первым — пара тузов; Гоша уравнял с дамами — хуже, сброс без показа; Аня спасовала на ривере
+async function muckTable(): Promise<unknown> {
+  const load = async (file: string) =>
+    (await runnerImport<Record<string, any>>(join(process.cwd(), 'src/poker', file), { configFile: false, logLevel: 'silent' })).module
+  const table = await load('table.ts')
+  const { stackedDeck } = await load('testing.ts')
+  const { PROTOCOL_VERSION } = await load('protocol.ts')
+  const now = Date.now()
+  const settings = { sb: 5, bb: 10, startingStack: 1000, maxSeats: 6, cards: 'phones', autoStart: 'off', muck: 'auto' }
+  const created = table.createTable('host', 'Аня', settings, now)
+  if (!created.ok) throw new Error(created.error)
+  let state = created.state
+  const send = (from: string, body: Record<string, unknown>, deck?: string[]) => {
+    const r = table.handle(state, from, { v: PROTOCOL_VERSION, ...body }, now, deck)
+    if (!r.ok) throw new Error(`${from} ${String(body.type)}: ${r.error}`)
+    state = r.state
+  }
+  send('me', { type: 'sit', name: 'Борис' })
+  send('gosha', { type: 'sit', name: 'Гоша' })
+  const hole: Record<string, string[]> = { me: ['Ah', 'Kd'], gosha: ['Qs', 'Qc'], host: ['7c', '2d'] }
+  send('host', { type: 'start' }, stackedDeck([hole.me, hole.gosha, hole.host], ['As', '9h', '5d', '3c', 'Jh']))
+  // Карты — по игрокам, кто бы ни был на кнопке: колода с тем же столом, руки — на место
+  state.hand.cards.hole = { ...hole }
+  // До ривера — колл и чеки; на ривере Борис ставит, Гоша уравнивает, Аня пасует
+  for (let i = 0; i < 20 && state.hand; i++) {
+    const hand = state.hand
+    const seat = hand.seats[hand.toAct]
+    const facing = hand.currentBet > seat.bet
+    const river = hand.stage === 'river'
+    const action =
+      river && seat.id === 'me' && !facing
+        ? { type: 'raise', to: 40 }
+        : river && seat.id === 'host' && facing
+          ? { type: 'fold' }
+          : { type: facing ? 'call' : 'check' }
+    send(seat.id, { type: 'act', action })
+  }
+  if (state.hand || !state.lastHand?.record?.mucked?.includes('gosha')) throw new Error('вскрытие с маком не доиграно')
+  return table.viewFor(state, 'me')
+}
+
 // Соединение комнаты на странице вместо WebSocket: открывается сразу, на «join» — «welcome» и стол, на «history» — пусто
 function fakeRoomSocket(table: unknown): void {
   const w = window as unknown as Record<string, unknown>
@@ -2421,8 +2485,10 @@ async function main(): Promise<void> {
     const onlyReport = process.argv.includes('otchet') // npm run shots -- otchet: отчёт сессии (#263)
     const onlyRules = process.argv.includes('pravila') // npm run shots -- pravila: правила игры за столом (#277)
     const onlyShow = process.argv.includes('pokazat') // npm run shots -- pokazat: «Показать» у сбросившего (#278)
+    const onlyMuck = process.argv.includes('mak') // npm run shots -- mak: «сбросил без показа» на вскрытии (#279)
     const part =
       onlyShow ||
+      onlyMuck ||
       onlyRules ||
       onlyReport ||
       onlyCooler ||
@@ -2442,6 +2508,7 @@ async function main(): Promise<void> {
     if (onlyOwnGames) await ownGamesOnly(cdp)
     if (onlyRules) await rulesOnly(cdp)
     if (onlyShow) await showOnly(cdp)
+    if (onlyMuck) await muckOnly(cdp)
     if (onlyHandLog) await handLogOnly(cdp)
     if (onlyWhatsNew) await whatsNewOnly(cdp)
     if (onlyCooler) await coolerOnly(cdp)
@@ -2466,6 +2533,7 @@ async function main(): Promise<void> {
     if (!onlyTable && !uchet && !part) await coolerOnly(cdp)
     if (!onlyTable && !uchet && !part) await reportOnly(cdp)
     if (!onlyTable && !uchet && !part) await showOnly(cdp)
+    if (!onlyTable && !uchet && !part) await muckOnly(cdp)
     if (!onlyTable && !part) await whatsNewOnly(cdp)
     if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !part) {
       for (const other of ['club', 'day'] as const) for (const size of SIZES) await themeScenario(cdp, size, other)
