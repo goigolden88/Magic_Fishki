@@ -40,6 +40,7 @@ import { handFor } from '../poker/history'
 import { NO_STORAGE } from './PokerLocal'
 import { BotFlagFields } from './BotFlagFields'
 import { ActionsCard, blindsLine, HandHistory, HostDock, LastHand, PokerTable, PotList, useBigBlinds, useLookVersion } from './PokerRoom'
+import { TableInfo } from './GameRules'
 import { LiveHandField } from './RoomFields'
 import { SessionReport } from './SessionReport'
 import { GearPop, MyLookPart } from './TableGear'
@@ -237,10 +238,10 @@ function BotTableCard(props: {
     <div className={`table-layout ${lookClass(table.settings, loadMyLook(), hasOwnBack())}`} style={tableFitStyle()}>
       <div className="table-scroll">
         <div className="table-stage">
-          <p className="muted table-info">
+          <TableInfo settings={table.settings}>
             {blindsLine(table, v)} · {v.handNumber > 0 ? `раздача ${v.handNumber} · ` : ''}
             {v.stageLabel}
-          </p>
+          </TableInfo>
           {/* Свои карты — лицом: телефон только мой */}
           <PokerTable view={v} table={table} open />
         </div>
