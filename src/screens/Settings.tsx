@@ -131,6 +131,9 @@ import { useWide } from './useWide'
 import { LookChoice, MyLookFields } from './MyLookFields'
 import { THEME_ACCENT, THEME_COLOR, THEME_LABELS, themeOf } from '../calc/theme'
 import { loadThemeChoice, saveTheme } from './theme'
+import { CHANGES } from '../changes'
+import { ChangeList } from './WhatsNew'
+import { GearPop } from './TableGear'
 
 export function SettingsScreen() {
   const [settings, setSettings] = useState<Settings | null>(null)
@@ -141,6 +144,7 @@ export function SettingsScreen() {
   const [restored, setRestored] = useState(0) // восстановили из копии — карточки покер-рума (Р-62) читаются заново
   const [ownGames, setOwnGames] = useState(loadOwnGames) // свои игры (#225): их правит «Свои игры», выбирает «Быстрая комната»
   const [openGroups, setOpenGroups] = useState(loadOpenGroups) // развёрнутые разделы (#234), на этом устройстве
+  const [changes, setChanges] = useState(false) // открыт «Что нового» (#261)
 
   useEffect(() => {
     void getSettings().then((s) => {
@@ -317,6 +321,15 @@ export function SettingsScreen() {
       <p className="muted version-line">
         Версия: {formatDate(__BUILD_DATE__)} · {__BUILD_COMMIT__} · протокол&nbsp;{PROTOCOL_VERSION}
       </p>
+      {/* #261: тот же список «Что нового», что всплывает после обновления, — целиком */}
+      <button type="button" className="big wide" aria-haspopup="dialog" onClick={() => setChanges(true)}>
+        Что нового
+      </button>
+      {changes && (
+        <GearPop title="Что нового" onClose={() => setChanges(false)}>
+          <ChangeList changes={CHANGES} />
+        </GearPop>
+      )}
     </main>
   )
 }
