@@ -96,18 +96,24 @@ export function allTimeMore(regular: Regular, saved: SavedHand[]): AllTimeMore {
     out.hands++
     outcomes.push({ evening: s.evening, code: s.code, startedAt: s.startedAt, number: s.number, chips, bb: record.bb })
   }
-  // При равном итоге — позднее выше
+  return { ...out, ...bestWorst(outcomes) }
+}
+
+// До трёх раздач в плюсе и в минусе — по итогу в ББ; при равном итоге — позднее выше.
+// Общее с отчётом сессии (#263): там — раздачи одного вечера и мои
+export function bestWorst(outcomes: HandOutcome[]): { best: HandOutcome[]; worst: HandOutcome[] } {
   const later = (a: HandOutcome, b: HandOutcome) => b.startedAt - a.startedAt || b.number - a.number
   const inBB = (o: HandOutcome) => o.chips / o.bb
-  out.best = outcomes
-    .filter((o) => o.chips > 0)
-    .sort((a, b) => inBB(b) - inBB(a) || later(a, b))
-    .slice(0, TOP)
-  out.worst = outcomes
-    .filter((o) => o.chips < 0)
-    .sort((a, b) => inBB(a) - inBB(b) || later(a, b))
-    .slice(0, TOP)
-  return out
+  return {
+    best: outcomes
+      .filter((o) => o.chips > 0)
+      .sort((a, b) => inBB(b) - inBB(a) || later(a, b))
+      .slice(0, TOP),
+    worst: outcomes
+      .filter((o) => o.chips < 0)
+      .sort((a, b) => inBB(a) - inBB(b) || later(a, b))
+      .slice(0, TOP),
+  }
 }
 
 // Чистый итог раздачи каждого места в фишках: выплаты минус вложенное (invested — общее с кулером, #262)
