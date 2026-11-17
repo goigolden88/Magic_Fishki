@@ -49,6 +49,7 @@ import {
   PotList,
   useLookVersion,
 } from './PokerRoom'
+import { TableInfo } from './GameRules'
 import { LookGear } from './TableGear'
 import { TournamentPanel, TournamentResults } from './Tournament'
 
@@ -260,10 +261,10 @@ function LocalTableCard(props: {
     <div className={`table-layout ${lookClass(table.settings, loadMyLook(), hasOwnBack())}`} style={tableFitStyle()}>
       <div className="table-scroll">
         <div className="table-stage">
-          <p className="muted table-info">
+          <TableInfo settings={table.settings}>
             {blindsLine(table, v)} · {v.handNumber > 0 ? `раздача ${v.handNumber} · ` : ''}
             {v.stageLabel}
-          </p>
+          </TableInfo>
           <PokerTable view={v} table={table} />
         </div>
 

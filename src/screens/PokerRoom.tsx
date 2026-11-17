@@ -77,6 +77,7 @@ import { ulid } from '../ulid'
 import { NO_COPY, useHandCopy, useMyCards } from './handCopy'
 import { openGameYear } from './openYears'
 import { HudCard, HudFields, HudLine, useHudDetailed } from './Hud'
+import { TableInfo } from './GameRules'
 import { noteOf, type NoteLabels, type PlayerNote } from '../calc/playerNotes'
 import { NoteDot, NotePop, useNotes } from './PlayerNote'
 import { LookFields } from './LookFields'
@@ -400,10 +401,11 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
     <div className={`table-layout ${lookClass(table.settings, loadMyLook(), hasOwnBack())}`} style={tableFitStyle()}>
       <div className="table-scroll">
         <div className="table-stage">
-          <p className="muted table-info">
+          {/* Не холдем (#277) — касание строки: правила игры */}
+          <TableInfo settings={table.settings}>
             {blindsLine(table, v)} · {v.handNumber > 0 ? `раздача ${v.handNumber} · ` : ''}
             {v.stageLabel} · ведущий — {v.hostName}
-          </p>
+          </TableInfo>
           {host && <p className="muted server-line">Сервер: {host}</p>}
           <PokerTable
             view={v}

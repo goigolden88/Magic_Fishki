@@ -1368,6 +1368,59 @@ textarea.chart-paste {
   line-height: 1.3;
 }
 
+/* Строка над столом не холдема (#277) — кнопкой: вид как у строки, в конце «ⓘ»; касание — правила игры */
+button.table-info.rules-line {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border-radius: 0.3rem;
+  background: none;
+  color: var(--muted);
+  text-align: inherit;
+}
+
+.rules-mark {
+  color: var(--gold);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+/* Карточка правил — поверх страницы у верхнего края, без затемнения: стол и панель хода под ней работают */
+.rules-pop {
+  position: fixed;
+  left: 50%;
+  top: calc(env(safe-area-inset-top, 0) + 3.5rem);
+  z-index: 15;
+  transform: translateX(-50%);
+  width: min(94vw, 26rem);
+  max-height: 70dvh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.8rem;
+  border: 2px solid var(--gold);
+  border-radius: 0.8rem;
+  background: var(--card);
+  box-shadow: 0 0.4rem 1.5rem var(--pop-shadow);
+  text-align: left;
+}
+
+.rules-title {
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+
+.rules-lines {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  line-height: 1.35;
+}
+
 /* «Сервер: …» — комната не на постоянном сервере (#83); длинное имя переносится, а не уводит вбок */
 .server-line {
   margin: 0 0 0.25rem;
