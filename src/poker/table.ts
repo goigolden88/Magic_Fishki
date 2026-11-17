@@ -185,7 +185,13 @@ export type HandResult = {
   record?: HandRecord // карты на телефонах — полная запись раздачи
 }
 
-// Запись раздачи с картами — под журнал раздач (этап 3). Карты сбросивших сюда не попадают
+// Карты, видные только самому игроку (#278): id игрока → его карты по порядку сдачи
+export type HiddenCards = Record<string, Card[]>
+
+// Запись до #278: один игрок — взявший банк без вскрытия
+export type OldHidden = { playerId: string; cards: Card[] }
+
+// Запись раздачи с картами — под журнал раздач (этап 3). Карты сбросивших — только в hidden
 export type HandRecord = {
   game: GameDef
   sb: number
@@ -199,7 +205,9 @@ export type HandRecord = {
   hands: Record<string, string> // у дошедших до вскрытия — что у него: «Две пары, короли и семёрки»
   // У дошедших до вскрытия — лучшая пятёрка: сначала карты комбинации, затем кикеры (#96); у записей до неё поля нет
   best?: Record<string, Card[]>
-  hidden: { playerId: string; cards: Card[] } | null // взял банк без вскрытия: карты видны только ему, пока не покажет
+  // Карты, видные только самому игроку, пока не покажет (#278): взявший банк без вскрытия и сбросившие; показал все —
+  // его здесь нет. У записей до #278 — один взявший без вскрытия (OldHidden) или null. Читать — через hiddenOf
+  hidden: HiddenCards | OldHidden | null
   // «Прогнать несколько раз» (#167, Р-58): каждый борд — карты, что у дошедших на нём, их пятёрки и победители
   // каждого банка (по порядку банков). Первый — тот же, что board, hands и best. Прогон один — поля нет
   runs?: RunRecord[]
@@ -212,6 +220,19 @@ export type HandRecord = {
 }
 
 export type PotSplit = { hi: string[]; lo: string[] }
+
+// Закрытые карты записи по игрокам — и у записей до #278 (один игрок); записи нет — пусто
+export function hiddenOf(record: HandRecord | undefined | null): HiddenCards {
+  const h = record?.hidden
+  if (!h || typeof h !== 'object') return {}
+  if (isOldHidden(h)) return { [h.playerId]: h.cards }
+  return h as HiddenCards
+}
+
+function isOldHidden(h: object): h is OldHidden {
+  const old = h as Partial<OldHidden>
+  return typeof old.playerId === 'string' && Array.isArray(old.cards)
+}
 
 // winners — у каждого банка лучшая старшая рука на этом борде; хай/лоу (#227) — ещё лоу борда, как у HandRecord
 export type RunRecord = {
@@ -464,12 +485,13 @@ function rearm(state: TableState, now: number): void {
 }
 
 // Что видит телефон игрока playerId: без колоды и без чужих закрытых карт — ни в раздаче,
-// ни в записи прошлой (карты взявшего без вскрытия — только ему). HUD «только свой» (#79) — без
-// чужих счётчиков. null — не вошедший
+// ни в записи прошлой (закрытые карты взявшего без вскрытия и сбросивших — каждому только свои, #278).
+// HUD «только свой» (#79) — без чужих счётчиков. null — не вошедший
 export function viewFor(table: TableState, playerId: string | null): TableState {
   const hud = table.hud ?? {}
   const hideHud = !table.settings.publicHud && Object.keys(hud).some((id) => id !== playerId)
-  if (!table.hand?.cards && !table.lastHand?.record?.hidden && !hideHud) return table
+  const closed = Object.keys(hiddenOf(table.lastHand?.record)).length > 0
+  if (!table.hand?.cards && !closed && !hideHud) return table
   const view = structuredClone(table)
   const mine = playerId !== null ? view.hud?.[playerId] : undefined
   if (hideHud) view.hud = mine && playerId !== null ? { [playerId]: mine } : {}
@@ -479,8 +501,14 @@ export function viewFor(table: TableState, playerId: string | null): TableState 
     for (const id of Object.keys(cards.hole)) if (id !== playerId) cards.hole[id] = publicCards(cards, id)
   }
   const record = view.lastHand?.record
-  if (record?.hidden && record.hidden.playerId !== playerId) record.hidden = null
+  if (record && closed) record.hidden = ownHidden(record, playerId)
   return view
+}
+
+// Из закрытых карт записи — только свои; не вошедшему — ничьих
+export function ownHidden(record: HandRecord, playerId: string | null): HiddenCards {
+  const mine = playerId !== null ? hiddenOf(record)[playerId] : undefined
+  return mine ? { [playerId as string]: mine } : {}
 }
 
 // Соединение игрока открылось или закрылось (зовёт сервер)
@@ -799,7 +827,12 @@ function settle(state: TableState, now: number): string | null {
   const live = hand.seats.filter((s) => !s.folded).map((s) => s.id)
   const hole = (id: string) => cards.hole[id] as Card[] // на сервере все карты на месте
   const shown: Record<string, (Card | null)[]> = {}
-  let hidden: HandRecord['hidden'] = null
+  // Сбросившие (#278): карты видны только им — показать можно после раздачи
+  const hidden: HiddenCards = {}
+  for (const s of hand.seats) {
+    const own = cards.hole[s.id]
+    if (s.folded && own && own.length > 0 && own.every((c) => c !== null)) hidden[s.id] = [...(own as Card[])]
+  }
   let runs: RunRecord[]
   if (live.length > 1) {
     const times = runsFor(state, hand, cards, live, now)
@@ -830,7 +863,7 @@ function settle(state: TableState, now: number): string | null {
     for (const id of live) shown[id] = hole(id)
   } else {
     runs = [{ board: [...cards.board], hands: {}, best: {}, winners: hand.pots.map((pot) => [...pot.eligible]) }]
-    hidden = { playerId: live[0], cards: hole(live[0]) }
+    hidden[live[0]] = hole(live[0])
   }
   const [first] = runs
   // Банк в итоге раздачи — взявшие хоть часть (хай/лоу — и лоу); бордов несколько — хоть на одном, по местам
@@ -1048,12 +1081,15 @@ function resetTimeouts(state: TableState, playerId: string): null {
   return null
 }
 
-// «Показать»: взявший банк без вскрытия открывает всем свои карты — обе или одну (по номерам)
+// «Показать»: после конца раздачи и до новой взявший банк без вскрытия или сбросивший (#278) открывает всем
+// свои карты — все или часть (по номерам). Во время раздачи — нет: это подсказка оставшимся
 function show(state: TableState, from: string, which: unknown): string | null {
+  if (state.hand) return 'Показать карты можно, когда раздача кончится, — до новой'
   const record = state.lastHand?.record
-  const hidden = record?.hidden
-  if (state.hand || !record || !hidden || hidden.playerId !== from) return 'Показать карты может взявший банк без вскрытия — до новой раздачи'
-  const n = hidden.cards.length
+  const hidden = hiddenOf(record)
+  const cards = hidden[from]
+  if (!record || !cards) return 'Показать карты может взявший банк без вскрытия или сбросивший — до новой раздачи'
+  const n = cards.length
   if (
     !Array.isArray(which) ||
     which.length === 0 ||
@@ -1063,9 +1099,12 @@ function show(state: TableState, from: string, which: unknown): string | null {
     return 'Выберите, какие карты показать'
   }
   const before = record.shown[from] ?? []
-  const shown = hidden.cards.map((c, i) => (which.includes(i) || before[i] ? c : null))
+  const shown = cards.map((c, i) => (which.includes(i) || before[i] ? c : null))
   record.shown[from] = shown
-  if (shown.every((c) => c !== null)) record.hidden = null
+  // Запись до #278 — по игрокам; показал все — его карт среди закрытых нет
+  const rest: HiddenCards = { ...hidden }
+  if (shown.every((c) => c !== null)) delete rest[from]
+  record.hidden = rest
   return null
 }
 

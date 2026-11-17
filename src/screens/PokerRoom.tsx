@@ -1140,9 +1140,9 @@ function PeekCards(props: {
 
 const ORDINALS = ['первую', 'вторую', 'третью', 'четвёртую', 'пятую']
 
-// Взял банк без вскрытия: показать всем обе карты или одну — по желанию
+// После раздачи взял банк без вскрытия или сбросил (#278): показать всем все карты или одну — по желанию
 function ShowCard(props: {
-  show: { cards: Card[]; shown: boolean[] }
+  show: { cards: Card[]; shown: boolean[]; won: boolean }
   online: boolean
   open: boolean
   onOpen: (on: boolean) => void
@@ -1152,7 +1152,7 @@ function ShowCard(props: {
   const left = show.cards.map((_, i) => i).filter((i) => !show.shown[i])
   return (
     <section className="card">
-      <h2>Банк ваш без вскрытия</h2>
+      <h2>{show.won ? 'Банк ваш без вскрытия' : 'Вы сбросили'}</h2>
       <p className="muted">Можно показать карты всем — все или одну. До новой раздачи.</p>
       <PeekCards cards={show.cards} open={open} size="big" hint />
       <label className="check">

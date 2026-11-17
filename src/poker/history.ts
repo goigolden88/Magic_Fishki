@@ -3,7 +3,7 @@
 // и ограничен по размеру. На одном телефоне — рядом со столом (localTable.ts). Здесь — что
 // записать после хода и что из записи видит игрок
 import type { HandLogEntry } from './hand'
-import type { HandResult, TableState } from './table'
+import { hiddenOf, ownHidden, type HandResult, type TableState } from './table'
 
 // Живые карты: записи раздачи (record) у стола нет — места в начале и ходы берутся из самой раздачи
 export type LiveRecord = {
@@ -34,10 +34,16 @@ export function keepHand(history: HistoryHand[], hand: HistoryHand | null): Hist
   return at === -1 ? [...history, hand] : history.map((h, i) => (i === at ? hand : h))
 }
 
-// Что из записи видит игрок: карты взявшего банк без вскрытия — только он сам, пока не показал
-// (как прошлая раздача в viewFor). null — не вошедший
+// Что из записи видит игрок: закрытые карты взявшего банк без вскрытия и сбросивших (#278) — каждый только свои,
+// пока не показал (как прошлая раздача в viewFor). null — не вошедший
 export function handFor(hand: HistoryHand, playerId: string | null): HistoryHand {
-  const hidden = hand.record?.hidden
-  if (!hand.record || !hidden || hidden.playerId === playerId) return hand
-  return { ...hand, record: { ...hand.record, hidden: null } }
+  if (!hand.record?.hidden) return hand
+  return { ...hand, record: { ...hand.record, hidden: ownHidden(hand.record, playerId) } }
+}
+
+// Взявший банк без вскрытия, чьи карты ещё закрыты: у записей до Р-54 — чей это телефон (чужим эти карты
+// не приходят), на столе на одном телефоне — чьи карты видны всем, как до #239. Сбросившие — не он
+export function hiddenWinner(hand: HistoryHand): string | null {
+  const ids = Object.keys(hiddenOf(hand.record))
+  return ids.find((id) => hand.pots.some((p) => p.winners.includes(id))) ?? null
 }
