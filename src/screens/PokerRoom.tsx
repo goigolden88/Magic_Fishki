@@ -70,6 +70,7 @@ import {
   type HistorySort,
   type PickOptions,
 } from '../calc/historyFilter'
+import { RANGE_EXAMPLE } from '../calc/rangeText'
 import type { Street } from '../poker/hand'
 import { mixView, type MixView } from '../calc/pokerMix'
 import { runView, type RunView } from '../calc/pokerRuns'
@@ -1049,7 +1050,7 @@ function HistoryPickPanel(props: {
                 className={rangeError ? 'bad' : undefined}
                 value={pick.range}
                 onChange={(e) => set({ range: e.target.value })}
-                placeholder="77+, A9s+, AKo"
+                placeholder={RANGE_EXAMPLE}
                 autoCapitalize="characters"
                 autoCorrect="off"
                 spellCheck={false}
