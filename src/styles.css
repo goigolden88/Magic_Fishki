@@ -1464,9 +1464,16 @@ button.bar-button {
   inset: 2.6rem calc(var(--seat-w) / 2) 2.4rem;
 }
 
+/* Слой мест лежит поверх центра стола: сам касаний не ловит, иначе банк-кнопка (#258) мертва под пальцем;
+   места и их кнопки — ловят */
 .spots {
   position: absolute;
   inset: 2.6rem calc(var(--seat-w) / 2) 0.3rem;
+  pointer-events: none;
+}
+
+.spots > * {
+  pointer-events: auto;
 }
 
 /* Сукно (#77) — класс на обёртке стола; цвета не светлее зелёного: текст на сукне читается как прежде */
