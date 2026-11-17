@@ -32,6 +32,8 @@ import {
   saveSettings,
   saveSyncMeta,
   type DirtyMark,
+  type HandTombstone,
+  type Tombstone,
 } from './db'
 
 // Синхронизация, шаг 1 (#264): время правки у всех данных, удаление пометкой, список неотправленного
@@ -207,8 +209,8 @@ describe('каждая запись — отметка «не отправлен
   })
 })
 
-describe('удаление — пометкой (#264)', () => {
-  it('игра: пропадает из списков и копии; в базе — пометка, новое время, отметка', async () => {
+describe('удаление — меткой вместо записи (#264, #301)', () => {
+  it('игра: пропадает из списков и копии; в базе — только метка: id, deleted, новое время; отметка', async () => {
     await saveGame(game('01A'))
     await saveGame(game('01B'))
     await clearDirty(await listDirty())
@@ -220,10 +222,9 @@ describe('удаление — пометкой (#264)', () => {
     const backup = makeBackup(await listGames(), await getSettings(), before)
     expect(backup.games.map((g) => g.id)).toEqual(['01B'])
 
-    const stored = (await raw<Game>('games')).find((g) => g.id === '01A')!
-    expect(stored.deleted).toBe(true)
+    const stored = (await raw<Tombstone>('games')).find((g) => g.id === '01A')!
+    expect(stored).toEqual({ id: '01A', deleted: true, updatedAt: stored.updatedAt })
     expect(stored.updatedAt >= before).toBe(true)
-    expect(stored.entries).toEqual(game('01A').entries)
     expect(await listDirty()).toEqual([{ store: 'games', key: '01A' }])
 
     // Второй раз — ничего нового
@@ -249,10 +250,16 @@ describe('удаление — пометкой (#264)', () => {
         { store: 'hands', key: [FRIDAY.id, 2] },
       ]),
     )
-    expect((await raw<SavedHand>('hands')).map((h) => [h.evening, h.number, h.deleted])).toEqual([
+    // У раздач удалённого вечера — только ключ, deleted и время правки: карт, ходов, имён нет
+    const stored = await raw<SavedHand | HandTombstone>('hands')
+    expect(stored.map((h) => Object.keys(h).sort())).toEqual([
+      ['deleted', 'evening', 'number', 'updatedAt'],
+      ['deleted', 'evening', 'number', 'updatedAt'],
+      ['code', 'evening', 'hand', 'number', 'startedAt', 'updatedAt'],
+    ])
+    expect(stored.slice(0, 2).map((h) => [h.evening, h.number, 'deleted' in h && h.deleted])).toEqual([
       [FRIDAY.id, 1, true],
       [FRIDAY.id, 2, true],
-      [BOTS.id, 1, undefined],
     ])
 
     expect(await deleteEvenings(false)).toEqual({ evenings: 1, hands: 1 })
@@ -265,13 +272,14 @@ describe('удаление — пометкой (#264)', () => {
     expect((await listEvenings()).map((e) => [e.id, e.hands])).toEqual([[BOTS.id, 1]])
   })
 
-  it('чарт: пропадает из «Моих чартов» и ключей; в базе — пометка', async () => {
+  it('чарт: пропадает из «Моих чартов» и ключей; в базе — только метка', async () => {
     await saveChart(chart('c1', 'UTG'))
     await saveChart(chart('c2', 'BTN'))
     await deleteChart('c1')
     expect((await listCharts()).map((c) => c.id)).toEqual(['c2'])
     expect(await chartIds()).toEqual(['c2'])
-    expect((await raw<OwnChart>('charts')).find((c) => c.id === 'c1')?.deleted).toBe(true)
+    const stored = (await raw<OwnChart | Tombstone>('charts')).find((c) => c.id === 'c1')!
+    expect(stored).toEqual({ id: 'c1', deleted: true, updatedAt: stored.updatedAt })
   })
 })
 
@@ -296,19 +304,17 @@ describe('восстановление из копии возвращает уд
     expect(plan.existing).toBe(1)
 
     const back = (await getGame('01A'))!
-    expect(back.deleted).toBeUndefined()
+    expect(back).toEqual({ ...backup.games.find((g) => g.id === '01A'), updatedAt: back.updatedAt })
     expect(back.updatedAt >= restoredAt).toBe(true)
-    expect(back.entries).toEqual(game('01A').entries)
     expect((await getGame('01B'))?.name).toBe('Своя правка')
 
     const [h] = await eveningRecords(FRIDAY.id)
-    expect(h.deleted).toBeUndefined()
+    expect(h).toEqual({ ...backup.hands[0], updatedAt: h.updatedAt })
     expect(h.mine).toEqual(['As', 'Kd'])
     expect(h.updatedAt! >= restoredAt).toBe(true)
 
     const [c] = await listCharts()
-    expect(c.id).toBe('c1')
-    expect(c.deleted).toBeUndefined()
+    expect(c).toEqual({ ...chart('c1', 'UTG'), updatedAt: c.updatedAt })
     expect(c.updatedAt >= restoredAt).toBe(true)
 
     expect(sortMarks(await listDirty())).toEqual(
@@ -324,6 +330,149 @@ describe('восстановление из копии возвращает уд
     const [old] = savedHands(FRIDAY, [hand(1)])
     await restoreHands([old])
     expect((await allHands())[0].updatedAt).toBe(new Date(FRIDAY.startedAt).toISOString())
+  })
+})
+
+const DAY = 24 * 60 * 60 * 1000
+const daysAgo = (days: number) => new Date(Date.now() - days * DAY).toISOString()
+
+type V5 = { games?: unknown[]; hands?: unknown[]; charts?: unknown[]; dirty?: DirtyMark[]; syncMeta?: Record<string, unknown> }
+
+// База версии 5 — как её оставило приложение после #264, с записями как есть; приложение откроет её следующим чтением
+async function openV5(data: V5): Promise<void> {
+  const req = indexedDB.open('magic_fishki', 5)
+  req.onupgradeneeded = () => {
+    req.result.createObjectStore('games', { keyPath: 'id' })
+    req.result.createObjectStore('settings')
+    req.result.createObjectStore('hands', { keyPath: ['evening', 'number'] }).createIndex('evening', 'evening')
+    req.result.createObjectStore('charts', { keyPath: 'id' })
+    req.result.createObjectStore('dirty', { keyPath: ['store', 'key'] })
+    req.result.createObjectStore('syncMeta')
+  }
+  const db = await request(req)
+  const tx = db.transaction(['games', 'hands', 'charts', 'dirty', 'syncMeta'], 'readwrite')
+  for (const g of data.games ?? []) tx.objectStore('games').put(g)
+  for (const h of data.hands ?? []) tx.objectStore('hands').put(h)
+  for (const c of data.charts ?? []) tx.objectStore('charts').put(c)
+  for (const m of data.dirty ?? []) tx.objectStore('dirty').put(m)
+  for (const [k, v] of Object.entries(data.syncMeta ?? {})) tx.objectStore('syncMeta').put(v, k)
+  await new Promise<void>((resolve) => (tx.oncomplete = () => resolve()))
+  db.close()
+}
+
+const ids = async (store: string) => (await raw<{ id: string }>(store)).map((r) => r.id)
+
+describe('миграция базы 5 → 6 (#301)', () => {
+  it('помеченное удалённым сжимается до меток; живые записи и отметки не трогаются', async () => {
+    const at = daysAgo(1)
+    const [friday] = savedHands(FRIDAY, [hand(1)], new Map([[1, ['As', 'Kd']]]))
+    const [bots] = savedHands(BOTS, [hand(1)])
+    const live = { ...friday, updatedAt: daysAgo(40) }
+    const DIRTY: DirtyMark[] = [
+      { store: 'games', key: '01B' },
+      { store: 'hands', key: [BOTS.id, 1] },
+    ]
+    await openV5({
+      games: [game('01A'), { ...game('01B'), deleted: true, updatedAt: at }],
+      hands: [live, { ...bots, deleted: true, updatedAt: at }],
+      charts: [chart('c1', 'UTG'), { ...chart('c2', 'BTN'), deleted: true, updatedAt: at }],
+      dirty: DIRTY,
+    })
+
+    expect(await listGames()).toEqual([game('01A')])
+    expect(await allHands()).toEqual([live])
+    expect(await listCharts()).toEqual([chart('c1', 'UTG')])
+    expect(await raw('games')).toEqual([game('01A'), { id: '01B', deleted: true, updatedAt: at }])
+    expect(await raw('hands')).toEqual([live, { evening: BOTS.id, number: 1, deleted: true, updatedAt: at }])
+    expect(await raw('charts')).toEqual([chart('c1', 'UTG'), { id: 'c2', deleted: true, updatedAt: at }])
+    expect(sortMarks(await listDirty())).toEqual(sortMarks(DIRTY))
+  })
+})
+
+describe('метка живёт 30 дней (#301)', () => {
+  it('синхронизация не подключалась: метка 31 дня стирается вместе с отметкой, 29 дней — остаётся; живые старые — на месте', async () => {
+    await openV5({
+      games: [
+        game('01A'),
+        { id: 'old', deleted: true, updatedAt: daysAgo(31) },
+        { id: 'new', deleted: true, updatedAt: daysAgo(29) },
+      ],
+      hands: [
+        { evening: FRIDAY.id, number: 1, deleted: true, updatedAt: daysAgo(31) },
+        { evening: FRIDAY.id, number: 2, deleted: true, updatedAt: daysAgo(29) },
+      ],
+      charts: [{ id: 'old', deleted: true, updatedAt: daysAgo(31) }],
+      dirty: [
+        { store: 'games', key: 'old' },
+        { store: 'games', key: 'new' },
+        { store: 'hands', key: [FRIDAY.id, 1] },
+        { store: 'charts', key: 'old' },
+        { store: 'settings', key: 'settings' },
+      ],
+    })
+
+    expect(await listGames()).toEqual([game('01A')])
+    expect(await ids('games')).toEqual(['01A', 'new'])
+    expect((await raw<HandTombstone>('hands')).map((h) => h.number)).toEqual([2])
+    expect(await raw('charts')).toEqual([])
+    expect(sortMarks(await listDirty())).toEqual(
+      sortMarks([
+        { store: 'games', key: 'new' },
+        { store: 'settings', key: 'settings' },
+      ]),
+    )
+  })
+
+  it('синхронизация подключалась: метка 31 дня в «не отправлено» остаётся, отправленная — стирается; отметок не прибавилось', async () => {
+    const DIRTY: DirtyMark[] = [
+      { store: 'games', key: 'unsent' },
+      { store: 'hands', key: [FRIDAY.id, 1] },
+    ]
+    await openV5({
+      games: [
+        { id: 'unsent', deleted: true, updatedAt: daysAgo(31) },
+        { id: 'sent', deleted: true, updatedAt: daysAgo(31) },
+        { id: 'fresh', deleted: true, updatedAt: daysAgo(29) },
+      ],
+      hands: [
+        { evening: FRIDAY.id, number: 1, deleted: true, updatedAt: daysAgo(31) },
+        { evening: FRIDAY.id, number: 2, deleted: true, updatedAt: daysAgo(31) },
+      ],
+      charts: [{ id: 'sent', deleted: true, updatedAt: daysAgo(31) }],
+      dirty: DIRTY,
+      syncMeta: { commit: 'abc123' },
+    })
+
+    expect(await listGames()).toEqual([])
+    expect((await ids('games')).sort()).toEqual(['fresh', 'unsent'])
+    expect((await raw<HandTombstone>('hands')).map((h) => h.number)).toEqual([1])
+    expect(await raw('charts')).toEqual([])
+    expect(sortMarks(await listDirty())).toEqual(sortMarks(DIRTY))
+    expect(await loadSyncMeta('commit')).toBe('abc123')
+  })
+
+  it('восстановление из копии после стирания метки возвращает запись целиком', async () => {
+    await saveGame(game('01A'))
+    await saveHands(savedHands(FRIDAY, [hand(1)], new Map([[1, ['As', 'Kd']]])))
+    await saveChart(chart('c1', 'UTG'))
+    const backup = makeBackup(await listGames(), await getSettings(), 'x', await allHands(), {}, {}, undefined, undefined, await listCharts())
+
+    await request(indexedDB.deleteDatabase('magic_fishki'))
+    await openV5({
+      games: [{ id: '01A', deleted: true, updatedAt: daysAgo(31) }],
+      hands: [{ evening: FRIDAY.id, number: 1, deleted: true, updatedAt: daysAgo(31) }],
+      charts: [{ id: 'c1', deleted: true, updatedAt: daysAgo(31) }],
+    })
+    expect(await listGames()).toEqual([])
+    expect(await raw('games')).toEqual([])
+    expect(await raw('hands')).toEqual([])
+    expect(await raw('charts')).toEqual([])
+
+    const plan = await restore(backup)
+    expect(plan.added.map((g) => g.id)).toEqual(['01A'])
+    expect(await listGames()).toEqual(backup.games)
+    expect(await allHands()).toEqual(backup.hands)
+    expect(await listCharts()).toEqual(backup.charts)
   })
 })
 
