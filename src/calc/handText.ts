@@ -4,7 +4,7 @@
 import type { Card } from '../poker/cards'
 import type { GameId, GameRound, Limit } from '../poker/game'
 import type { HandLogEntry, Street } from '../poker/hand'
-import { handFor, hiddenWinner } from '../poker/history'
+import { handFor, hiddenOwner, hiddenWinner } from '../poker/history'
 import { hiddenOf } from '../poker/table'
 import { isOwnGameId } from '../poker/ownGame'
 import { eveningName, type SavedHand } from './evenings'
@@ -79,7 +79,8 @@ function handId(s: SavedHand): string {
 export function handText(saved: SavedHand): string {
   const t = saved.table
   // Чей телефон: у записей до Р-54 — взявший банк без вскрытия (чужим эти карты не приходят)
-  const hero = t?.me ?? hiddenWinner(saved.hand)
+  // Стол на одном телефоне — карты взявшего без вскрытия видны (#242)
+  const hero = t ? (t.me ?? hiddenWinner(saved.hand)) : hiddenOwner(saved.hand)
   const h = handFor(saved.hand, hero)
   const record = h.record
   const seats = record?.seats ?? h.live?.seats ?? []

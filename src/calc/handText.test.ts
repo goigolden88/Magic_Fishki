@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { deckFor, HOLDEM_GAME } from '../poker/game'
 import type { HistoryHand } from '../poker/history'
+import { hiddenOf } from '../poker/table'
 import { call, check, fold, newTable, play, raise, stackedDeck, start } from '../poker/testing'
 import { botsEvening, eveningTable, roomEvening, savedHands, type EveningTable, type SavedHand } from './evenings'
 import { handsFileName, handsText, handText } from './handText'
@@ -101,15 +102,17 @@ describe('выгрузка раздачи текстом покер-румов',
   })
 
   it('банк без вскрытия: непокрытая ставка вернулась, карты взявшего — только ему', () => {
-    const hidden = second.record?.hidden
-    expect(hidden?.playerId).toBe('p1')
-    const cards = hidden!.cards.join(' ')
+    const hidden = hiddenOf(second.record)
+    expect(Object.keys(hidden).sort()).toEqual(['p0', 'p1', 'p2'])
+    const cards = hidden.p1.join(' ')
 
+    // У сбросившего (#278) — свои карты из записи, чужих закрытых нет
     const theirs = handText(saved('p0', second))
     expect(theirs).toContain('P1: raises 20 to 30\nP2: folds\nP0: folds\nUncalled bet (20) returned to P1\nP1 collected 25 from pot')
     expect(theirs).toContain('Total pot 25 | Rake 0')
     expect(theirs).not.toContain(cards)
-    expect(theirs).not.toContain('Dealt to')
+    expect(theirs).not.toContain(hidden.p2.join(' '))
+    expect(theirs).toContain(`Dealt to P0 [${hidden.p0.join(' ')}]`)
 
     const mine = handText(saved('p1', second))
     expect(mine).toContain(`Dealt to P1 [${cards}]`)

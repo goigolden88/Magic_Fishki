@@ -3,7 +3,7 @@ import type { HistoryHand } from '../../src/poker/history'
 import type { OwnGame } from '../../src/poker/ownGame'
 import { PING_MS, PROTOCOL_VERSION, VERSION_ERROR } from '../../src/poker/protocol'
 import { RUN_VOTE_MS } from '../../src/poker/runs'
-import { AUTO_START_MS, HOST_TAKEOVER_MS, type Settings, type TableState } from '../../src/poker/table'
+import { AUTO_START_MS, hiddenOf, HOST_TAKEOVER_MS, type Settings, type TableState } from '../../src/poker/table'
 import {
   alarm,
   CHECK_MS,
@@ -794,7 +794,7 @@ const handKeys = (r: ReturnType<typeof fakeRoom>) => [...r.storage.data.keys()].
 
 describe('история раздач вечера (#113)', () => {
   it('карты на телефонах: раздача — своей записью; карты взявшего без вскрытия — только ему, «Показать» — всем', async () => {
-    const { r, host, guests } = await cardsRoom()
+    const { r, host, hostId, guests } = await cardsRoom()
     const [g1, g2] = guests
     expect(await historyOf(r, host)).toEqual([])
     // Кнопка — ведущий: он и первый гость сбросили — банк второму гостю без вскрытия
@@ -802,17 +802,18 @@ describe('история раздач вечера (#113)', () => {
     await send(r, host, foldBody)
     const othersSent = [host, g1.peer].map((p) => p.sent.length)
     await send(r, g1.peer, foldBody)
-    const hidden = (await stored(r))?.table.lastHand?.record?.hidden
-    expect(hidden?.playerId).toBe(g2.id)
-    const cards = hidden?.cards ?? []
+    // Закрытые по игрокам (#278): взявший без вскрытия и двое сбросивших
+    const hidden = hiddenOf((await stored(r))?.table.lastHand?.record)
+    expect(Object.keys(hidden).sort()).toEqual([hostId, g1.id, g2.id].sort())
+    const cards = hidden[g2.id] ?? []
     expect(handKeys(r)).toEqual([handKey(1)])
 
     const mine = await historyOf(r, g2.peer)
-    expect(mine[0].record?.hidden).toEqual(hidden)
-    for (const peer of [host, g1.peer]) {
+    expect(mine[0].record?.hidden).toEqual({ [g2.id]: cards })
+    for (const [peer, id] of [[host, hostId], [g1.peer, g1.id]] as const) {
       const hands = await historyOf(r, peer)
       expect(hands.map((h) => h.number)).toEqual([1])
-      expect(hands[0].record?.hidden).toBeNull()
+      expect(hands[0].record?.hidden).toEqual({ [id]: hidden[id] })
       expect(hands[0].record?.seats.map((s) => s.name)).toEqual(['Ведущий', 'Гость', 'Третий'])
     }
     // Ни в истории, ни в столе чужим его карты не ушли
@@ -835,8 +836,50 @@ describe('история раздач вечера (#113)', () => {
     const both = await historyOf(r, g1.peer)
     expect(both.map((h) => h.number)).toEqual([1, 2])
     expect(both[0].record?.shown[g2.id]).toEqual([cards[0], null])
-    // Карты сбросивших в историю не попадают
+    // Карты сбросивших в показанные не попадают
     expect(Object.keys(both[1].record?.shown ?? {})).toEqual([])
+  })
+
+  it('сбросивший (#278): «Показать» одну и обе после раздачи; в раздаче и после новой — отказ; чужим закрытые не уходят', async () => {
+    const { r, host, hostId, guests } = await cardsRoom()
+    const [g1, g2] = guests
+    const startSent = [host, g1.peer, g2.peer].map((p) => p.sent.length)
+    // Кнопка — ведущий: сбросил первым; во время раздачи показать нельзя
+    await send(r, host, { type: 'start' })
+    await send(r, host, foldBody)
+    await send(r, host, { type: 'show', cards: [0] })
+    expect(host.last()).toMatchObject({ type: 'error', error: 'Показать карты можно, когда раздача кончится, — до новой' })
+    // Первый гость сбросил — банк второму без вскрытия
+    await send(r, g1.peer, foldBody)
+    const hidden = hiddenOf((await stored(r))?.table.lastHand?.record)
+    const hostCards = hidden[hostId]
+    const g1Cards = hidden[g1.id]
+    expect(hostCards).toHaveLength(2)
+    expect(g1Cards).toHaveLength(2)
+
+    // Ведущий показывает одну: её видят все, вторую — никто, кроме него
+    await send(r, host, { type: 'show', cards: [1] })
+    expect(tableOf(g2.peer).lastHand?.record?.shown[hostId]).toEqual([null, hostCards[1]])
+    expect((await historyOf(r, g1.peer))[0].record?.shown[hostId]).toEqual([null, hostCards[1]])
+    for (const [i, peer] of [g1.peer, g2.peer].entries()) {
+      expect(JSON.stringify(peer.sent.slice(startSent[i + 1]))).not.toContain(`"${hostCards[0]}"`)
+    }
+    // Закрытые первого гостя — ни ведущему, ни второму гостю
+    for (const [i, peer] of [host, g2.peer].entries()) {
+      const text = JSON.stringify(peer.sent.slice(startSent[i === 0 ? 0 : 2]))
+      expect(g1Cards.filter((c) => text.includes(`"${c}"`))).toEqual([])
+    }
+
+    // Первый гость показывает обе разом — видны всем, в истории тоже
+    await send(r, g1.peer, { type: 'show', cards: [0, 1] })
+    expect(tableOf(host).lastHand?.record?.shown[g1.id]).toEqual(g1Cards)
+    expect((await historyOf(r, g2.peer))[0].record?.shown[g1.id]).toEqual(g1Cards)
+    expect(Object.keys(hiddenOf((await stored(r))?.table.lastHand?.record)).sort()).toEqual([hostId, g2.id].sort())
+
+    // Новая раздача — прошлую показать поздно
+    await send(r, host, { type: 'start' })
+    await send(r, host, { type: 'show', cards: [0] })
+    expect(host.last()).toMatchObject({ type: 'error', error: 'Показать карты можно, когда раздача кончится, — до новой' })
   })
 
   it('живые карты, 150 раздач: стол на каждый ход не растёт; вошедший позже получает всю историю; стирается с комнатой', async () => {

@@ -41,9 +41,15 @@ export function handFor(hand: HistoryHand, playerId: string | null): HistoryHand
   return { ...hand, record: { ...hand.record, hidden: ownHidden(hand.record, playerId) } }
 }
 
-// Взявший банк без вскрытия, чьи карты ещё закрыты: у записей до Р-54 — чей это телефон (чужим эти карты
-// не приходят), на столе на одном телефоне — чьи карты видны всем, как до #239. Сбросившие — не он
+// Взявший банк без вскрытия, чьи карты ещё закрыты: на столе на одном телефоне — чьи карты видны всем,
+// как до #239. Сбросившие — не он
 export function hiddenWinner(hand: HistoryHand): string | null {
   const ids = Object.keys(hiddenOf(hand.record))
   return ids.find((id) => hand.pots.some((p) => p.winners.includes(id))) ?? null
+}
+
+// Чей телефон у записи без стола вечера (до Р-54): чьи закрытые карты в ней — чужие телефону не приходят
+export function hiddenOwner(hand: HistoryHand): string | null {
+  const ids = Object.keys(hiddenOf(hand.record))
+  return ids.length === 1 ? ids[0] : hiddenWinner(hand)
 }

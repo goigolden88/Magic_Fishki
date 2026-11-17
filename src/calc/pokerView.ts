@@ -8,7 +8,7 @@ import { formatDate } from '../dates'
 import { potLimit, type HandLogEntry, type Stage, type Street } from '../poker/hand'
 import { HUD_FEW_HANDS, type HudCounts } from '../poker/hud'
 import { buildPots } from '../poker/pots'
-import { handFor, hiddenWinner, type HistoryHand } from '../poker/history'
+import { handFor, hiddenOwner, hiddenWinner, type HistoryHand } from '../poker/history'
 import { bankOf, blindsNow, hiddenOf, HOST_TAKEOVER_MS, waitingRebuy, type HandRecord, type HandResult, type TableState } from '../poker/table'
 import { allInOdds } from './allInOdds'
 import { coolerOf, type Cooler } from './cooler'
@@ -644,9 +644,9 @@ const BOARD_AT: Record<Street, number> = { preflop: 0, flop: 3, turn: 4, river: 
 const GAME_LABELS: Record<string, string> = { holdem: 'Холдем', omaha: 'Омаха', shortdeck: 'Шорт-дек' }
 
 // Чей телефон: игрок стола (стол на одном телефоне — никто); у записей до Р-54 стола нет —
-// взявший банк без вскрытия (чужим эти карты не приходят), как в выгрузке
+// чьи закрытые карты в записи (чужим они не приходят), как в выгрузке
 function heroOf(s: SavedHand): string | null {
-  return s.table ? s.table.me : hiddenWinner(s.hand)
+  return s.table ? s.table.me : hiddenOwner(s.hand)
 }
 
 // Свои карты — как в выгрузке: что видел телефон в раздаче, иначе из записи (взял без вскрытия или вскрылся)
