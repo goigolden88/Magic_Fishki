@@ -76,7 +76,7 @@ describe('раздача из истории — стороны калькуля
     const s = saved(rec, { mine: ['Kh', 'Qh'] })
     expect(trainerStart(s)).toEqual({ sides: [['Kh', 'Qh'], null], board: ['2s', '7h', '9d'] })
     const hash = trainerHashOf(s)
-    expect(hash).toBe('#/poker/trainer?side=KhQh&side=&board=2s7h9d')
+    expect(hash).toBe('#/poker/trainer?side=KhQh&side=&board=2s7h9d&street=preflop')
     expect(hash).not.toContain('Ah')
     expect(hash).not.toContain('Ad')
   })
@@ -135,6 +135,8 @@ describe('раздача из истории — стороны калькуля
       runs: [run(['2s', '7h', '9d', 'Jd', '3s']), run(['2s', '7h', '9d', '4c', '5d'])],
     })
     expect(trainerStart(saved(rec, { mine: ['Kh', 'Qh'] }))).toEqual({ sides: [['Kh', 'Qh'], ['Ac', 'Ad']], board: ['2s', '7h', '9d'] })
+    // Улицы (#273) — до общей части: префлоп и флоп
+    expect(trainerHashOf(saved(rec, { mine: ['Kh', 'Qh'] }))).toBe('#/poker/trainer?side=KhQh&side=AcAd&board=2s7h9d&street=preflop')
   })
 
   it('омаха, шорт-дек, своя игра и живые карты — null, кнопки нет', () => {
@@ -180,5 +182,56 @@ describe('адрес калькулятора (#221)', () => {
       'side=AsKs&side=&board=2c7d9h&board=Tc', // два борда
     ]
     for (const q of bad) expect(parseTrainerPath(`/poker/trainer?${q}`), q).toBeNull()
+  })
+})
+
+describe('улица в адресе калькулятора (#273)', () => {
+  const sides = [['As', 'Ks'], null]
+  const parse = (q: string) => parseTrainerPath(`/poker/trainer?side=AsKs&side=${q}`)
+
+  it('раздача из истории с бордом — весь борд и street=preflop; туда и обратно', () => {
+    const rec = record(2, {
+      board: ['2s', '7h', '9d', 'Jd', '3s'],
+      log: [move('p0', 'call'), move('p1', 'check'), move('p1', 'check', 'river'), move('p0', 'check', 'river')],
+      shown: { p0: ['Kh', 'Qh'], p1: ['Ac', 'Ad'] },
+    })
+    const hash = trainerHashOf(saved(rec, { mine: ['Kh', 'Qh'] }))
+    expect(hash).toBe('#/poker/trainer?side=KhQh&side=AcAd&board=2s7h9dJd3s&street=preflop')
+    expect(parseTrainerPath(hash!.slice(1))).toEqual({ sides: [['Kh', 'Qh'], ['Ac', 'Ad']], board: ['2s', '7h', '9d', 'Jd', '3s'], street: 'preflop' })
+  })
+
+  it('раздача без борда — без улицы: переключать нечего', () => {
+    const rec = record(2, { log: [move('p0', 'call'), move('p1', 'check')], shown: { p0: ['9s', '9h'], p1: [null, null] } })
+    expect(trainerHashOf(saved(rec))).toBe('#/poker/trainer?side=9s9h&side=')
+  })
+
+  it('улица при 3, 4 и 5 картах борда', () => {
+    const flop = ['2c', '7d', '9h']
+    expect(parse('&board=2c7d9h&street=preflop')).toEqual({ sides, board: flop, street: 'preflop' })
+    expect(parse('&board=2c7d9h&street=flop')).toEqual({ sides, board: flop, street: 'flop' })
+    expect(parse('&board=2c7d9hTc&street=turn')).toEqual({ sides, board: [...flop, 'Tc'], street: 'turn' })
+    expect(parse('&board=2c7d9hTcJc&street=river')).toEqual({ sides, board: [...flop, 'Tc', 'Jc'], street: 'river' })
+    expect(parse('&board=2c7d9hTcJc&street=flop')).toEqual({ sides, board: [...flop, 'Tc', 'Jc'], street: 'flop' })
+  })
+
+  it('улица дальше борда, без борда, неизвестная или две — null', () => {
+    const bad = [
+      '&board=2c7d9hTc&street=river', // ривер при 4 картах
+      '&board=2c7d9h&street=turn', // тёрн при флопе
+      '&street=flop', // флоп без борда
+      '&street=preflop', // префлоп без борда — переключать нечего
+      '&board=2c7d9h&street=showdown', // неизвестная улица
+      '&board=2c7d9h&street=toString', // не улица, а имя у любого объекта
+      '&board=2c7d9h&street=', // пустая
+      '&board=2c7d9h&street=flop&street=preflop', // две улицы
+    ]
+    for (const q of bad) expect(parse(q), q).toBeNull()
+  })
+
+  it('адрес без улицы — как раньше, без street', () => {
+    const start = parse('&board=2c7d9hTc')
+    expect(start).toEqual({ sides, board: ['2c', '7d', '9h', 'Tc'] })
+    expect(start).not.toHaveProperty('street')
+    expect(trainerHash({ sides, board: ['2c', '7d', '9h'] })).toBe('#/poker/trainer?side=AsKs&side=&board=2c7d9h')
   })
 })

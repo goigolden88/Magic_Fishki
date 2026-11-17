@@ -169,7 +169,7 @@ export type TableView = {
   cooler: Cooler | null // между раздачами — кулер прошлой (#262, coolerOf): у мест победителя и проигравшего; иначе null
 }
 
-const STAGE_LABELS: Record<Stage, string> = {
+export const STAGE_LABELS: Record<Stage, string> = {
   preflop: 'Префлоп',
   flop: 'Флоп',
   turn: 'Тёрн',

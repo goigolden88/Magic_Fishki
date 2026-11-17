@@ -5,11 +5,15 @@ import { SUITS, type Card } from '../poker/cards'
 import type { Street } from '../poker/hand'
 import { handFor } from '../poker/history'
 import type { SavedHand } from './evenings'
-import { BOARD_MAX, HAND_CARDS, TRAINER_SIDES_MAX, TRAINER_SIDES_MIN } from './trainerView'
+import { BOARD_MAX, HAND_CARDS, STREET_CARDS, TRAINER_SIDES_MAX, TRAINER_SIDES_MIN } from './trainerView'
 
 export const TRAINER_PATH = '/poker/trainer'
 
-export type TrainerStart = { sides: (Card[] | null)[]; board: Card[] }
+// street (#273) — с какой улицы открыть борд раздачи из истории; есть — на экране переключатель улиц
+export type TrainerStart = { sides: (Card[] | null)[]; board: Card[]; street?: Street }
+
+// Борд от флопа и дальше — улицы есть, раздача из истории открывается с префлопа (#273)
+const STREETS_FROM = 3
 
 const RANK_CHARS = '23456789TJQKA'
 
@@ -70,18 +74,23 @@ export function trainerStart(saved: SavedHand): TrainerStart | null {
   return { sides: sides.slice(0, TRAINER_SIDES_MAX), board: [...board] }
 }
 
-// Адрес калькулятора: #/poker/trainer?side=AsKs&side=&side=QhQd&board=Ah7d2c — пустая сторона — пустой диапазон
+// Адрес калькулятора: #/poker/trainer?side=AsKs&side=&side=QhQd&board=Ah7d2c&street=preflop — пустая сторона —
+// пустой диапазон; street — улица, с которой открыть (#273)
 export function trainerHash(start: TrainerStart): string {
   const params = start.sides.map((s) => `side=${s ? s.join('') : ''}`)
   if (start.board.length > 0) params.push(`board=${start.board.join('')}`)
+  if (start.street) params.push(`street=${start.street}`)
   return `#${TRAINER_PATH}?${params.join('&')}`
 }
 
-// Кнопка «В калькулятор» у раздачи: адрес или null — кнопки нет
+// Кнопка «В калькулятор» у раздачи: адрес или null — кнопки нет. Борд дошёл до флопа — открыть с префлопа (#273)
 export function trainerHashOf(saved: SavedHand): string | null {
   const start = trainerStart(saved)
-  return start ? trainerHash(start) : null
+  if (!start) return null
+  return trainerHash(start.board.length >= STREETS_FROM ? { ...start, street: 'preflop' } : start)
 }
+
+const isStreet = (s: string): s is Street => Object.hasOwn(STREET_CARDS, s)
 
 // Карты подряд: «AhKd» → ['Ah', 'Kd']; не карты — null
 function cardsOf(text: string): Card[] | null {
@@ -97,7 +106,8 @@ function cardsOf(text: string): Card[] | null {
 
 // Разбор адреса калькулятора (путь после #): без параметров — null, с чистого листа, как в #213.
 // Кривые параметры — тоже null: карта не из колоды, повтор карты, сторона не из двух карт, больше шести сторон,
-// борд не из 0, 3, 4 или 5 карт. Одна сторона — вторая пустым диапазоном
+// борд не из 0, 3, 4 или 5 карт; улица (#273) не из preflop|flop|turn|river, при борде короче флопа или дальше
+// борда (turn — от 4 карт, river — 5). Одна сторона — вторая пустым диапазоном
 export function parseTrainerPath(path: string): TrainerStart | null {
   const at = path.indexOf('?')
   if (at < 0) return null
@@ -108,6 +118,10 @@ export function parseTrainerPath(path: string): TrainerStart | null {
   if (boards.length > 1) return null
   const board = cardsOf(boards[0] ?? '')
   if (!board || ![0, 3, 4, BOARD_MAX].includes(board.length)) return null
+  const streets = params.getAll('street')
+  if (streets.length > 1) return null
+  const street = streets[0]
+  if (street !== undefined && (!isStreet(street) || board.length < STREETS_FROM || STREET_CARDS[street] > board.length)) return null
   const sides: (Card[] | null)[] = []
   for (const text of raw) {
     if (text === '') {
@@ -121,5 +135,5 @@ export function parseTrainerPath(path: string): TrainerStart | null {
   const all = [...board, ...sides.flatMap((s) => s ?? [])]
   if (new Set(all).size !== all.length) return null
   while (sides.length < TRAINER_SIDES_MIN) sides.push(null)
-  return { sides, board }
+  return street === undefined ? { sides, board } : { sides, board, street }
 }

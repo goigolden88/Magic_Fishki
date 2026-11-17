@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import type { Card } from '../poker/cards'
+import type { Street } from '../poker/hand'
 import { deckOf, suitClass } from '../calc/pokerLook'
 import { cardFace } from '../calc/pokerView'
 import { CLASSES, emptyRange, parseRange, RANGE_EXAMPLE, rangeText } from '../calc/rangeText'
@@ -11,6 +12,7 @@ import {
   rangeSizeText,
   runsText,
   shareText,
+  streetBoards,
   takenCards,
   TRAINER_DECK,
   TRAINER_SIDES_MAX,
@@ -48,12 +50,16 @@ type ChartsModule = typeof import('./TrainerCharts')
 // «Тренажёр» (#213, Р-73): калькулятор эквити — 2…6 сторон (рука или диапазон на сетке 13 × 13) и борд;
 // счёт — в фоне (useTrainerOdds). Ввод живёт, пока открыт экран: не хранится, при возврате — с чистого листа.
 // Вкладки (#214, Р-76): «Калькулятор» и «Чарты»; переключение ввод вкладок не стирает.
-// start — стороны и борд раздачи из истории (#221, из адреса): только начальный ввод, правка адрес не меняет
+// start — стороны и борд раздачи из истории (#221, из адреса): только начальный ввод, правка адрес не меняет.
+// start.street (#273) — переключатель улиц над бордом: улица — первые 0 / 3 / 4 / 5 карт борда раздачи; стороны
+// те же. Правка борда руками переключатель убирает — борд теперь свой
 export function TrainerScreen({ start = null }: { start?: TrainerStart | null }) {
   const [tab, setTab] = useState<Tab>('calc')
   const [charts, setCharts] = useState<ChartsModule | 'loading' | 'failed' | null>(null)
   const [sides, setSides] = useState<Side[]>(() => (start ? start.sides.map(sideOf) : [newSide(), newSide()]))
-  const [board, setBoard] = useState<Card[]>(() => start?.board ?? [])
+  const streets = useMemo(() => (start?.street ? streetBoards(start.board) : null), [start])
+  const [street, setStreet] = useState<Street | null>(start?.street ?? null)
+  const [board, setBoard] = useState<Card[]>(() => streets?.find((s) => s.street === street)?.board ?? start?.board ?? [])
   const [open, setOpen] = useState<number | 'board' | null>(null) // чья колода открыта: сторона (id) или борд
   const input = useMemo(() => trainerInput(sides, board), [sides, board])
   const odds = useTrainerOdds('sides' in input ? input.sides : null, board)
@@ -81,10 +87,22 @@ export function TrainerScreen({ start = null }: { start?: TrainerStart | null })
     if (cards.length === HAND_CARDS) setOpen(null)
   }
 
+  // Борд руками — свой: переключателя улиц больше нет
+  function editBoard(next: Card[]) {
+    setBoard(next)
+    setStreet(null)
+  }
+
   function pickBoard(card: Card) {
     const next = pickCard(board, card, BOARD_MAX)
-    setBoard(next)
+    editBoard(next)
     if (next.length === BOARD_MAX) setOpen(null)
+  }
+
+  function pickStreet(next: { street: Street; board: Card[] }) {
+    setStreet(next.street)
+    setBoard(next.board)
+    if (open === 'board') setOpen(null)
   }
 
   // Итог: причина входа, причина счёта или доли; пока считает — прошлый итог приглушён, если сторон столько же
@@ -126,13 +144,28 @@ export function TrainerScreen({ start = null }: { start?: TrainerStart | null })
 
       <section className="card trainer-board">
         <h2>Борд</h2>
+        {streets && street && (
+          <div className="row trainer-streets" role="group" aria-label="Улица раздачи">
+            {streets.map((s) => (
+              <button
+                key={s.street}
+                type="button"
+                className={street === s.street ? 'big primary grow' : 'big grow'}
+                aria-pressed={street === s.street}
+                onClick={() => pickStreet(s)}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="trainer-cards">
           <button type="button" className="card-slots" aria-expanded={open === 'board'} onClick={() => setOpen(open === 'board' ? null : 'board')}>
             <Slots cards={board} count={BOARD_MAX} />
             <span className="slots-hint">{open === 'board' ? 'Готово' : board.length === 0 ? 'Выбрать борд' : 'Поменять'}</span>
           </button>
           {board.length > 0 && (
-            <button type="button" className="big" onClick={() => setBoard([])}>
+            <button type="button" className="big" onClick={() => editBoard([])}>
               Очистить борд
             </button>
           )}
