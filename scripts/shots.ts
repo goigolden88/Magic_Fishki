@@ -2382,6 +2382,42 @@ async function watchOnly(cdp: Cdp): Promise<void> {
   }
 }
 
+// npm run shots -- zaranee: ход заранее за столом с ботами (#299), на телефоне и ноутбуке — пока ходят боты,
+// внизу «Ждём хода» и флажки, «Колл любой» отмечен
+async function preActionsOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES.slice(0, 2)) {
+    console.log(`Ход заранее за столом с ботами, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await screen('Против ботов, ход заранее', size, async () => {
+      await botsTable(d, 3)
+      await markPreAction(d, 'Колл любой')
+      await d.tableShot('15a-zaranee-boty')
+    })
+  }
+}
+
+// Свой ход — «Чек» или «Колл», пока внизу не появятся флажки хода заранее (ходит бот, я в раздаче); тогда — отметить label
+async function markPreAction(d: Device, label: string): Promise<void> {
+  const started = Date.now()
+  while (Date.now() - started < BOTS_TIMEOUT) {
+    const state = await d.eval<string>(`(() => {
+      const flag = [...document.querySelectorAll('.dock.pre-actions button')].find((b) => b.innerText.trim() === ${JSON.stringify(label)})
+      if (flag) {
+        flag.click()
+        return 'marked'
+      }
+      const move = [...document.querySelectorAll('.dock.actions button')].find((b) => /^(Чек|Колл)/.test(b.innerText.trim()) && !b.disabled)
+      if (move) move.click()
+      const start = [...document.querySelectorAll('button')].find((b) => b.innerText.trim() === 'Начать раздачу' && !b.disabled)
+      if (start) start.click()
+      return 'wait'
+    })()`)
+    if (state === 'marked') return d.waitText(`✓ ${label}`, 2000)
+    await sleep(200)
+  }
+  throw new Error(`за ${BOTS_TIMEOUT / 1000} с не появились флажки хода заранее — нет «${label}»`)
+}
+
 // Наблюдение: своя раздача — «Пас» в свой ход, пока внизу не «Вы смотрите · Ждём хода» — раздача без меня
 async function watchUntilBotsPlay(d: Device): Promise<void> {
   const started = Date.now()
@@ -2589,7 +2625,9 @@ async function main(): Promise<void> {
     const onlyMuck = process.argv.includes('mak')
     const onlyHelp = process.argv.includes('spravka') // npm run shots -- spravka: справка группами (#245)
     const onlySync = process.argv.includes('sinhr') // npm run shots -- sinhr: «Синхронизация» в «Настройках» (#265)
+    const onlyPre = process.argv.includes('zaranee') // npm run shots -- zaranee: ход заранее за столом с ботами (#299)
     const part =
+      onlyPre ||
       onlySync ||
       onlyHelp ||
       onlyShow ||
@@ -2610,6 +2648,7 @@ async function main(): Promise<void> {
       onlyOwnBack ||
       onlyStraddle ||
       onlyOwnGames
+    if (onlyPre) await preActionsOnly(cdp)
     if (onlySync) await syncOnly(cdp)
     if (onlyHelp) await helpOnly(cdp)
     if (onlyOwnGames) await ownGamesOnly(cdp)
@@ -2636,6 +2675,7 @@ async function main(): Promise<void> {
     if (!uchet && !part) for (const size of SIZES) await wideTableStep(cdp, size)
     if (!onlyTable && !uchet && !part) await gearOnly(cdp)
     if (!onlyTable && !uchet && !part) await watchOnly(cdp)
+    if (!onlyTable && !uchet && !part) await preActionsOnly(cdp)
     if (!onlyTable && !uchet && !part) await handLogOnly(cdp)
     if (!onlyTable && !uchet && !part) await coolerOnly(cdp)
     if (!onlyTable && !uchet && !part) await reportOnly(cdp)
