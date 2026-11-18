@@ -16,15 +16,23 @@ export type HistoryHand = HandResult & { live?: LiveRecord }
 
 // Ход стола before → after: раздача окончилась или «Показать» поменял запись прошлой — что записать
 // под её номером; иначе null. Живые карты кончаются только «Раздать банки» ведущего: ходы и места —
-// у раздачи до этого сообщения (before.hand); стек в начале — стек в раздаче плюс вложенное
+// у раздачи до этого сообщения (before.hand); стек в начале — стек в раздаче плюс вложенное.
+// Докрутка борда (#297, runout) — только на экран: в историю не идёт, и её снятие с началом новой — не правка записи
 export function finishedHand(before: TableState, after: TableState): HistoryHand | null {
-  const last = after.lastHand
-  if (!last || JSON.stringify(last) === JSON.stringify(before.lastHand)) return null
+  const last = withoutRunout(after.lastHand)
+  if (!last || JSON.stringify(last) === JSON.stringify(withoutRunout(before.lastHand))) return null
   const hand = before.hand
   if (last.record || !hand || hand.number !== last.number) return last
   const names = new Map(before.players.map((p) => [p.id, p.name]))
   const seats = hand.seats.map((s) => ({ id: s.id, name: names.get(s.id) ?? 'Ушёл', chips: s.chips + s.committed }))
   return { ...last, live: { seats, button: hand.button, log: hand.log } }
+}
+
+function withoutRunout(last: HandResult | null): HandResult | null {
+  if (!last?.runout) return last
+  const rest = { ...last }
+  delete rest.runout
+  return rest
 }
 
 // История на одном телефоне: запись с тем же номером — заменить («Показать»), новая — в конец

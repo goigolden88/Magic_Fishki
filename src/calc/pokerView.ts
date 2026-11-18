@@ -152,6 +152,9 @@ export type TableView = {
   // Между раздачами, когда прошлую прогнали несколько раз (#167), — все борды друг под другом, у каждого свой
   // победитель (board — первый из них); иначе null
   runs: RunBoardView[] | null
+  // Между раздачами, когда прошлая кончилась пасом до ривера (#297, Р-112), — карты стола, что вышли бы: «Докрутить»
+  // показывает их после board с пометкой «докрутка», каждый у себя; иначе (и в раздаче, и после вскрытия) — null
+  runout: Card[] | null
   myCards: Card[] | null // мои закрытые и открытые карты в раздаче — для «Подглядеть»
   // Моя лучшая комбинация сейчас (#105) — с флопа, пока я в раздаче и не спасовал: «Пара, дамы».
   // Видна только вместе с открытыми картами — это решает экран. Префлоп, пас, живые карты — null
@@ -285,6 +288,7 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
     board: cards?.board ?? record?.board ?? [],
     boardWin: record && fives.size > 0 ? record.board.filter((c) => [...fives.values()].some((five) => five.includes(c))) : null,
     runs: runBoards(record, potLabels(table.lastHand?.pots.length ?? 0)),
+    runout: runoutOf(table),
     myCards,
     myHand,
     canShow:
@@ -307,6 +311,13 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
     cooler: !hand && table.lastHand ? coolerOf(table.lastHand) : null,
     special: hand ? preflopOf(cards?.game, hand.stage === 'preflop' && mySeat && !mySeat.folded ? myCards : null, meId) : riverSpecial(table.lastHand, meId),
   }
+}
+
+// Докрутка прошлой раздачи (#297): только между раздачами, у записи с одним бордом
+function runoutOf(table: TableState): Card[] | null {
+  const last = table.lastHand
+  if (table.hand || !last?.record || last.record.runs || !last.runout || last.runout.length === 0) return null
+  return last.runout
 }
 
 // Мои AA, KK, AK на префлопе (#295) — особая рука только для меня; иначе null

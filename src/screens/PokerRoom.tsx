@@ -733,6 +733,26 @@ export function useLookVersion(): number {
   return useSyncExternalStore(subscribeLook, lookVersionNow)
 }
 
+// «Докрутить борд» (#297, Р-112): нажато — только на этом телефоне и только в памяти страницы, до новой раздачи.
+// Ключ — номер раздачи и её докрутка: стол и «Прошлая раздача» видят одно нажатие
+let runoutShown: string | null = null
+const runoutListeners = new Set<() => void>()
+
+function subscribeRunout(listener: () => void): () => void {
+  runoutListeners.add(listener)
+  return () => runoutListeners.delete(listener)
+}
+
+function useRunout(v: TableView): { shown: boolean; show: () => void } {
+  const key = v.runout ? `${v.handNumber}:${v.runout.join(',')}` : null
+  const shown = useSyncExternalStore(subscribeRunout, () => runoutShown) === key && key !== null
+  const show = () => {
+    runoutShown = key
+    for (const listener of runoutListeners) listener()
+  }
+  return { shown, show }
+}
+
 // Под столом — банки с претендентами
 export function PotList({ view: v }: { view: TableView }) {
   const unit = useBbUnit(v.bb)
@@ -758,7 +778,21 @@ export function LastHand({ table, view: v }: { table: TableState; view: TableVie
     <section className="card last-hand">
       <h2>Прошлая раздача {record.number}</h2>
       <HandBody view={record} />
+      <RunoutButton view={v} />
     </section>
+  )
+}
+
+// «Докрутить» (#297, Р-112): прошлая кончилась пасом до ривера — открыть на столе карты, что вышли бы; у себя,
+// только посмотреть. Нажато — вместо кнопки подпись
+function RunoutButton({ view: v }: { view: TableView }) {
+  const runout = useRunout(v)
+  if (!v.runout) return null
+  if (runout.shown) return <p className="muted">Докрутка — на столе, до новой раздачи; в историю не пишется</p>
+  return (
+    <button type="button" className="big wide" onClick={runout.show}>
+      Докрутить
+    </button>
   )
 }
 
@@ -1341,6 +1375,7 @@ export function PokerTable(props: {
   const { notes, labels } = useNotes()
   const wrap = useRef<HTMLDivElement>(null)
   const { dealing, cooler, special } = useTableDeal(wrap, v, live)
+  const runout = useRunout(v)
   // В центре стола (#295): ривер со стрит-флешем — крупно, с именем; иначе кулер — крупно «Кулер!»
   const river = special?.kind === 'river' ? special : null
   const riverWho = river ? (v.seats.find((s) => s.id === river.playerId) ?? null) : null
@@ -1410,9 +1445,18 @@ export function PokerTable(props: {
               </div>
             ))
           ) : (
-            v.board.length > 0 && (
-              <div className="board">
-                <CardRow cards={v.board} win={v.boardWin} fly={BOARD_GROUP} />
+            (v.board.length > 0 || runout.shown) && (
+              <div className={runout.shown ? 'board runout-board' : 'board'}>
+                <span>
+                  {v.board.length > 0 && <CardRow cards={v.board} win={v.boardWin} fly={BOARD_GROUP} />}
+                  {/* «Докрутить» (#297): карты, что вышли бы, — после борда, в пунктирной рамке, с подписью */}
+                  {runout.shown && v.runout && (
+                    <span className="runout-cards">
+                      <CardRow cards={v.runout} />
+                    </span>
+                  )}
+                </span>
+                {runout.shown && <span className="run-winner">докрутка</span>}
               </div>
             )
           )}
