@@ -55,9 +55,48 @@ describe('кулер (#262)', () => {
     expect(coolerOf(hand({ board: BOARD, a: FLUSH, b: FULL, winners: ['b'] }))).toEqual({ winner: 'b', loser: 'a' })
   })
 
-  it('холдем: стрит против флеша — нет', () => {
+  it('холдем: стрит против флеша — на обеих картах кулер (#295), на одной — нет', () => {
     const board = ['Th', '9h', '8h', '2c', '3d']
-    expect(coolerOf(hand({ board, a: ['Jc', 'Qd'], b: ['Ah', '4h'], winners: ['b'] }))).toBeNull()
+    expect(coolerOf(hand({ board, a: ['Jc', 'Qd'], b: ['Ah', '4h'], winners: ['b'] }))).toEqual({ winner: 'b', loser: 'a' })
+    const seven = ['Th', '9h', '8h', '7c', '3d']
+    expect(coolerOf(hand({ board: seven, a: ['Jc', '2d'], b: ['Ah', '4h'], winners: ['b'] }))).toBeNull()
+  })
+
+  // #295: в холдеме — ещё стрит или сет проигравшего на обеих его картах
+  const LOW = ['9h', '8d', '7c', '2s', 'Kd']
+
+  it('холдем: сет против стрита — кулер', () => {
+    expect(coolerOf(hand({ board: LOW, a: ['7s', '7d'], b: ['Tc', '6c'], winners: ['b'] }))).toEqual({ winner: 'b', loser: 'a' })
+  })
+
+  it('холдем: стрит против старшего стрита — кулер', () => {
+    expect(coolerOf(hand({ board: LOW, a: ['6s', '5d'], b: ['Jc', 'Tc'], winners: ['b'] }))).toEqual({ winner: 'b', loser: 'a' })
+  })
+
+  it('холдем: сет против старшего сета — кулер', () => {
+    const board = ['9h', '8d', '4c', '2s', 'Kd']
+    expect(coolerOf(hand({ board, a: ['8s', '8c'], b: ['9s', '9c'], winners: ['b'] }))).toEqual({ winner: 'b', loser: 'a' })
+  })
+
+  it('холдем: трипс с одной картой руки против стрита — нет', () => {
+    const board = ['7h', '7d', '9c', '8s', '2d']
+    expect(coolerOf(hand({ board, a: ['7s', 'Kc'], b: ['Tc', '6d'], winners: ['b'] }))).toBeNull()
+  })
+
+  it('холдем: стрит проигравшего на одной карте руки — нет', () => {
+    const board = ['9h', '8d', '7c', '6s', '2d']
+    expect(coolerOf(hand({ board, a: ['Ts', '3c'], b: ['Jc', 'Tc'], winners: ['b'] }))).toBeNull()
+  })
+
+  it('холдем: сет против стрита, вложено 19 ББ — нет', () => {
+    expect(coolerOf(hand({ board: LOW, a: ['7s', '7d'], b: ['Tc', '6c'], winners: ['b'], put: 19 * BB }))).toBeNull()
+  })
+
+  it('омаха: сет против стрита — нет', () => {
+    const board = ['9h', '8d', '7c', '2s', 'Kd']
+    const set = ['7s', '7d', '3c', '4c']
+    const straight = ['Tc', '6h', '3h', '4h']
+    expect(coolerOf(hand({ game: OMAHA_GAME, board, a: set, b: straight, winners: ['b'] }))).toBeNull()
   })
 
   it('вложено 15 ББ — нет, ровно 20 ББ — кулер', () => {
@@ -92,7 +131,7 @@ describe('кулер (#262)', () => {
   })
 
   it('несколько прогонов — по первому борду', () => {
-    const second = ['Ah', 'Kh', '7h', '3d', '2c'] // флеш a бьёт пару королей b
+    const second = ['Ah', '9h', '7h', '3d', '2c'] // флеш a бьёт пару королей b
     const run = (board: string[], winner: string): RunRecord => ({ board, hands: {}, best: {}, winners: [[winner]] })
     const twice = hand({ board: BOARD, a: FLUSH, b: FULL, winners: ['b', 'a'], runs: [run(BOARD, 'b'), run(second, 'a')] })
     expect(coolerOf(twice)).toEqual({ winner: 'b', loser: 'a' })
