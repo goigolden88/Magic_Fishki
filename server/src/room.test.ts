@@ -576,18 +576,30 @@ describe('мак на вскрытии (#279)', () => {
 
 describe('мак по выбору (#286)', () => {
   const BOARD: Card[] = ['2s', '7h', '9d', 'Jc', '3c']
+  const LOSER: Card[] = ['Kh', 'Qh']
+
+  // Карт проигравшего в тексте нет. Смотреть — только присланное после rig: до него у раздачи колода случайная,
+  // и победителю могли прийти свои Kh или Qh (#319)
+  const noLoserCards = (value: unknown) => {
+    const text = JSON.stringify(value)
+    for (const card of LOSER) expect(text).not.toContain(`"${card}"`)
+  }
 
   // Хедз-ап, ставок нет: первым открывает первый слева от кнопки (тузы), кнопка (король старший) — решает
   async function decided() {
     const t = await twoPlayers({ cards: 'phones', muck: 'manual', autoStart: 'fast' })
     await send(t.r, t.host, { type: 'start' })
-    const [winner, loser] = await rig(t.r, [['Ah', 'Ad'], ['Kh', 'Qh']], BOARD)
+    const [winner, loser] = await rig(t.r, [['Ah', 'Ad'], LOSER], BOARD)
     const peers = new Map([
       [t.hostId, t.host],
       [t.guestId, t.guest],
     ])
+    const winnerPeer = peers.get(winner) as FakePeer
+    const riggedFrom = winnerPeer.sent.length
     await moves(t.r, peers, Array(8).fill('pass'))
-    return { ...t, peers, winner: peers.get(winner) as FakePeer, loser: peers.get(loser) as FakePeer, loserId: loser }
+    // Присланное победителю за раздачу мака — после подложенных карт
+    const winnerSince = () => winnerPeer.sent.slice(riggedFrom)
+    return { ...t, peers, winner: winnerPeer, loser: peers.get(loser) as FakePeer, loserId: loser, winnerSince }
   }
 
   it('пауза: банк отдан, карт решающего нет у соперника, будильник — на конец паузы', async () => {
@@ -597,7 +609,8 @@ describe('мак по выбору (#286)', () => {
     expect(table.muckVote).toMatchObject({ players: [t.loserId], answers: {} })
     expect(table.nextHandAt).toBeNull()
     expect(t.r.storage.alarmAt).toBe(table.muckVote?.deadline)
-    expect(JSON.stringify(t.winner.sent.filter((m) => m.type === 'state').at(-1))).not.toContain('"Kh"')
+    expect(recordOf(t.winner)?.shown[t.loserId]).toBeUndefined()
+    noLoserCards(t.winnerSince())
     expect(tableOf(t.loser).muckVote?.players).toEqual([t.loserId])
     // Ведущий во время паузы раздачу не начинает
     await send(t.r, t.host, { type: 'start' })
@@ -611,9 +624,14 @@ describe('мак по выбору (#286)', () => {
     expect(table.muckVote).toBeNull()
     expect(table.nextHandAt).toBe(5000 + AUTO_START_MS.fast)
     expect(recordOf(t.winner)?.mucked).toEqual([t.loserId])
-    expect(JSON.stringify(t.winner.sent)).not.toContain('"Kh"')
+    expect(recordOf(t.winner)?.shown[t.loserId]).toBeUndefined()
+    expect(recordOf(t.winner)?.hands[t.loserId]).toBeUndefined()
+    noLoserCards(t.winnerSince())
     await send(t.r, t.winner, { type: 'history' })
-    expect(JSON.stringify(t.winner.last())).not.toContain('"Kh"')
+    const history = t.winner.last() as { type: string; hands: HistoryHand[] }
+    expect(history.type).toBe('history')
+    expect(history.hands.length).toBeGreaterThan(0)
+    noLoserCards(history.hands)
     // Второй ответ — отказ
     await send(t.r, t.loser, { type: 'muck', show: true }, 5000)
     expect(t.loser.last()).toMatchObject({ type: 'error', error: 'Выбора «показать или сбросить» сейчас нет' })
