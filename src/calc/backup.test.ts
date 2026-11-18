@@ -402,6 +402,24 @@ describe('файл-копия формата 5: вид стола', () => {
     const odd = parse(JSON.stringify({ ...backupOf([]), look: { ...LOOK, cardBack: 'own' } }))
     expect(odd.ok && odd.backup.look).toEqual({ ...LOOK, cardBack: null })
   })
+
+  it('аватарка (#298): в копии — только выбор из набора; «Своя» — по умолчанию (поля нет); формат прежний', () => {
+    const cat = makeBackup([], SETTINGS, NOW, [], {}, {}, { ...LOOK, avatar: 'cat' })
+    const text = backupText(cat)
+    expect(JSON.parse(text).look).toEqual({ ...LOOK, avatar: 'cat' })
+    expect(JSON.parse(text).format).toBe(BACKUP_FORMAT)
+    expect(parse(text)).toEqual({ ok: true, backup: cat })
+    const own = makeBackup([], SETTINGS, NOW, [], {}, {}, { ...LOOK, avatar: 'own' })
+    const ownText = backupText(own)
+    expect(JSON.parse(ownText).look).toEqual(LOOK)
+    expect(ownText).not.toContain('"own"')
+    expect(ownText).not.toContain('base64')
+    // «Своя» и чужое в правленой копии — по умолчанию
+    for (const avatar of ['own', 'dragon', 'data:image/webp;base64,AAAA']) {
+      const odd = parse(JSON.stringify({ ...backupOf([]), look: { ...LOOK, avatar } }))
+      expect(odd.ok && odd.backup.look).toEqual(LOOK)
+    }
+  })
 })
 
 // Покер-рум телефона в копии (Р-62): своя «Быстрая комната», показ в ББ, быстрые ставки

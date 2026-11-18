@@ -37,6 +37,14 @@ describe('своя рубашка: обрезка под 5 : 7', () => {
   })
 })
 
+describe('аватарка (#298): обрезка под квадрат', () => {
+  it('широкая — режутся бока, высокая — верх и низ, по центру', () => {
+    expect(coverCrop(4032, 3024, 1, 1)).toEqual({ sx: 504, sy: 0, sw: 3024, sh: 3024 })
+    expect(coverCrop(300, 500, 1, 1)).toEqual({ sx: 0, sy: 100, sw: 300, sh: 300 })
+    expect(coverCrop(96, 96, 1, 1)).toEqual({ sx: 0, sy: 0, sw: 96, sh: 96 })
+  })
+})
+
 describe('своя рубашка: проверка строки', () => {
   it('верная WebP, JPEG и PNG — да', () => {
     expect(isOwnBackUrl('data:image/webp;base64,UklGRh4AAABXRUJQ')).toBe(true)

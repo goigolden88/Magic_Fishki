@@ -13,7 +13,7 @@ import {
 import { PING, PING_MS, PONG, PROTOCOL_VERSION, SILENT_MS, type ClientBody, type RoomMessage, type RosterEntry } from '../poker/protocol'
 import type { HistoryHand } from '../poker/history'
 import type { TableState } from '../poker/table'
-import { loadSeat, loadServer, saveSeat } from './pokerStorage'
+import { loadMyAvatar, loadSeat, loadServer, saveSeat, subscribeLook } from './pokerStorage'
 
 // Соединение с комнатой: вход, стол, обрывы. Обрыв или сон телефона — переподключение само,
 // с местом из памяти устройства (токен) — без повторного выбора
@@ -40,6 +40,7 @@ export type Room = {
   error: string | null // отказ сервера на последнее действие
   reseated: { playerId: string; token: string } | null // ведущему: новое место для «Пересадить»
   history: HistoryHand[] | null // история раздач вечера (#113) — последний ответ сервера; null — ещё не приходила
+  avatars: Record<string, string> // аватарки комнаты (#298): id игрока → аватарка; у кого нет — по умолчанию
   askHistory: () => void // попросить историю; без связи — ничего, отказ последнего действия не трогает
   send: (body: RoomBody) => boolean
   join: (choice: { regularId: string } | { name: string }) => void
@@ -68,6 +69,8 @@ export function useRoom(code: string, linkServer?: string): Room {
   const [error, setError] = useState<string | null>(null)
   const [reseated, setReseated] = useState<Room['reseated']>(null)
   const [history, setHistory] = useState<HistoryHand[] | null>(null)
+  const [avatars, setAvatars] = useState<Record<string, string>>({})
+  const sentAvatar = useRef<string | null | undefined>(undefined) // своя аватарка, что ушла этим соединением
 
   const ws = useRef<WebSocket | null>(null)
   const seat = useRef<Seat | null>(target.seat)
@@ -115,6 +118,7 @@ export function useRoom(code: string, linkServer?: string): Room {
         setMe(next.playerId)
         setError(null)
         setPhase('seated')
+        syncAvatar() // сменили, пока шёл вход, — догнать
         return
       }
       case 'state':
@@ -128,6 +132,22 @@ export function useRoom(code: string, linkServer?: string): Room {
       case 'history':
         if (Array.isArray(msg.hands)) setHistory(msg.hands as HistoryHand[])
         return
+      // Аватарки (#298): при входе — все заданные в комнате, при смене — одна; кривые экран не рисует (avatarOf)
+      case 'avatars':
+        if (msg.avatars && typeof msg.avatars === 'object') setAvatars({ ...(msg.avatars as Record<string, string>) })
+        return
+      case 'avatar': {
+        const id = msg.playerId
+        if (typeof id !== 'string') return
+        const avatar = typeof msg.avatar === 'string' ? msg.avatar : null
+        setAvatars((all) => {
+          const next = { ...all }
+          if (avatar === null) delete next[id]
+          else next[id] = avatar
+          return next
+        })
+        return
+      }
       case 'ended':
         forgetSeat()
         setEnded({ table: msg.table as TableState, reason: String(msg.reason) })
@@ -157,6 +177,19 @@ export function useRoom(code: string, linkServer?: string): Room {
       }
     }
   }
+
+  // Своя аватарка (#298) сменилась («Мой вид стола» в «⚙» или в «Настройках») — за столом отправить новую,
+  // одним сообщением avatar; стол не трогается. Не за столом или без связи — уйдёт со следующим входом
+  function syncAvatar() {
+    const socket = ws.current
+    if (!seat.current || joining.current !== null || !socket || socket.readyState !== WebSocket.OPEN) return
+    const avatar = loadMyAvatar()
+    if (avatar === sentAvatar.current) return
+    sentAvatar.current = avatar
+    socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'avatar', avatar }))
+  }
+  const syncAvatarRef = useRef(syncAvatar)
+  syncAvatarRef.current = syncAvatar
 
   function scheduleRetry() {
     if (stopped.current) return
@@ -188,9 +221,12 @@ export function useRoom(code: string, linkServer?: string): Room {
       setOnline(true)
       setFailed(false)
       const s = seat.current
+      sentAvatar.current = undefined
       if (s) {
         joining.current = 'seat'
-        socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'join', playerId: s.playerId, token: s.token }))
+        const avatar = loadMyAvatar()
+        sentAvatar.current = avatar
+        socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'join', playerId: s.playerId, token: s.token, avatar }))
       }
     }
     socket.onmessage = (e) => onMessage(e.data)
@@ -259,7 +295,9 @@ export function useRoom(code: string, linkServer?: string): Room {
     }
     document.addEventListener('visibilitychange', wake)
     window.addEventListener('online', back)
+    const unsubscribeLook = subscribeLook(() => syncAvatarRef.current())
     return () => {
+      unsubscribeLook()
       stopped.current = true
       clearTimeout(timer.current)
       clearInterval(beat)
@@ -295,13 +333,18 @@ export function useRoom(code: string, linkServer?: string): Room {
     error,
     reseated,
     history,
+    avatars,
     askHistory() {
       const socket = ws.current
       if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ v: PROTOCOL_VERSION, type: 'history' }))
     },
     send,
     join(choice) {
-      if (send({ type: 'join', ...choice })) joining.current = 'new'
+      const avatar = loadMyAvatar()
+      if (send({ type: 'join', ...choice, avatar })) {
+        joining.current = 'new'
+        sentAvatar.current = avatar
+      }
     },
     resume() {
       stopped.current = false

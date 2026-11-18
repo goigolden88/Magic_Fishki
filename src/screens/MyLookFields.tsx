@@ -6,11 +6,14 @@ import {
   faceOf,
   MY_BACK_LABELS,
   MY_FELT_LABELS,
+  drawnAvatar,
   drawnBack,
   OWN_BACK,
   type MyLook,
 } from '../calc/pokerLook'
-import { compressOwnBack, setOwnBack } from './ownBackImage'
+import { OWN_AVATAR, type AvatarChoice } from '../poker/avatar'
+import { Avatar, AVATAR_LABELS } from './Avatar'
+import { compressAvatar, compressOwnBack, setOwnBack } from './ownBackImage'
 import {
   DOCK_SIZE_DEFAULT,
   DOCK_SIZE_LABELS,
@@ -22,8 +25,12 @@ import {
 import { PlayingCard, useLookVersion } from './PokerRoom'
 import {
   hasOwnBack,
+  loadAvatarPicture,
+  loadAvatarsShown,
   loadDockSizeChoice,
   loadTableSizeChoice,
+  saveAvatarPicture,
+  saveAvatarsShown,
   saveDockSize,
   saveMyLook,
   saveTableSize,
@@ -31,7 +38,7 @@ import {
 import { useWide } from './useWide'
 
 // Поля личного «Вида стола» (Р-61) — одни на «Настройки» и «⚙» за столом (#243): сукно, рубашка (и своя картинкой, #220),
-// колода, лицо карт;
+// колода, лицо карт, аватарка (#298);
 // на широком окне (Р-63) — размер стола покера и панели ставок. Сохраняется сразу (saveMyLook) и действует
 // на всех столах этого телефона; onChange — новый вид для того, кто его показывает
 export function MyLookFields({ look, onChange }: { look: MyLook; onChange: (look: MyLook) => void }) {
@@ -159,8 +166,123 @@ export function MyLookFields({ look, onChange }: { look: MyLook; onChange: (look
           ))}
         </div>
       </fieldset>
+      <AvatarFields look={look} onPick={(avatar) => update({ avatar })} />
       {wide && <TableFitFields />}
     </>
+  )
+}
+
+// Своя аватарка (#298): «По умолчанию» (рисунок по имени — у всех телефонов один), один из 10 рисунков или своя
+// картинка с устройства — сжимается здесь же в 96 × 96; новая заменяет прежнюю. Картинка — только на этом телефоне
+// и в комнате, где сидишь; в копию идёт только выбор из набора
+function AvatarFields({ look, onPick }: { look: MyLook; onPick: (avatar: AvatarChoice | null) => void }) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const picture = loadAvatarPicture()
+  const chosen = drawnAvatar(look, picture !== null) // «Своя» без картинки — по умолчанию
+
+  async function pickOwn(file: File) {
+    setBusy(true)
+    setError('')
+    try {
+      const r = await compressAvatar(file)
+      if (!r.ok) setError(r.error)
+      else if (!saveAvatarPicture(r.url)) setError('Не хватило места на устройстве — аватарка не сохранена')
+      else onPick(OWN_AVATAR)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  function removeOwn() {
+    setError('')
+    if (!saveAvatarPicture(null)) {
+      setError('Не удалось удалить — попробуйте ещё раз')
+      return
+    }
+    if (look.avatar === OWN_AVATAR) onPick(null)
+  }
+
+  return (
+    <fieldset className="players-pick">
+      <legend className="muted">Аватарка</legend>
+      <div className="amounts">
+        <LookChoice on={chosen === null} onPick={() => onPick(null)}>
+          По умолчанию
+        </LookChoice>
+        {AVATAR_LABELS.map(([id, label]) => (
+          <LookChoice key={id} on={chosen === id} onPick={() => onPick(id)}>
+            <Avatar value={id} className="look-avatar" />
+            {label}
+          </LookChoice>
+        ))}
+        {picture && (
+          <LookChoice on={chosen === OWN_AVATAR} onPick={() => onPick(OWN_AVATAR)}>
+            <Avatar value={picture} className="look-avatar" />
+            Своя
+          </LookChoice>
+        )}
+        <button type="button" className="big" disabled={busy} onClick={() => fileRef.current?.click()}>
+          {busy ? 'Сжимаю…' : 'Своя картинка…'}
+        </button>
+      </div>
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="own-back-file"
+        aria-label="Картинка для своей аватарки"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          e.target.value = '' // тот же файл ещё раз — снова сработает
+          if (file) void pickOwn(file)
+        }}
+      />
+      {error && <p className="warn">{error}</p>}
+      {picture && (
+        <button type="button" className="big wide danger-text" onClick={removeOwn}>
+          Удалить свою аватарку
+        </button>
+      )}
+      <p className="muted">
+        По умолчанию — рисунок по имени, у всех телефонов одинаковый. Своя картинка — только с этого телефона: в
+        копию не идёт, в комнату уходит, когда садишься за стол.
+      </p>
+    </fieldset>
+  )
+}
+
+// «Аватарки: показывать / не показывать» (#298) — в «⚙» за столом: этого устройства, за всеми столами
+export function AvatarsShownField() {
+  useLookVersion()
+  const shown = loadAvatarsShown()
+  const options: [boolean, string][] = [
+    [true, 'Показывать'],
+    [false, 'Не показывать'],
+  ]
+  return (
+    <fieldset className="players-pick">
+      <legend className="muted">Аватарки</legend>
+      <div className="row">
+        {options.map(([value, label]) => (
+          <button
+            key={label}
+            type="button"
+            className={shown === value ? 'big primary grow' : 'big grow'}
+            aria-pressed={shown === value}
+            onClick={() => saveAvatarsShown(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="muted">
+        {shown
+          ? 'У имени каждого места — маленькая аватарка. Только на этом устройстве, за всеми столами.'
+          : 'Места — без аватарок. Только на этом устройстве, за всеми столами; свою другие игроки видят как прежде.'}
+      </p>
+    </fieldset>
   )
 }
 

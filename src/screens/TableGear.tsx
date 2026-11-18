@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { HudDetailField } from './Hud'
-import { MyLookFields } from './MyLookFields'
+import { AvatarsShownField, MyLookFields } from './MyLookFields'
 import { useLookVersion } from './PokerRoom'
 import { loadMyLook } from './pokerStorage'
 
@@ -31,7 +31,8 @@ export function GearPop(props: { title: string; onClose: () => void; children: R
   )
 }
 
-// «Мой вид стола» — те же поля, что «Вид стола» в «Настройках», и «HUD у мест: коротко / подробно»:
+// «Мой вид стола» — те же поля, что «Вид стола» в «Настройках», «HUD у мест: коротко / подробно» и «Аватарки:
+// показывать / не показывать» (#298):
 // всё — этого устройства, на всех столах сразу. heading — свой заголовок части (у стола с ботами частей две)
 export function MyLookPart({ heading = false }: { heading?: boolean }) {
   useLookVersion() // вид сменили — поля показывают новый
@@ -41,6 +42,7 @@ export function MyLookPart({ heading = false }: { heading?: boolean }) {
       <p className="muted">Только на этом телефоне — за всеми столами; то же, что «Вид стола» в «Настройках».</p>
       <MyLookFields look={loadMyLook()} onChange={() => undefined} />
       <HudDetailField />
+      <AvatarsShownField />
     </>
   )
 }

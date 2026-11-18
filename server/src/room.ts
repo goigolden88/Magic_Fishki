@@ -33,6 +33,7 @@ import {
   type TableState,
 } from '../../src/poker/table'
 import { canRejoin, issueToken, type RandomBytes } from '../../src/poker/tokens'
+import { isAvatar } from '../../src/poker/avatar'
 
 // Отказ «комнаты нет» и коды закрытия соединения — общие с экраном, в протоколе
 export { CLOSE_ENDED, CLOSE_NO_ROOM, CLOSE_REPLACED, CLOSE_SILENT, CLOSE_VERSION, NO_ROOM, SILENT_MS }
@@ -86,6 +87,12 @@ const KEY = 'room'
 // Стирается вместе с комнатой (deleteAll в end)
 export const HAND_PREFIX = 'hand:'
 export const handKey = (number: number) => HAND_PREFIX + String(number).padStart(6, '0')
+
+// Аватарки игроков (#298, Р-113): id игрока → id рисунка набора или своя картинка — одной записью, не в столе
+// (стол уходит всем на каждый ход, картинка — до 8 000 знаков). Телефону — при входе (avatars) и при смене
+// (avatar). Стирается вместе с комнатой (deleteAll в end); убранного со стола — сразу
+export const AVATARS_KEY = 'avatars'
+type Avatars = Record<string, string>
 
 export async function initRoom(
   env: RoomEnv,
@@ -157,15 +164,16 @@ export async function message(env: RoomEnv, peer: Peer, raw: string, now: number
   }
   if (msg.type === 'reseat') return reseat(env, room, peer, me, msg.playerId, now)
   if (msg.type === 'history') return sendHistory(env, peer, me)
+  if (msg.type === 'avatar') return changeAvatar(env, me, msg.avatar)
   const r = handle(room.table, me, msg, now, msg.type === 'start' ? newDeck(env, room.table) : undefined)
   if (!r.ok) return send(peer, { type: 'error', error: r.error })
   await keepHand(env, room.table, r.state)
   room.table = r.state
   room.lastMoveAt = now
-  // Убранный со стола не вернётся по токену: войдёт новым
-  for (const id of Object.keys(room.tokens)) {
-    if (!r.state.players.some((p) => p.id === id)) delete room.tokens[id]
-  }
+  // Убранный со стола не вернётся по токену: войдёт новым; его аватарка стирается
+  const gone = Object.keys(room.tokens).filter((id) => !r.state.players.some((p) => p.id === id))
+  for (const id of gone) delete room.tokens[id]
+  if (gone.length > 0) await forgetAvatars(env, gone)
   await save(env, room, now)
   // Новый срок хода или раздачи «сама» — будильник не позже него
   await wake(env, room, now)
@@ -272,9 +280,53 @@ async function join(
   room.lastMoveAt = now
   peer.setPlayerId(id, now)
   send(peer, { type: 'welcome', playerId: id, token: room.tokens[id] })
+  // Аватарки (#298): своя — с входом (нет поля — прежняя), вошедшему — все заданные в комнате, до стола
+  const avatars = await loadAvatars(env)
+  const changed = 'avatar' in msg && putAvatar(avatars, id, msg.avatar)
+  if (changed) await env.storage.put<Avatars>(AVATARS_KEY, avatars)
+  send(peer, { type: 'avatars', avatars }) // и пустые: после обрыва телефон забывает прежние
   await save(env, room, now)
+  if (changed) broadcastAvatar(env, id, avatars[id] ?? null, peer)
   // Игрок в сети — проверки живости идут
   await wake(env, room, now)
+}
+
+async function loadAvatars(env: RoomEnv): Promise<Avatars> {
+  return (await env.storage.get<Avatars>(AVATARS_KEY)) ?? {}
+}
+
+// Аватарка игрока в записи: id набора или картинка не длиннее предела (isAvatar) — ставится, null — стирается
+// (по умолчанию); остальное (чужого вида, длиннее предела) отбрасывается. Вернёт, изменилась ли запись
+function putAvatar(avatars: Avatars, id: string, avatar: unknown): boolean {
+  if (avatar === null) {
+    if (!(id in avatars)) return false
+    delete avatars[id]
+    return true
+  }
+  if (!isAvatar(avatar) || avatars[id] === avatar) return false
+  avatars[id] = avatar
+  return true
+}
+
+// Сменил аватарку за столом — всем вошедшим одна новая; стол не трогается и не рассылается
+async function changeAvatar(env: RoomEnv, me: string, avatar: unknown): Promise<void> {
+  const avatars = await loadAvatars(env)
+  if (!putAvatar(avatars, me, avatar)) return
+  await env.storage.put<Avatars>(AVATARS_KEY, avatars)
+  broadcastAvatar(env, me, avatars[me] ?? null)
+}
+
+function broadcastAvatar(env: RoomEnv, playerId: string, avatar: string | null, except?: Peer): void {
+  for (const p of env.peers()) {
+    if (p !== except && p.playerId()) send(p, { type: 'avatar', playerId, avatar })
+  }
+}
+
+async function forgetAvatars(env: RoomEnv, ids: string[]): Promise<void> {
+  const avatars = await loadAvatars(env)
+  if (!ids.some((id) => id in avatars)) return
+  for (const id of ids) delete avatars[id]
+  await env.storage.put<Avatars>(AVATARS_KEY, avatars)
 }
 
 // Посадка: под постоянным — имя из списка комнаты; гостем — своё

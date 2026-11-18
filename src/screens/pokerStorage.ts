@@ -6,6 +6,7 @@ import { serverBase, type SavedSeat } from '../calc/pokerLink'
 import { parseLabels, parseNotes, type NoteLabels, type PlayerNotes } from '../calc/playerNotes'
 import { BET_STEP_DEFAULT, parseBetStep, type BetStep } from '../calc/pokerLayout'
 import { isOwnBackUrl } from '../calc/ownBack'
+import { isAvatarPicture, myAvatar } from '../poker/avatar'
 import { isDefaultLook, MY_LOOK_DEFAULT, parseMyLook, type MyLook } from '../calc/pokerLook'
 import { parseQuickBets, QUICK_BETS_DEFAULT, type QuickBets } from '../calc/quickBets'
 import { parseQuickRoom, type QuickRoom } from '../calc/quickRoom'
@@ -18,7 +19,8 @@ import type { CSSProperties } from 'react'
 
 // Покер онлайн: пароль компании, свой адрес сервера, места в комнатах, «кто я» ведущего, записанные итоги,
 // звук «ваш ход», «карты всегда открыты», «анимация карт», стол на этом телефоне и стол против ботов,
-// последняя открытая игра для «Продолжить» (#209), «HUD у мест: коротко / подробно» (#243), своя рубашка картинкой (#220) —
+// последняя открытая игра для «Продолжить» (#209), «HUD у мест: коротко / подробно» (#243), своя рубашка картинкой (#220),
+// своя аватарка картинкой и «Аватарки: показывать / не показывать» (#298) —
 // данные этого устройства,
 // а не игр: в localStorage, не в IndexedDB и не в копию (Р-19, Р-21, Р-38).
 // Заметки об игроках и подписи их цветов (Р-56), личный «Вид стола» (Р-61), своя «Быстрая комната», показ в ББ
@@ -49,6 +51,8 @@ const BET_STEP_KEY = 'fishki.poker.betStep'
 const LAST_KEY = 'fishki.poker.last'
 const MINE_KEY = 'fishki.poker.mine'
 const HUD_DETAIL_KEY = 'fishki.poker.hudDetail'
+const AVATAR_KEY = 'fishki.poker.avatar' // своя картинка аватарки (#298): только это устройство
+const AVATARS_SHOWN_KEY = 'fishki.poker.avatarsShown' // «Аватарки: не показывать» (#298): 'off'
 
 // Синхронизация между устройствами (#264): ключи, что входят в копию, — при каждой смене значения время правки
 // в SYNC_STAMPS_KEY ({ ключ: ISO }) и отметка «не отправлено» в базе (store/db.ts). Слияние — по ключу целиком,
@@ -462,6 +466,49 @@ export function saveOwnBack(url: string | null): boolean {
   ownBack = url
   lookChanged()
   return true
+}
+
+// Своя аватарка картинкой (#298, Р-113): data URL 96 × 96 — на этом устройстве; в копию и синхронизацию не идёт,
+// в комнату уходит при входе и при смене (useRoom). Как своя рубашка: копия в памяти страницы, запись с ответом
+let avatarPicture: string | null | undefined // undefined — ещё не читали
+
+export function loadAvatarPicture(): string | null {
+  if (avatarPicture === undefined) {
+    const stored = read(AVATAR_KEY)
+    avatarPicture = isAvatarPicture(stored) ? stored : null
+  }
+  return avatarPicture
+}
+
+export function saveAvatarPicture(url: string | null): boolean {
+  try {
+    if (url === null) localStorage.removeItem(AVATAR_KEY)
+    else if (isAvatarPicture(url)) localStorage.setItem(AVATAR_KEY, url)
+    else return false
+  } catch {
+    return false
+  }
+  avatarPicture = url
+  lookChanged()
+  return true
+}
+
+// Своя аватарка за столом: выбор «Моего вида стола» и картинка устройства; null — по умолчанию, по имени
+export const loadMyAvatar = (): string | null => myAvatar(loadMyLook().avatar, loadAvatarPicture())
+
+// «Аватарки: показывать / не показывать» (#298) — этого устройства для всех столов, сначала — показывать;
+// в копию не идёт. Смена — как смена вида: стол перерисовывается сразу
+let avatarsShown: boolean | undefined // undefined — ещё не читали
+
+export function loadAvatarsShown(): boolean {
+  avatarsShown ??= read(AVATARS_SHOWN_KEY) !== 'off'
+  return avatarsShown
+}
+
+export function saveAvatarsShown(on: boolean) {
+  avatarsShown = on
+  write(AVATARS_SHOWN_KEY, on ? '' : 'off')
+  lookChanged()
 }
 
 // Вид стола сменили (свой вид, размер стола или панели) — стол на экране перерисовывается сразу (#243:
