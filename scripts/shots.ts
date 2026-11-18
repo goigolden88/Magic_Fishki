@@ -2526,6 +2526,85 @@ async function gearOnly(cdp: Cdp): Promise<void> {
   }
 }
 
+// Аватарки у мест (#298): у каждого места — одна, не выше строки имени (иначе места выросли бы и карты сдвинулись)
+async function avatarsFit(d: Device, shown: boolean): Promise<void> {
+  const r = await d.eval<{ seats: number; avatars: number; bad: string[] }>(`(() => {
+    const seats = [...document.querySelectorAll('.spots .seat:not(.free)')]
+    const bad = []
+    let avatars = 0
+    for (const s of seats) {
+      const a = s.querySelectorAll('.seat-avatar')
+      avatars += a.length
+      const name = s.querySelector('.seat-name')
+      if (a.length === 1 && name && a[0].getBoundingClientRect().height > name.getBoundingClientRect().height + 0.5) {
+        bad.push(name.textContent.trim() + ': аватарка ' + Math.round(a[0].getBoundingClientRect().height) + ' px, имя ' + Math.round(name.getBoundingClientRect().height) + ' px')
+      }
+    }
+    return { seats: seats.length, avatars, bad }
+  })()`)
+  const want = shown ? r.seats : 0
+  console.log(`  аватарки: ${r.avatars} у ${r.seats} мест`)
+  if (r.seats === 0 || r.avatars !== want) throw new Error(`аватарок ${r.avatars}, а нужно ${want} (мест ${r.seats})`)
+  if (r.bad.length > 0) throw new Error(`аватарка выше строки имени: ${r.bad.join('; ')}`)
+}
+
+// npm run shots -- avatarki: аватарки за столом (#298). Телефон, «Ночь»: «Аватарка» в «Моём виде стола» со своей
+// картинкой (14b), затем стол с ботами — у меня своя, у ботов — по умолчанию (14a); «Клуб» и «День» — тот же стол
+// с рисунками по умолчанию; ноутбук — стол (14a) и он же после «⚙ Стол» → «Аватарки: не показывать» (14c)
+async function avatarsOnly(cdp: Cdp): Promise<void> {
+  const phone = SIZES[0]
+  for (const theme of ['night', 'club', 'day'] as const) {
+    console.log(`Аватарки, ${theme}, ${phone.width} × ${phone.height}`)
+    const d = await Device.open(cdp, phone, theme === 'night' ? '' : `${theme}-`)
+    if (theme !== 'night') {
+      await openSettings(d)
+      await pickTheme(d, theme)
+    }
+    if (theme === 'night') {
+      await screen('Мой вид стола, аватарка', phone, async () => {
+        await openSettings(d, 'Покер онлайн и стол')
+        await d.waitText('Выбрать вид стола')
+        await d.click('Выбрать вид стола')
+        await d.waitText('Аватарка')
+        await d.setFile('input[aria-label="Картинка для своей аватарки"]', ownBackPicture)
+        await d.waitText('Удалить свою аватарку')
+        await d.waitFor('button[aria-pressed="true"] img.look-avatar')
+        const saved = await d.eval<string>(`localStorage.getItem('fishki.poker.avatar') || ''`)
+        console.log(`  своя аватарка: ${saved.slice(5, saved.indexOf(';'))}, ${saved.length} знаков`)
+        await choicesFit(d, 'Мой вид стола, аватарка')
+        await d.eval(`(() => {
+          const l = [...document.querySelectorAll('legend')].find((e) => e.innerText.trim() === 'Аватарка')
+          l.closest('fieldset').scrollIntoView({ block: 'start' })
+          return true
+        })()`)
+        await d.shot('14b-avatarka-vybor', false)
+      })
+    }
+    await screen('Против ботов, аватарки', phone, async () => {
+      await botsTable(d, 5)
+      await d.waitFor('.seat .seat-avatar')
+      await avatarsFit(d, true)
+      await d.tableShot('14a-avatarki-stol')
+    })
+  }
+  const wide = SIZES[1]
+  console.log(`Аватарки, ${wide.width} × ${wide.height}`)
+  const d = await Device.open(cdp, wide)
+  await screen('Против ботов, аватарки', wide, async () => {
+    await botsTable(d, 5)
+    await d.waitFor('.seat .seat-avatar')
+    await avatarsFit(d, true)
+    await d.tableShot('14a-avatarki-stol')
+    await d.click('⚙ Стол')
+    await d.waitText('Не показывать')
+    await d.click('Не показывать')
+    await d.click('Готово')
+    await waitGone(d, 'Этот стол')
+    await avatarsFit(d, false)
+    await d.tableShot('14c-avatarki-vyklyucheny')
+  })
+}
+
 // npm run shots -- smotret: наблюдение за столом с ботами (#244), на телефоне и ноутбуке: в мой ход «⚙ Стол» →
 // «Отойти и смотреть» (карточка — уже с «Вернуться за стол»), «Готово»; свою раздачу — «Пас», следующая — без меня
 async function watchOnly(cdp: Cdp): Promise<void> {
@@ -2806,7 +2885,9 @@ async function main(): Promise<void> {
     const onlyPre = process.argv.includes('zaranee') // npm run shots -- zaranee: ход заранее за столом с ботами (#299)
     const onlyHands = process.argv.includes('ruki') // npm run shots -- ruki: особые руки в казино (#296)
     const onlyRunout = process.argv.includes('dokrutka') // npm run shots -- dokrutka: «Докрутить борд» (#297)
+    const onlyAvatars = process.argv.includes('avatarki') // npm run shots -- avatarki: аватарки за столом (#298)
     const part =
+      onlyAvatars ||
       onlyRunout ||
       onlyHands ||
       onlyPre ||
@@ -2830,6 +2911,7 @@ async function main(): Promise<void> {
       onlyOwnBack ||
       onlyStraddle ||
       onlyOwnGames
+    if (onlyAvatars) await avatarsOnly(cdp)
     if (onlyRunout) await runoutOnly(cdp)
     if (onlyHands) await casinoHandsOnly(cdp)
     if (onlyPre) await preActionsOnly(cdp)
@@ -2863,6 +2945,7 @@ async function main(): Promise<void> {
     if (!onlyTable && !uchet && !part) await handLogOnly(cdp)
     if (!onlyTable && !uchet && !part) await coolerOnly(cdp)
     if (!onlyTable && !uchet && !part) await runoutOnly(cdp)
+    if (!onlyTable && !uchet && !part) await avatarsOnly(cdp)
     if (!onlyTable && !part) await casinoHandsOnly(cdp)
     if (!onlyTable && !uchet && !part) await reportOnly(cdp)
     if (!onlyTable && !uchet && !part) await showOnly(cdp)
