@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { HOLDEM_GAME, OMAHA_GAME, SHORT_DECK_GAME, type GameDef } from '../poker/game'
 import type { HandRecord, HandResult } from '../poker/table'
-import { preflopSpecial, riverSpecial } from './specialHand'
+import type { Deal, DealKind } from './casinoDeal'
+import { casinoBoardSpecial, casinoPreflop, preflopSpecial, riverSpecial } from './specialHand'
 
 // Раздача кончилась: shown — открытые всем, hands — дошедшие до вскрытия, hidden — закрытые, winners — банк
 function ended(opts: {
@@ -104,5 +105,55 @@ describe('особые руки (#295): ривер', () => {
     expect(riverSpecial(null, 'me')).toBeNull()
     const bad = ended({ board: BOARD, shown: { b: ['Zz', 'Kh'] }, hands: ['b'], winners: ['b'] })
     expect(riverSpecial(bad, 'me')).toBeNull()
+  })
+})
+
+// Раздача казино (#296) без колоды: руки и столы как есть
+const casino = (kind: DealKind, hands: Record<string, string[]>, boards: string[][]): Deal => ({
+  kind,
+  ids: Object.keys(hands),
+  hands,
+  boards,
+})
+
+describe('особые руки в казино (#296): префлоп', () => {
+  it('холдем: AA, KK, AK у любого участника — у каждого своя', () => {
+    const d = casino('holdem', { a: ['Ah', 'Ad'], b: ['Qh', 'Qd'], c: ['Ks', 'As'], d: ['Kh', 'Kc'] }, [])
+    expect(casinoPreflop(d)).toEqual({ a: 'Карманные тузы', c: 'Туз-король одной масти', d: 'Карманные короли' })
+  })
+
+  it('ни у кого — пусто; омаха — пусто', () => {
+    expect(casinoPreflop(casino('holdem', { a: ['Ah', 'Qd'], b: ['2c', '7d'] }, []))).toEqual({})
+    expect(casinoPreflop(casino('omaha', { a: ['Ah', 'Ad', 'Kc', 'Ks'], b: ['2c', '7d', '9s', 'Tc'] }, []))).toEqual({})
+  })
+})
+
+describe('особые руки в казино (#296): стол', () => {
+  it('холдем: роял-флеш у победителя стола; на другом столе — нет', () => {
+    const d = casino('holdem', { a: ['Ah', 'Kh'], b: ['9h', '8h'] }, [
+      ['Th', 'Jh', 'Qh', '2c', '3d'],
+      ['2s', '5s', '9s', 'Jd', '4c'],
+    ])
+    expect(casinoBoardSpecial(d, 0)).toEqual({ label: 'Роял-флеш', ids: ['a'] })
+    expect(casinoBoardSpecial(d, 1)).toBeNull()
+  })
+
+  it('холдем: стрит-флеш на самом столе — у всех, ничья', () => {
+    const d = casino('holdem', { a: ['2c', '3c'], b: ['4d', '5d'] }, [['9s', 'Ts', 'Js', 'Qs', 'Ks']])
+    expect(casinoBoardSpecial(d, 0)).toEqual({ label: 'Стрит-флеш до короля', ids: ['a', 'b'] })
+  })
+
+  it('флеш и стрит — нет; стола нет — нет', () => {
+    const d = casino('holdem', { a: ['2h', '5h'], b: ['9c', '8d'] }, [['Th', 'Jh', 'Qh', '7s', '3d']])
+    expect(casinoBoardSpecial(d, 0)).toBeNull()
+    expect(casinoBoardSpecial(d, 1)).toBeNull()
+  })
+
+  it('омаха — по своим правилам: две из руки — да, одна — нет', () => {
+    const two = casino('omaha', { a: ['Ah', 'Kh', '2s', '4s'], b: ['9h', '8h', '5c', '6c'] }, [['Th', 'Jh', 'Qh', '2c', '3d']])
+    expect(casinoBoardSpecial(two, 0)).toEqual({ label: 'Роял-флеш', ids: ['a'] })
+    // Ah и четыре червы стола — в холдеме роял, в омахе одной своей мало
+    const one = casino('omaha', { a: ['Ah', '2s', '4s', '5c'], b: ['9c', '9d', '7s', '6s'] }, [['Th', 'Jh', 'Qh', 'Kh', '3d']])
+    expect(casinoBoardSpecial(one, 0)).toBeNull()
   })
 })
