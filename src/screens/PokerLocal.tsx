@@ -311,8 +311,8 @@ function LocalTableCard(props: {
 
             <h2>Игроки</h2>
             <PlayerList table={table} view={v} amounts={amounts} apply={apply} />
-            {/* Турнир идёт — новых не сажаем */}
-            {!t?.started && <SeatNew table={table} regulars={regulars} apply={apply} />}
+            {/* Турнир идёт — новых не сажаем, кроме поздней регистрации (#312) */}
+            {(!t?.started || t.lateRegOpen) && <SeatNew table={table} regulars={regulars} apply={apply} />}
 
             {/* Вид стола (#77): карты здесь живые (Р-21) — только сукно */}
             <details className="table-settings">

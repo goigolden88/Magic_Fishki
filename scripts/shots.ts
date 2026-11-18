@@ -2349,6 +2349,40 @@ async function straddleStep(cdp: Cdp, size: Size): Promise<void> {
   })
 }
 
+// Поздняя регистрация турнира (#312): на столе на этом телефоне — галочка в форме «Турнир», затем идущий турнир:
+// под столом «Регистрация — до конца уровня 1», внизу — «Посадить игрока»
+async function lateRegStep(cdp: Cdp, size: Size): Promise<void> {
+  console.log(`Поздняя регистрация, ${size.width} × ${size.height}`)
+  await screen('Поздняя регистрация', size, async () => {
+    const d = await Device.open(cdp, size)
+    await themeOnly(d)
+    await d.goto('#/poker')
+    await d.waitText('Войти по ссылке')
+    await d.click('Открыть стол')
+    await d.waitText('Ведущий ходит за каждого')
+    for (const name of GUESTS.slice(0, 2)) {
+      await d.type('input[aria-label="Имя гостя"]', name)
+      await sleep(100)
+      await d.click('Добавить')
+      await sleep(100)
+    }
+    await d.waitText('За столом: 2')
+    await d.click('Турнир')
+    await d.waitText('Поздняя регистрация')
+    await d.click('Поздняя регистрация')
+    await d.waitText('До конца уровня (1–')
+    await d.shot('09m-pozdnyaya-forma')
+    await d.click('Начать')
+    await d.waitText('Удалить стол')
+    await d.click('Начать турнир')
+    await d.waitText('Регистрация — до конца уровня 1')
+    await d.waitText('Посадить игрока')
+    // Карточка турнира — под столом: прокрутить к ней, снимок — экран телефона
+    await d.eval<boolean>(`(() => { document.querySelector('section.tournament')?.scrollIntoView({ block: 'start' }); return true })()`)
+    await d.shot('09n-pozdnyaya-stol', false)
+  })
+}
+
 // История раздач (#239): стол с ботами на «Перерыве» после раздачи, где я сбросил, — список за столом
 // (строка: мои карты, позиция, итог, борд), затем тот же вечер в «Прошлых вечерах»: итог вечера (#242) и список,
 // раздача, где я сбросил (сверху — последняя), и она же «Текстом»; в конце — карточка «Прошлые вечера» в «Настройках»
@@ -2886,7 +2920,9 @@ async function main(): Promise<void> {
     const onlyHands = process.argv.includes('ruki') // npm run shots -- ruki: особые руки в казино (#296)
     const onlyRunout = process.argv.includes('dokrutka') // npm run shots -- dokrutka: «Докрутить борд» (#297)
     const onlyAvatars = process.argv.includes('avatarki') // npm run shots -- avatarki: аватарки за столом (#298)
+    const onlyLateReg = process.argv.includes('pozdnyaya') // npm run shots -- pozdnyaya: поздняя регистрация турнира (#312)
     const part =
+      onlyLateReg ||
       onlyAvatars ||
       onlyRunout ||
       onlyHands ||
@@ -2911,6 +2947,7 @@ async function main(): Promise<void> {
       onlyOwnBack ||
       onlyStraddle ||
       onlyOwnGames
+    if (onlyLateReg) for (const size of SIZES) await lateRegStep(cdp, size)
     if (onlyAvatars) await avatarsOnly(cdp)
     if (onlyRunout) await runoutOnly(cdp)
     if (onlyHands) await casinoHandsOnly(cdp)
@@ -2938,6 +2975,7 @@ async function main(): Promise<void> {
     if (!onlyTable && !part) for (const size of SIZES) await scenario(cdp, size, theme, uchet)
     if (!onlyTable && !part) await namesOnly(cdp)
     if (!onlyTable && !uchet && !part) for (const size of SIZES) await straddleStep(cdp, size)
+    if (!onlyTable && !uchet && !part) for (const size of SIZES) await lateRegStep(cdp, size)
     if (!uchet && !part) for (const size of SIZES) await wideTableStep(cdp, size)
     if (!onlyTable && !uchet && !part) await gearOnly(cdp)
     if (!onlyTable && !uchet && !part) await watchOnly(cdp)

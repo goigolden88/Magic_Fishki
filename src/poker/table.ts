@@ -30,6 +30,8 @@ import {
   buildLevels,
   clockAt,
   defaultPrizes,
+  lateRegLevels,
+  lateRegOpen,
   pauseClock,
   rebuyClosesAt,
   rebuyOpen,
@@ -666,7 +668,8 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
 // regularId — постоянный игрок; за столом он один: второй раз под ним не сесть
 function sit(state: TableState, id: string, name: unknown, now: number, regularId: unknown): string | null {
   if (state.players.some((p) => p.id === id)) return 'Вы уже за столом'
-  if (state.tournament) return 'Турнир уже идёт — новых не сажаем'
+  const lateError = lateEntryError(state, id, now)
+  if (lateError) return lateError
   const trimmed = typeof name === 'string' ? name.trim() : ''
   if (!trimmed) return 'Нужно имя'
   const regular = typeof regularId === 'string' && regularId ? regularId : null
@@ -688,9 +691,26 @@ function sit(state: TableState, id: string, name: unknown, now: number, regularI
     offlineSince: null,
   })
   state.chipLog.push({ kind: 'buyin', playerId: id, amount: chips, at: now })
+  // Поздняя регистрация (#312): в участники — в конец, бай-ин — в фонд (prizePool по entrants).
+  // В идущую раздачу не попадает: её места заданы при начале — играет со следующей
+  state.tournament?.entrants.push(id)
   // Запас (#223) — новый садится с начальным
   const bank = state.settings.timeBank ?? null
   if (bank) (state.timeBank ??= {})[id] = bank * 1000
+  return null
+}
+
+// Вход в идущий турнир (#312): только пока открыта поздняя регистрация; до начала турнира и в кэше — null.
+// Кто уже был участником (ушёл или убран), второй раз не входит — его бай-ин уже в фонде
+function lateEntryError(state: TableState, id: string, now: number): string | null {
+  const clock = state.tournament
+  if (!clock) return null
+  const t = state.settings.tournament
+  if (clock.endedAt !== null) return 'Турнир окончен'
+  const levels = t ? lateRegLevels(t) : 0
+  if (!t || levels === 0) return 'Турнир уже идёт — новых не сажаем'
+  if (!lateRegOpen(t, clock, now)) return `Регистрация закрыта — была до конца уровня ${levels}`
+  if (clock.entrants.includes(id)) return 'Вы уже играли в этом турнире'
   return null
 }
 

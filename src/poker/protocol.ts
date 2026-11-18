@@ -44,7 +44,9 @@ import type { AutoStart, CardBack, Felt, MuckMode, Settings, TableState } from '
 //      (lastHand.runout); только после конца раздачи, в ход раздачи телефону не приходят
 // 28 — аватарки (#298, Р-113): поле avatar во входе (join), смена — сообщением avatar; аватарки комнаты телефону —
 //      avatars при входе и avatar при смене. Не в столе: стол уходит всем на каждый ход
-export const PROTOCOL_VERSION = 28
+// 29 — поздняя регистрация турнира (#312): поле lateRegLevels в настройках турнира; вход (sit) в идущий турнир,
+//      пока она открыта
+export const PROTOCOL_VERSION = 29
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 

@@ -23,6 +23,8 @@ import {
   buildLevels,
   clockAt,
   defaultPrizes,
+  lateRegLevels,
+  lateRegOpen,
   prizeAmounts,
   prizePool,
   rebuyLeft,
@@ -99,6 +101,8 @@ export type TournamentView = {
   prizesOwn: boolean // ведущий задал свои проценты
   rebuyLevels: number // ребай до конца этого уровня; 0 — без ребая
   rebuyOpen: boolean
+  lateRegLevels: number // поздняя регистрация (#312) до конца этого уровня; 0 — без неё
+  lateRegOpen: boolean // новый игрок ещё может сесть в идущий турнир
   canRebuy: boolean // мне — «Ребай»: я выбыл, а ребай открыт
   waiting: boolean // «Ждём ребай» (#94): с фишками один, ребай открыт — раздачи нет
   waitLeft: number | null // ждём ребай — мс до его закрытия по часам; не закроется сам — null
@@ -357,6 +361,8 @@ export function tournamentView(table: TableState, meId: string, now: number): To
     prizesOwn: t.prizes !== null,
     rebuyLevels: t.rebuyLevels,
     rebuyOpen: open,
+    lateRegLevels: lateRegLevels(t),
+    lateRegOpen: clock !== null && lateRegOpen(t, clock, now),
     canRebuy: open && (clock?.out.some((b) => b.playerId === meId) ?? false) && table.players.some((p) => p.id === meId),
     waiting,
     waitLeft: waiting && clock ? rebuyLeft(t, clock, now) : null,

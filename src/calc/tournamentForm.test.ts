@@ -6,7 +6,7 @@ import { DEFAULT_TOURNAMENT } from '../poker/tournament'
 import { formatNumber } from './format'
 import { startLocalTable, tournamentRebuyFor } from './localTable'
 import { clockText, tableView } from './pokerView'
-import { formSettings, levelText, prizeRuleText, prizesSum, tournamentForm } from './tournamentForm'
+import { formSettings, levelText, prizeRuleText, prizesSum, tournamentForm, tournamentFormOf } from './tournamentForm'
 
 const MIN = 60_000
 
@@ -23,6 +23,19 @@ describe('форма «Кэш» / «Турнир»', () => {
       ok: true,
       settings: { format: 'tournament', tournament: { ...DEFAULT_TOURNAMENT, buyIn: 1500, rebuyLevels: 3 } },
     })
+  })
+
+  it('поздняя регистрация (#312): по умолчанию выключена; включена — до конца уровня от 1', () => {
+    const form = { ...tournamentForm(4), format: 'tournament' as const }
+    expect(form).toMatchObject({ lateReg: false, lateRegLevels: '1' })
+    expect(formSettings(form)).toMatchObject({ ok: true, settings: { tournament: { lateRegLevels: 0 } } })
+    const on = formSettings({ ...form, lateReg: true, lateRegLevels: '2' })
+    expect(on).toMatchObject({ ok: true, settings: { tournament: { lateRegLevels: 2 } } })
+    expect(on.ok && tournamentFormOf(on.settings, 4)).toMatchObject({ lateReg: true, lateRegLevels: '2' })
+    expect(formSettings({ ...form, lateReg: true, lateRegLevels: '0' })).toEqual({ ok: false, error: 'Поздняя регистрация — до конца уровня от 1' })
+    // Своя быстрая комната до #312 — без поля: выключена
+    const { lateRegLevels: _, ...old } = DEFAULT_TOURNAMENT
+    expect(tournamentFormOf({ format: 'tournament', tournament: old }, 4)).toMatchObject({ lateReg: false })
   })
 
   it('подписи: уровень и правило призов', () => {

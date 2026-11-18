@@ -4,7 +4,7 @@ import { tournamentView } from '../calc/pokerView'
 import { balance, playerTotals } from '../calc/totals'
 import { PROTOCOL_VERSION, type ClientBody } from './protocol'
 import { closeRebuyWait, createTable, handle, nextDeadline, onTime, waitingRebuy, type Settings, type TableState } from './table'
-import { allin, award, call, check, fold, MODES, newTable, play, start, type Step } from './testing'
+import { allin, award, call, check, fold, MODES, newTable, play, sit, start, type Step } from './testing'
 import {
   buildLevels,
   clockAt,
@@ -14,6 +14,7 @@ import {
   prizeAmounts,
   rebuyOpen,
   standings,
+  tournamentError,
   type TournamentSettings,
   type TournamentState,
 } from './tournament'
@@ -331,6 +332,81 @@ describe.each(MODES)('турнир (%s)', (_, rt) => {
       expect(s.tournament?.endedAt).toBeNull()
       const r = send(s, 'h', { type: 'endTournament' }, 6 * MIN)
       expect(r.ok && standings(r.state).map((x) => x.playerId)).toEqual(['h', 'b', 'a'])
+    })
+  })
+
+  describe('поздняя регистрация (#312)', () => {
+    // Двое начали, регистрация до конца уровня 2 (20 минут); раздача 1 идёт
+    const running = (t: Partial<TournamentSettings> = { lateRegLevels: 2 }) => play(newTable(['h', 'g'], cup(t)), [start('h')], rt)
+    const late = (s: TableState, now: number) => send(rt ? JSON.parse(JSON.stringify(s)) : s, 'x', { type: 'sit', name: 'X' }, now)
+
+    it('до конца уровня N — садится со стартовым стеком, бай-ин в фонд; в идущую раздачу не попадает', () => {
+      const r = late(running(), 20 * MIN - 1)
+      expect(r.ok).toBe(true)
+      let s = (r as { ok: true; state: TableState }).state
+      expect(s.players.find((p) => p.id === 'x')).toMatchObject({ chips: 1000, buyIn: 1000, seat: 2 })
+      expect(s.chipLog.at(-1)).toEqual({ kind: 'buyin', playerId: 'x', amount: 1000, at: 20 * MIN - 1 })
+      expect(s.tournament).toMatchObject({ entrants: ['h', 'g', 'x'], prizes: [100] })
+      expect(tournamentView(s, 'x', 20 * MIN - 1)).toMatchObject({ pool: 1500, lateRegLevels: 2, lateRegOpen: true })
+      expect(s.hand?.seats.map((x) => x.id)).toEqual(['h', 'g'])
+      // Со следующей раздачи — в игре
+      s = won(play(s, [at(fold('h'), 20 * MIN)], rt), 'g', 20 * MIN)
+      s = play(s, [at(start('h'), 20 * MIN)], rt)
+      expect(s.hand?.seats.map((x) => x.id)).toEqual(['h', 'g', 'x'])
+    })
+
+    it('после конца уровня N — отказ; на экране «Регистрация закрыта»', () => {
+      const s = running()
+      expect(late(s, 20 * MIN)).toEqual({ ok: false, error: 'Регистрация закрыта — была до конца уровня 2' })
+      expect(tournamentView(s, 'h', 20 * MIN)).toMatchObject({ lateRegLevels: 2, lateRegOpen: false })
+      // Перерыв стоит и часы регистрации
+      const paused = play(won(play(s, [at(fold('h'), 5 * MIN)], rt), 'g', 5 * MIN), [at({ from: 'h', msg: { type: 'pause', paused: true } }, 5 * MIN)], rt)
+      expect(late(paused, 60 * MIN).ok).toBe(true)
+    })
+
+    it('турнир окончен — отказ, даже пока уровень не кончился', () => {
+      const ended = won(play(withStacks(newTable(['h', 'g'], cup({ lateRegLevels: 3 })), { g: 100 }), [start('h'), allin('h'), allin('g')], rt), 'h', 5 * MIN)
+      expect(ended.tournament?.endedAt).toBe(5 * MIN)
+      expect(late(ended, 6 * MIN)).toEqual({ ok: false, error: 'Турнир окончен' })
+      expect(tournamentView(ended, 'h', 6 * MIN)?.lateRegOpen).toBe(false)
+    })
+
+    it('без поздней регистрации (0) — прежний отказ', () => {
+      expect(late(running({ lateRegLevels: 0 }), 1)).toEqual({ ok: false, error: 'Турнир уже идёт — новых не сажаем' })
+    })
+
+    it('ушедший участник второй раз не входит', () => {
+      // Кнопка — h, блайнды — g и c; первым ходит h
+      let s = won(play(newTable(['h', 'g', 'c'], cup({ lateRegLevels: 2 })), [start('h'), fold('h'), fold('g')], rt), 'c')
+      s = play(s, [{ from: 'h', msg: { type: 'remove', playerId: 'c' } }], rt)
+      expect(send(s, 'c', { type: 'sit', name: 'C' }, MIN)).toEqual({ ok: false, error: 'Вы уже играли в этом турнире' })
+    })
+
+    it('поздний выбыл — место по выбыванию, фонд с его бай-ином, число призовых мест прежнее', () => {
+      let s = won(play(running(), [at(fold('h'), MIN)], rt), 'g', MIN)
+      s = withStacks(play(s, [sit('x', 'X', 2 * MIN)], rt), { x: 100 })
+      // Раздача 2: кнопка g, малый x, большой h; первым ходит g
+      s = won(play(s, [at(start('h'), 3 * MIN), allin('g'), allin('x'), fold('h')], rt), 'g', 3 * MIN)
+      expect(s.tournament?.out.map((b) => b.playerId)).toEqual(['x'])
+      expect(s.tournament?.prizes).toEqual([100])
+      expect(standings(s).at(-1)).toEqual({ playerId: 'x', place: 3, out: true })
+      expect(tournamentView(s, 'h', 3 * MIN)).toMatchObject({ pool: 1500, prizes: [{ place: 1, pct: 100, amount: 1500 }] })
+      // Итог в «Фишки»: бай-ин позднего — в минуту посадки
+      let n = 0
+      const game = gameFromTournament(s, { name: 'Турнир', date: '2026-11-18', now: '2026-11-18T20:00:00.000Z' }, () => `id${n++}`)
+      const x = game.players.find((p) => p.name === 'X')!
+      expect(game.entries.filter((e) => e.playerId === x.id)).toMatchObject([{ kind: 'buyin', chips: 500, at: new Date(2 * MIN).toISOString() }])
+    })
+
+    it('старый стол без поля — без поздней регистрации', () => {
+      const s = running({})
+      delete s.settings.tournament!.lateRegLevels
+      expect(late(s, 1)).toEqual({ ok: false, error: 'Турнир уже идёт — новых не сажаем' })
+      expect(tournamentView(s, 'h', 1)).toMatchObject({ lateRegLevels: 0, lateRegOpen: false })
+      // Настройки без поля проходят проверку; неверное значение — отказ
+      const t = s.settings.tournament!
+      expect(tournamentError(t)).toBeNull()
+      expect(tournamentError({ ...t, lateRegLevels: LEVEL_COUNT + 1 })).toBe(`Поздняя регистрация — до конца уровня от 1 до ${LEVEL_COUNT} или без неё`)
     })
   })
 

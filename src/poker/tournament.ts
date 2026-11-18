@@ -12,6 +12,9 @@ export type TournamentSettings = {
   levelMinutes: number // минут на уровень
   antePct: number // анте — % от большого блайнда уровня; 0 — без анте
   rebuyLevels: number // ребай — до конца этого уровня; 0 — без ребая
+  // Поздняя регистрация (#312) — новый игрок садится до конца этого уровня; 0 — без неё.
+  // У столов и быстрых комнат до неё поля нет — 0
+  lateRegLevels?: number
   prizes: number[] | null // проценты по местам, сумма 100; null — по числу игроков (defaultPrizes)
 }
 
@@ -57,6 +60,7 @@ export const DEFAULT_TOURNAMENT: TournamentSettings = {
   levelMinutes: 15,
   antePct: 0,
   rebuyLevels: 0,
+  lateRegLevels: 0,
   prizes: null,
 }
 
@@ -101,6 +105,16 @@ export function resumeClock(clock: TournamentState, now: number): void {
 // Ребай открыт: уровень по часам — не дальше rebuyLevels
 export function rebuyOpen(t: TournamentSettings, clock: TournamentState, now: number): boolean {
   return clock.endedAt === null && clockAt(t, clock, now).index < t.rebuyLevels
+}
+
+// Поздняя регистрация (#312) — до конца уровня lateRegLevels; нет поля — 0, без неё
+export function lateRegLevels(t: TournamentSettings): number {
+  return t.lateRegLevels ?? 0
+}
+
+// Поздняя регистрация открыта: турнир не окончен, уровень по часам — не дальше lateRegLevels
+export function lateRegOpen(t: TournamentSettings, clock: TournamentState, now: number): boolean {
+  return clock.endedAt === null && clockAt(t, clock, now).index < lateRegLevels(t)
 }
 
 // Сколько мс ребай ещё открыт по часам (на «Перерыве» не убывает). Без ребая или ребай до конца
@@ -192,6 +206,9 @@ export function tournamentError(t: unknown): string | null {
   }
   if (!isIntIn(t.antePct, 0, ANTE_MAX_PCT)) return `Анте — от 0 до ${ANTE_MAX_PCT} % большого блайнда`
   if (!isIntIn(t.rebuyLevels, 0, LEVEL_COUNT)) return `Ребай — до конца уровня от 1 до ${LEVEL_COUNT} или без ребая`
+  if (t.lateRegLevels !== undefined && !isIntIn(t.lateRegLevels, 0, LEVEL_COUNT)) {
+    return `Поздняя регистрация — до конца уровня от 1 до ${LEVEL_COUNT} или без неё`
+  }
   if (t.prizes !== null) return prizesError(t.prizes)
   return null
 }
