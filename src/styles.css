@@ -3223,6 +3223,7 @@ input.own-back-file {
 }
 
 .casino-seat {
+  position: relative; /* праздник руки (#296) — посреди места */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3290,6 +3291,7 @@ input.own-back-file {
    а не --shade / --text / --gold гаммы — в «Дне» они светлые и на сукне не читаются */
 /* от гаммы не зависит */
 .casino-board {
+  position: relative; /* праздник руки (#296) — посреди стола */
   padding: 0.3rem;
   border: 2px solid transparent;
   border-radius: 0.6rem;
@@ -3515,6 +3517,18 @@ input.own-back-file {
   from {
     transform: scaleX(0);
   }
+}
+
+/* Особые руки в казино (#296, HandBurst): стрит-флеш — крупно поверх своего стола, но по его ширине
+   (на телефоне стол — половина сукна); префлоп у места — в ширину места, длинное название переносится */
+.casino-board .hand-burst.big {
+  max-width: 94%;
+  font-size: clamp(1rem, 4.5vw, 1.6rem);
+}
+
+.casino-seat .hand-burst {
+  width: max-content;
+  white-space: normal;
 }
 
 /* «Открывать столы сами»: четыре коротких выбора в ряд и на 320 px */

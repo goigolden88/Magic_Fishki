@@ -81,7 +81,9 @@ import {
 } from './casinoStake'
 import { playFlights, useLandOnHide } from './cardFly'
 import { GuestField } from './GuestField'
-import { PlayingCard } from './PokerRoom'
+import { casinoBoardSpecial, casinoPreflop } from '../calc/specialHand'
+import { HandBurst } from './HandBurst'
+import { PlayingCard, PREFLOP_MS, reducedMotion, RIVER_MS } from './PokerRoom'
 import { hasOwnBack, loadCardAnim, loadMyLook } from './pokerStorage'
 import { useWide } from './useWide'
 
@@ -198,6 +200,8 @@ export function CasinoDealScreen({ id }: { id: string }) {
   // Шансы (#137): видимые карты столов — открытые целиком, открывающийся — сколько лицом, остальные рубашкой
   const visible = dealt ? dealt.deal.boards.map((_, i) => (i < opened - 1 ? BOARD_CARDS : i === opened - 1 ? shown : 0)) : []
   const odds = useCasinoOdds(showOdds && dealt ? dealt.deal : null, dealt?.stake ?? 0, visible)
+  // Особые руки (#296): столов открыто целиком — открывающийся не в счёт
+  const bursts = useCasinoBursts(dealt, reveal ? opened - (flipping ? 1 : 0) : 0)
 
   // «Бросить раунд?» — пока вопрос, отсчёт стоит; остались — идёт с того же места
   function abandon(): boolean {
@@ -583,6 +587,7 @@ export function CasinoDealScreen({ id }: { id: string }) {
           shown={shown}
           flipping={flipping}
           odds={odds}
+          bursts={bursts}
           nameById={nameById}
           look={look}
         />
@@ -662,6 +667,65 @@ export function CasinoDealScreen({ id }: { id: string }) {
   )
 }
 
+// Особые руки на глазах (#296): preflop — у кого из участников AA, KK, AK (id → надпись), boards — открывшиеся
+// столы со стрит-флешем (номер стола → надпись и победители). Карты казино открыты всем — видят все
+type Bursts = { preflop: Record<string, string>; boards: Record<number, { label: string; ids: string[] }> }
+
+// Префлоп — у мест после полёта карт раздачи, ~1,5 с: только свежая раздача с анимацией — восстановленный раунд
+// (#151) карт не раздаёт. Стол — на нём, когда открылся целиком (complete — столов открыто целиком), ~3 с; столы,
+// открытые до возврата на экран, — нет. Без «Анимации карт», при системном «Уменьшить движение» и на скрытой
+// вкладке — ничего, как за покерным столом (#295)
+function useCasinoBursts(dealt: Dealt | null, complete: number): Bursts {
+  const deal = dealt?.deal ?? null
+  const [preflop, setPreflop] = useState<{ deal: Deal; marks: Bursts['preflop'] } | null>(null)
+  const [boards, setBoards] = useState<{ deal: Deal; marks: Bursts['boards'] } | null>(null)
+  const seen = useRef<{ deal: Deal | null; complete: number }>({ deal: null, complete: 0 })
+  const preflopTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const boardTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const calm = () => !loadCardAnim() || reducedMotion() || document.visibilityState !== 'visible'
+
+  useEffect(() => {
+    clearTimeout(preflopTimer.current)
+    if (!dealt?.fly || calm()) return
+    const marks = casinoPreflop(dealt.deal)
+    if (Object.keys(marks).length === 0) return
+    const d = dealt.deal
+    preflopTimer.current = setTimeout(() => {
+      setPreflop({ deal: d, marks })
+      preflopTimer.current = setTimeout(() => setPreflop(null), PREFLOP_MS)
+    }, flightsEnd(dealt.fly))
+  }, [dealt])
+
+  useEffect(() => {
+    const before = seen.current
+    seen.current = { deal, complete }
+    // Новая или восстановленная раздача — только запомнить, сколько открыто
+    if (!deal || before.deal !== deal || complete <= before.complete || calm()) return
+    const marks: Bursts['boards'] = {}
+    for (let i = before.complete; i < complete; i++) {
+      const found = casinoBoardSpecial(deal, i)
+      if (found) marks[i] = found
+    }
+    if (Object.keys(marks).length === 0) return
+    clearTimeout(boardTimer.current)
+    setBoards({ deal, marks })
+    boardTimer.current = setTimeout(() => setBoards(null), RIVER_MS)
+  }, [deal, complete])
+
+  useEffect(
+    () => () => {
+      clearTimeout(preflopTimer.current)
+      clearTimeout(boardTimer.current)
+    },
+    [],
+  )
+  // «Ещё раунд» раньше конца — надписи прошлой раздачи не держатся
+  return {
+    preflop: preflop?.deal === deal ? preflop.marks : {},
+    boards: boards?.deal === deal ? boards.marks : {},
+  }
+}
+
 // CSS-переменные размеров из раскладки: экран красит места и карты теми же rem, что проверяет тест
 function layoutStyle(l: CasinoLayout): CSSProperties {
   const rem = (x: number) => `${x}rem`
@@ -687,7 +751,16 @@ function layoutStyle(l: CasinoLayout): CSSProperties {
 }
 
 // net — шансы включены (#137): ожидаемый итог раунда, копеек; exact — все столы открыты, итог точный
-type SeatData = { id: string; name: string; cards: (Card | null)[]; win: string | null; net?: number; exact?: boolean }
+// burst — особая рука на префлопе (#296): надпись посреди места, ~1,5 с
+type SeatData = {
+  id: string
+  name: string
+  cards: (Card | null)[]
+  win: string | null
+  net?: number
+  exact?: boolean
+  burst?: string | null
+}
 type Chance = { name: string; percent: number }
 // turn — стол открывается: карты лицом по одной (#134), победителя ещё не видно.
 // chances — шансы стола вместо подписи под картами, пока он не открыт целиком (#137); more — «ещё N».
@@ -695,7 +768,8 @@ type Chance = { name: string; percent: number }
 type Chances = { top: Chance[]; more: number; all: Chance[]; expanded: boolean; onToggle: () => void }
 // Победитель открытого стола (Р-50): имя, название руки и пять карт лучшей руки — сначала комбинация, затем старшие
 type Winner = { name: string; hand: string; cards: Card[] }
-// winners — у открытого целиком стола, ничья — несколько (над ними «Ничья, поровну»); иначе пусто
+// winners — у открытого целиком стола, ничья — несколько (над ними «Ничья, поровну»); иначе пусто.
+// burst — стол открылся со стрит-флешем (#296): крупно на столе название руки и кто, ~3 с
 type BoardData = {
   cards: (Card | null)[]
   part: number
@@ -705,6 +779,7 @@ type BoardData = {
   winners: Winner[]
   win: Card[]
   chances?: Chances
+  burst?: { title: string; sub: string } | null
 }
 
 // Ширина сукна на телефоне, rem (Р-67): от ширины окна и размера rem; повернули телефон — раскладка заново
@@ -774,6 +849,7 @@ function Felt(props: { kind: DealKind; seats: SeatData[]; boards: BoardData[]; l
               ))}
             </div>
             {b.chances && <ChanceLine {...b.chances} />}
+            {b.burst && <HandBurst title={b.burst.title} sub={b.burst.sub} big ms={RIVER_MS} />}
             {/* Победитель — под картами; на широком окне (Р-60) — тоже, имя и рука переносятся */}
             <div className="casino-board-side">
               {!b.chances && b.winners.length !== 1 && (
@@ -893,6 +969,7 @@ function Seat({ seat, index, fit }: { seat: SeatData; index: number; fit?: SeatF
           {(seat.exact ? '' : '≈ ') + formatRub(estimate, true)}
         </span>
       )}
+      {seat.burst && <HandBurst title={seat.burst} ms={PREFLOP_MS} />}
     </div>
   )
 }
@@ -934,10 +1011,11 @@ function CasinoTable(props: {
   shown: number
   flipping: boolean
   odds: CasinoOdds | null // шансы выключены или ещё не посчитаны — null (#137)
+  bursts: Bursts // особые руки на глазах (#296)
   nameById: Map<string, string>
   look: Look
 }) {
-  const { dealt, opened, shown, flipping, odds, nameById, look } = props
+  const { dealt, opened, shown, flipping, odds, bursts, nameById, look } = props
   const { deal, results, stake, fly } = dealt
   const name = (pid: string) => nameById.get(pid) ?? '?'
   const parts = tableParts(stake * deal.ids.length, deal.boards.length)
@@ -971,11 +1049,13 @@ function CasinoTable(props: {
         cards: deal.hands[pid],
         win: current?.winners.includes(pid) ? current.hand : null,
         ...(odds && { net: odds.net[p], exact }),
+        burst: bursts.preflop[pid] ?? null,
       }))}
       boards={deal.boards.map((board, i) => {
         const turn = flipping && i === opened - 1
         const open = i < opened && !turn // открыт целиком
         const r = results[i]
+        const special = open ? bursts.boards[i] : undefined
         return {
           cards: open ? board : turn ? board.map((c, k) => (k < shown ? c : null)) : board.map(() => null),
           part: parts[i],
@@ -986,6 +1066,7 @@ function CasinoTable(props: {
           winners: open ? r.winners.map((pid) => ({ name: name(pid), hand: r.hand, cards: r.best[pid] })) : [],
           win: open ? r.winners.flatMap((pid) => r.best[pid]) : [],
           ...(odds && !open && { chances: chancesOf(i) }),
+          burst: special ? { title: special.label, sub: special.ids.map(name).join(', ') } : null,
         }
       })}
     />
