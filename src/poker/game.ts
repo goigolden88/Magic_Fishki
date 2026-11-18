@@ -199,6 +199,20 @@ export function runOutTimes(cards: HandCards, order: string[], runs: number): Ca
   return boards
 }
 
+// «Докрутить борд» (#297, Р-112): раздача кончилась пасом до ривера — карты стола, что вышли бы следующими.
+// Описание досдаётся на копии, как runOut (order — оставшиеся в раздаче: карманные круги описания берут из колоды
+// свои карты, как взяли бы); стол полный — пусто. Сама раздача не меняется
+export function boardRunout(cards: HandCards, order: string[]): Card[] {
+  if (boardLeft(cards) === 0) return []
+  const copy: HandCards = { ...cards, deck: [...cards.deck], hole: {}, open: {}, board: [...cards.board] }
+  for (const id of order) {
+    copy.hole[id] = [...(cards.hole[id] ?? [])]
+    copy.open[id] = [...(cards.open[id] ?? [])]
+  }
+  runOut(copy, order)
+  return copy.board.slice(cards.board.length)
+}
+
 // Карты игрока, которые видят все: открытые по описанию; закрытые — null
 export function publicCards(cards: HandCards, id: string): (Card | null)[] {
   return (cards.hole[id] ?? []).map((c, i) => (cards.open[id]?.includes(i) ? c : null))

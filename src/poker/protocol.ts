@@ -40,7 +40,9 @@ import type { AutoStart, CardBack, Felt, MuckMode, Settings, TableState } from '
 // 25 — мак на вскрытии (#279): настройка muck при создании и в tableSettings (null — все открывают); в записи
 //      раздачи сбросившие без показа (mucked), их карты — в hidden, рука и пятёрка — только им
 // 26 — «Мак по выбору» (#286): значение muck 'manual'; пауза выбора в столе (muckVote), ответ решающего (muck)
-export const PROTOCOL_VERSION = 26
+// 27 — «Докрутить борд» (#297, Р-112): в итоге раздачи, кончившейся пасом до ривера, — карты стола, что вышли бы
+//      (lastHand.runout); только после конца раздачи, в ход раздачи телефону не приходят
+export const PROTOCOL_VERSION = 27
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 

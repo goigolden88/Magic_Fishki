@@ -7,6 +7,7 @@
 // раздаются сами по силе руки; каждому телефону — свой вид стола (viewFor)
 import { bestHand, bestLow, lowWinners, winners as bestHands, type Card } from './cards'
 import {
+  boardRunout,
   cardsNeeded,
   GAMES,
   isDeckOf,
@@ -203,6 +204,10 @@ export type HandResult = {
   pots: { amount: number; winners: string[] }[]
   payouts: Record<string, number>
   record?: HandRecord // карты на телефонах — полная запись раздачи
+  // «Докрутить борд» (#297, Р-112): раздача кончилась пасом до ривера — карты стола, что вышли бы следующими
+  // (boardRunout). Только на экран: в запись, историю (finishedHand) и копию не идёт; новая раздача — поля нет.
+  // Стол полный, вскрытие, живые карты — поля нет
+  runout?: Card[]
 }
 
 // Карты, видные только самому игроку (#278): id игрока → его карты по порядку сдачи
@@ -729,6 +734,8 @@ function start(state: TableState, deck: Card[] | undefined, now: number): string
   const button = after === -1 ? 0 : after
   state.buttonSeat = playing[button].seat
   state.handCount++
+  // Докрутка прошлой (#297) — только до начала следующей: колода та же по составу, её карт в ходе раздачи телефону не слать
+  if (state.lastHand) delete state.lastHand.runout
   const { sb, bb, ante } = blindsNow(state, now)
   const straddle = state.settings.format !== 'tournament' && state.settings.straddle === true
   state.hand = startHand(state.handCount, playing, button, sb, bb, deal, ante, limitFor(state.settings), straddle)
@@ -897,6 +904,8 @@ function settle(state: TableState, now: number): string | null {
   }
   let runs: RunRecord[]
   let mucked: string[] = []
+  // «Докрутить борд» (#297): все спасовали до ривера — карты стола, что вышли бы; телефону — только в итоге раздачи
+  let runout: Card[] = []
   if (live.length > 1) {
     const times = runsFor(state, hand, cards, live, now)
     if (times === null) return null
@@ -934,6 +943,7 @@ function settle(state: TableState, now: number): string | null {
   } else {
     runs = [{ board: [...cards.board], hands: {}, best: {}, winners: hand.pots.map((pot) => [...pot.eligible]) }]
     hidden[live[0]] = hole(live[0])
+    runout = boardRunout(cards, dealOrder(hand))
   }
   const [first] = runs
   // Банк в итоге раздачи — взявшие хоть часть (хай/лоу — и лоу); бордов несколько — хоть на одном, по местам
@@ -972,6 +982,7 @@ function settle(state: TableState, now: number): string | null {
     state.muckVote = { hand: hand.number, deadline: now + MUCK_VOTE_MS, players: mucked, answers: {} }
   }
   finishHand(state, hand, winners, payouts, now, record)
+  if (runout.length > 0 && state.lastHand) state.lastHand.runout = runout
   return null
 }
 
