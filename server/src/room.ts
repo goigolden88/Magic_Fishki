@@ -373,7 +373,9 @@ async function sendHistory(env: RoomEnv, peer: Peer, me: string): Promise<void> 
 
 function sendLobby(peer: Peer, room: RoomRecord): void {
   const seated = room.table.players.flatMap((p) => (p.regularId ? [p.regularId] : []))
-  send(peer, { type: 'lobby', roster: room.roster ?? [], seated })
+  // Стол закрыт (#313) — входящему видно до выбора; открыт — поля нет
+  const closed = room.table.settings.closed === true ? { closed: true as const } : {}
+  send(peer, { type: 'lobby', roster: room.roster ?? [], seated, ...closed })
 }
 
 async function end(env: RoomEnv, room: RoomRecord, reason: string): Promise<void> {

@@ -46,7 +46,9 @@ import type { AutoStart, CardBack, Felt, MuckMode, Settings, TableState } from '
 //      avatars при входе и avatar при смене. Не в столе: стол уходит всем на каждый ход
 // 29 — поздняя регистрация турнира (#312): поле lateRegLevels в настройках турнира; вход (sit) в идущий турнир,
 //      пока она открыта
-export const PROTOCOL_VERSION = 29
+// 30 — «Стол закрыт» (#313): настройка closed в столе, смена ведущим в любой момент (closeTable); вход без токена
+//      на закрытый стол — отказ CLOSED_ERROR; в списке входа (lobby) — closed: true, пока стол закрыт
+export const PROTOCOL_VERSION = 30
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -114,6 +116,8 @@ export type ClientBody =
     }
   // ведущий, в любой момент: вид стола — сукно и рубашка карт; нет поля — не меняется
   | { type: 'look'; felt?: Felt; cardBack?: CardBack }
+  // ведущий, в любой момент (#313): «Стол закрыт» — новые по ссылке не садятся, свои возвращаются по токену
+  | { type: 'closeTable'; closed: boolean }
   // «Микс» (#166): батон прошлой раздачи между раздачами предлагает игру; голосующий — «За» (yes) или «Против»;
   // ведущий прерывает голосование — «Без смены»
   | { type: 'mixPropose'; game: TableGameId }
@@ -156,8 +160,9 @@ export type CreateRoomRequest = {
 export type CreateRoomResponse = { v: number } & ({ code: string; playerId: string; token: string } | { error: string })
 
 export type ServerMessage = { v: number } & (
-  // Сразу после подключения: кого выбрать при входе; seated — id постоянных, уже сидящих за столом
-  | { type: 'lobby'; roster: RosterEntry[]; seated: string[] }
+  // Сразу после подключения: кого выбрать при входе; seated — id постоянных, уже сидящих за столом;
+  // closed (#313) — стол закрыт ведущим, новым не сесть (открыт — поля нет)
+  | { type: 'lobby'; roster: RosterEntry[]; seated: string[]; closed?: true }
   | { type: 'welcome'; playerId: string; token: string } // токен возврата на своё место
   | { type: 'reseated'; playerId: string; token: string } // ведущему: новый токен игрока для ссылки
   // Стол — в виде для этого телефона (viewFor): без колоды и чужих закрытых карт

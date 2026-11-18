@@ -264,6 +264,42 @@ describe('комната', () => {
     await send(r, back, { type: 'join', playerId: guestId, token: guestToken, name: 'Гость' })
     expect((afterLobby(back)[0] as { playerId: string }).playerId).not.toBe(guestId)
   })
+
+  it('«Стол закрыт» (#313): без токена — отказ и свежий список с пометкой; по токену — на своё место; открыли — входят', async () => {
+    const { r, host, guest, guestId, guestToken } = await twoPlayers()
+    await send(r, guest, { type: 'closeTable', closed: true })
+    expect(guest.last()).toEqual({ v: PROTOCOL_VERSION, type: 'error', error: 'Это может только ведущий' })
+    await send(r, host, { type: 'closeTable', closed: true })
+    expect(tableOf(guest).settings.closed).toBe(true)
+    // Новый по ссылке — отказ с причиной и список входа, в котором стол закрыт
+    const stranger = await connect(r)
+    expect(stranger.sent).toEqual([{ v: PROTOCOL_VERSION, type: 'lobby', roster: [], seated: [], closed: true }])
+    await send(r, stranger, { type: 'join', name: 'Чужой' })
+    expect(stranger.sent.slice(1)).toEqual([
+      { v: PROTOCOL_VERSION, type: 'error', error: 'Стол закрыт ведущим' },
+      { v: PROTOCOL_VERSION, type: 'lobby', roster: [], seated: [], closed: true },
+    ])
+    expect(stranger.playerId()).toBeNull()
+    expect((await stored(r))?.table.players).toHaveLength(2)
+    // Свой после обрыва — по токену, на своё место
+    guest.close(1006, '')
+    await close(r.env, guest, 5)
+    const back = await connect(r)
+    await send(r, back, { type: 'join', playerId: guestId, token: guestToken })
+    expect(afterLobby(back)[0]).toEqual({ v: PROTOCOL_VERSION, type: 'welcome', playerId: guestId, token: guestToken })
+    expect(tableOf(back).players.find((p) => p.id === guestId)).toMatchObject({ seat: 1, online: true })
+    // Убранный по старому токену на закрытый стол не возвращается
+    await send(r, host, { type: 'remove', playerId: guestId })
+    const removed = await connect(r)
+    await send(r, removed, { type: 'join', playerId: guestId, token: guestToken, name: 'Гость' })
+    expect(afterLobby(removed)).toEqual([{ v: PROTOCOL_VERSION, type: 'error', error: 'Стол закрыт ведущим' }])
+    // Открыли — ссылка снова работает, пометки в списке нет
+    await send(r, host, { type: 'closeTable', closed: false })
+    const late = await connect(r)
+    expect(late.sent[0]).toEqual({ v: PROTOCOL_VERSION, type: 'lobby', roster: [], seated: [] })
+    await send(r, late, { type: 'join', name: 'Чужой' })
+    expect(afterLobby(late)[0]).toMatchObject({ type: 'welcome' })
+  })
 })
 
 // Комната с картами на телефонах: ведущий и двое гостей
