@@ -53,6 +53,7 @@ const MINE_KEY = 'fishki.poker.mine'
 const HUD_DETAIL_KEY = 'fishki.poker.hudDetail'
 const AVATAR_KEY = 'fishki.poker.avatar' // своя картинка аватарки (#298): только это устройство
 const AVATARS_SHOWN_KEY = 'fishki.poker.avatarsShown' // «Аватарки: не показывать» (#298): 'off'
+const SEATED_KEY = 'fishki.poker.seated' // «Стол: как сидим» (#315): 'on'
 
 // Синхронизация между устройствами (#264): ключи, что входят в копию, — при каждой смене значения время правки
 // в SYNC_STAMPS_KEY ({ ключ: ISO }) и отметка «не отправлено» в базе (store/db.ts). Слияние — по ключу целиком,
@@ -508,6 +509,21 @@ export function loadAvatarsShown(): boolean {
 export function saveAvatarsShown(on: boolean) {
   avatarsShown = on
   write(AVATARS_SHOWN_KEY, on ? '' : 'off')
+  lookChanged()
+}
+
+// «Стол: я внизу / как сидим» (#315, Р-116) — этого устройства для всех столов, сначала — «я внизу»; в копию не идёт.
+// Смена — как смена вида: стол перерисовывается сразу
+let seatedView: boolean | undefined // undefined — ещё не читали
+
+export function loadSeatedView(): boolean {
+  seatedView ??= read(SEATED_KEY) === 'on'
+  return seatedView
+}
+
+export function saveSeatedView(on: boolean) {
+  seatedView = on
+  write(SEATED_KEY, on ? 'on' : '')
   lookChanged()
 }
 

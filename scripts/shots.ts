@@ -1393,6 +1393,81 @@ async function closedOnly(cdp: Cdp): Promise<void> {
   }
 }
 
+// npm run shots -- sidim (#315): «Стол: я внизу / как сидим». Комната на шестерых, я (Борис) — на месте 4, мой ход
+// на префлопе, свои карты открыты; соединение подменено, как у «Показать». Тот же стол в обоих видах — «я внизу» (09o)
+// и «как сидим» (09p), на 390 и 1366; на каждом — места не наезжают друг на друга, иначе сбой. Каждый вид — своё
+// хранилище: выбор вида читается при первом столе страницы
+async function seatedOnly(cdp: Cdp): Promise<void> {
+  const view = await seatedTable()
+  for (const size of SIZES.slice(0, 2)) {
+    for (const [seated, file] of [
+      [false, '09o-stol-ya-vnizu'],
+      [true, '09p-stol-kak-sidim'],
+    ] as const) {
+      console.log(`Стол ${seated ? '«как сидим»' : '«я внизу»'}, ${size.width} × ${size.height}`)
+      const d = await Device.open(cdp, size)
+      await themeOnly(d)
+      await screen(`Комната: ${seated ? 'как сидим' : 'я внизу'}`, size, async () => {
+        await d.goto('#/poker')
+        await d.waitText('Войти по ссылке')
+        await d.eval(`(localStorage.setItem('fishki.poker.seats', ${JSON.stringify(JSON.stringify({ [SHOW_CODE]: { playerId: 'me', token: 'shots' } }))}), true)`)
+        await d.eval(`(localStorage.setItem('fishki.poker.open', 'on'), localStorage.setItem('fishki.poker.seated', ${seated ? "'on'" : "''"}), true)`)
+        await d.eval(`(${fakeRoomSocket.toString()})(${JSON.stringify(view)}), true`)
+        await d.goto(`#/poker/${SHOW_CODE}`)
+        await d.waitText('Ваш ход')
+        await sleep(1800) // полёт карт раздачи
+        const hits = await d.eval<string[]>(`(() => {
+          const seats = [...document.querySelectorAll('.spots .seat')].map((el) => ({ name: el.querySelector('.seat-name')?.textContent ?? '?', r: el.getBoundingClientRect() }))
+          const out = []
+          for (let i = 0; i < seats.length; i++) for (let j = i + 1; j < seats.length; j++) {
+            const a = seats[i].r, b = seats[j].r
+            if (a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1) out.push(seats[i].name + ' и ' + seats[j].name)
+          }
+          return out
+        })()`)
+        if (hits.length > 0) throw new Error(`места наезжают: ${hits.join(', ')}`)
+        await d.tableShot(file)
+      })
+    }
+  }
+}
+
+// Комната на шестерых с картами на телефонах, в виде моего телефона: Аня (ведущая), Вера, Гоша, я (Борис), Дима —
+// первая раздача, до моего хода все уравнивают
+async function seatedTable(): Promise<unknown> {
+  const load = async (file: string) =>
+    (await runnerImport<Record<string, any>>(join(process.cwd(), 'src/poker', file), { configFile: false, logLevel: 'silent' })).module
+  const table = await load('table.ts')
+  const { stackedDeck } = await load('testing.ts')
+  const { PROTOCOL_VERSION } = await load('protocol.ts')
+  const now = Date.now()
+  const settings = { sb: 5, bb: 10, startingStack: 1000, maxSeats: 6, cards: 'phones', autoStart: 'off' }
+  const created = table.createTable('host', 'Аня', settings, now)
+  if (!created.ok) throw new Error(created.error)
+  let state = created.state
+  const send = (from: string, body: Record<string, unknown>, deck?: string[]) => {
+    const r = table.handle(state, from, { v: PROTOCOL_VERSION, ...body }, now, deck)
+    if (!r.ok) throw new Error(`${from} ${String(body.type)}: ${r.error}`)
+    state = r.state
+  }
+  send('vera', { type: 'sit', name: 'Вера' })
+  send('gosha', { type: 'sit', name: 'Гоша' })
+  send('me', { type: 'sit', name: 'Борис' })
+  send('dima', { type: 'sit', name: 'Дима' })
+  send('host', { type: 'start' }, stackedDeck([['Ah', 'Kd'], ['9s', '9c'], ['Qh', 'Jh'], ['7c', '2d'], ['5s', '4s']], ['As', '9h', '5d', '3c', 'Jc']))
+  for (let i = 0; i < 10 && state.hand; i++) {
+    const seat = state.hand.seats[state.hand.toAct]
+    if (seat.id === 'me') break
+    send(seat.id, { type: 'act', action: { type: state.hand.currentBet > seat.bet ? 'call' : 'check' } })
+  }
+  const hand = state.hand
+  if (!hand || hand.seats[hand.toAct].id !== 'me') throw new Error('мой ход не пришёл')
+  const view = table.viewFor(state, 'me')
+  const mine = (view as { players: { id: string; seat: number }[] }).players.find((p) => p.id === 'me')
+  if (!mine || mine.seat === 0) throw new Error('я на месте 1 — разницы видов на снимке не будет')
+  return view
+}
+
 // Соединение комнаты для нового на закрытом столе (#313): при подключении — список входа с closed, на вход — отказ
 // «Стол закрыт ведущим» и снова список
 function fakeLobbySocket(v: number): void {
@@ -3015,7 +3090,9 @@ async function main(): Promise<void> {
     const onlyAvatars = process.argv.includes('avatarki') // npm run shots -- avatarki: аватарки за столом (#298)
     const onlyLateReg = process.argv.includes('pozdnyaya') // npm run shots -- pozdnyaya: поздняя регистрация турнира (#312)
     const onlyClosed = process.argv.includes('zakryt') // npm run shots -- zakryt: «Стол закрыт» (#313)
+    const onlySeated = process.argv.includes('sidim') // npm run shots -- sidim: «Стол: я внизу / как сидим» (#315)
     const part =
+      onlySeated ||
       onlyClosed ||
       onlyLateReg ||
       onlyAvatars ||
@@ -3042,6 +3119,7 @@ async function main(): Promise<void> {
       onlyOwnBack ||
       onlyStraddle ||
       onlyOwnGames
+    if (onlySeated) await seatedOnly(cdp)
     if (onlyClosed) await closedOnly(cdp)
     if (onlyLateReg) for (const size of SIZES) await lateRegStep(cdp, size)
     if (onlyAvatars) await avatarsOnly(cdp)
@@ -3085,6 +3163,7 @@ async function main(): Promise<void> {
     if (!onlyTable && !uchet && !part) await showOnly(cdp)
     if (!onlyTable && !uchet && !part) await muckOnly(cdp)
     if (!onlyTable && !uchet && !part) await closedOnly(cdp)
+    if (!onlyTable && !uchet && !part) await seatedOnly(cdp)
     if (!onlyTable && !part) await whatsNewOnly(cdp)
     if (!onlyTable && !part) await syncOnly(cdp)
     if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !part) {

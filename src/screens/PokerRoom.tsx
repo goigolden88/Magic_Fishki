@@ -24,6 +24,7 @@ import {
   sliderAmount,
   sliderIndex,
   spotsBySeat,
+  turnSeat,
   stepAmount,
   turnTitle,
   waitLine,
@@ -105,6 +106,7 @@ import {
   loadQuickBets,
   loadRecordedGame,
   loadSeat,
+  loadSeatedView,
   loadTurnSound,
   saveBigBlinds,
   saveLastGame,
@@ -531,11 +533,14 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
   )
 }
 
-// Свои карты лежат на моём месте внизу стола (#97); переключатель «Всегда открыты» (#86) — под столом
+// Свои карты лежат на моём месте внизу стола (#97), «как сидим» (#315) — у моего места, где оно есть;
+// переключатель «Всегда открыты» (#86) — под столом
 function OpenCards({ open, onOpen }: { open: boolean; onOpen: (on: boolean) => void }) {
+  useLookVersion() // вид стола сменили — подсказка о месте своих карт сразу новая
+  const where = loadSeatedView() ? 'на вашем месте у стола' : 'на вашем месте внизу стола'
   return (
     <div className="open-cards">
-      {!open && <p className="muted">Свои карты — на вашем месте внизу стола: держите на них палец, чтобы посмотреть</p>}
+      {!open && <p className="muted">Свои карты — {where}: держите на них палец, чтобы посмотреть</p>}
       <label className="check">
         <input type="checkbox" checked={open} onChange={(e) => onOpen(e.target.checked)} />
         Мои карты всегда открыты
@@ -1371,7 +1376,8 @@ function ShowCard(props: {
 
 // Стол — «стадион» (#210): я внизу по центру, остальные по номерам мест по часовой (готовые точки — seatSpots
 // на все «Мест за столом», spotsBySeat); на широком окне с панелью у угла стола — я левее центра,
-// точки seatSpotsWide; между раздачами — и свободные места (#98). Ставка улицы — у места
+// точки seatSpotsWide; «как сидим» (#315) — без поворота: место 0 внизу у всех, я на своём.
+// Между раздачами — и свободные места (#98). Ставка улицы — у места
 // со стороны стола, в центре — улица и банк. Стол заполняет свою рамку (#97): у комнаты и у стола
 // на телефоне — всё место над панелью хода. open — свои карты лицом без пальца (#86).
 // onSeat — касание свободного места пересаживает меня туда; нет — свободные места только видны.
@@ -1413,10 +1419,14 @@ export function PokerTable(props: {
   const toggleUnit = useUnitToggle(inBB)
   const hudDetailed = useHudDetailed()
   const mine = v.seats.some((s) => s.isMe)
-  const bottom = v.me?.seat ?? 0
+  // «Стол: как сидим» (#315): места у всех одинаково — место 0 внизу, я — на своём; иначе я внизу.
+  // Крупное своё место (big) — только когда я внизу; меня за столом нет — как прежде, место 0 внизу
+  const seated = loadSeatedView()
+  const mySeat = turnSeat(v.me?.seat ?? null, seated)
+  const bottom = mySeat ?? 0
   // Широкое окно (#210): панель хода — у правого нижнего угла стола, точки мест — свои, справа внизу мест нет
   const wide = useWide(WIDE_TABLE_QUERY)
-  const spots = spotsBySeat(v.maxSeats, v.me?.seat ?? null, wide)
+  const spots = spotsBySeat(v.maxSeats, mySeat, wide)
   const hudSeat = v.seats.find((s) => s.id === hudOf && s.hud !== null)
   const showNote = (name: string, edit: boolean) => {
     setHudOf(null)
@@ -1504,6 +1514,7 @@ export function PokerTable(props: {
               avatar={seatAvatar(s)}
               at={spots[s.seat]}
               bottom={s.seat === bottom}
+              big={s.isMe && !seated}
               myCards={s.isMe ? v.myCards : null}
               myHand={s.isMe ? v.myHand : null}
               open={open && !dealing}
@@ -1803,8 +1814,10 @@ function seenOf(cards: (Card | null)[] | null): number[] {
   return (cards ?? []).flatMap((c, i) => (c !== null ? [i] : []))
 }
 
-// Место у стола. bottom — нижнее по центру (я): растёт вверх от низа рамки, остальные — от своей точки
-// в обе стороны. myCards — мои карты в раздаче: крупнее чужих, лицом — пока держишь палец или «всегда открыты»;
+// Место у стола. bottom — нижнее по центру: растёт вверх от низа рамки, остальные — от своей точки
+// в обе стороны. big — моё место крупно (я внизу): шире прочих, карты крупнее; «как сидим» (#315) — моё место
+// обычного размера, мои карты — как открытые карты соседей.
+// myCards — мои карты в раздаче, лицом — пока держишь палец или «всегда открыты»;
 // myHand — подпись моей комбинации сейчас, у открытых карт.
 // onHud — касание строки HUD (#79): подробно. hudDetailed — строка подробная, с 3-бетом (#241, #243).
 // note —заметка этого телефона об игроке с этим именем (Р-56): точка у имени; onNote(false) — касание точки, onNote(true) — имени.
@@ -1815,6 +1828,7 @@ function SeatSpot(props: {
   avatar: string | null
   at: Spot
   bottom: boolean
+  big: boolean
   myCards: Card[] | null
   myHand: string | null
   open: boolean
@@ -1828,7 +1842,8 @@ function SeatSpot(props: {
   cooler?: boolean // кулер прошлой раздачи (#262): место подсвечено и «Кулер!» над ним, ~4 с (#295)
   preflop?: string | null // моя особая рука на префлопе (#295): место подсвечено и скромная надпись, ~1,5 с
 }) {
-  const { seat: s, at, bottom, myCards, myHand, open, hudDetailed, onHud, note, labels, onNote, unit, onUnit, cooler = false } = props
+  const { seat: s, at, bottom, big, myCards, myHand, open, hudDetailed, onHud, note, labels, onNote, unit, onUnit, cooler = false } = props
+  const cardSize = big ? 'mid' : 'small'
   const preflop = props.preflop ?? null
   const unitLabel = unit === null ? 'показать суммы в ББ' : 'показать суммы в фишках'
   const marks = [
@@ -1847,6 +1862,7 @@ function SeatSpot(props: {
     s.toAct && 'to-act',
     s.folded && 'folded',
     s.isMe && 'me',
+    big && 'big',
     s.best && 'winner',
     many && 'many',
     cooler && 'cooler',
@@ -1895,14 +1911,14 @@ function SeatSpot(props: {
         <PeekCards
           cards={myCards}
           open={open}
-          size="mid"
+          size={cardSize}
           label={myHand}
           className="seat-cards"
           fly={seatGroup(s.seat)}
           seen={seenOf(s.cards)}
         />
       ) : (
-        s.cards && <CardRow cards={s.cards} size={s.isMe ? 'mid' : 'small'} fly={seatGroup(s.seat)} />
+        s.cards && <CardRow cards={s.cards} size={cardSize} fly={seatGroup(s.seat)} />
       )}
       {s.handName && <span className="seat-mark">{s.handName}</span>}
       {s.best && <CardRow cards={s.best} size="small" best />}

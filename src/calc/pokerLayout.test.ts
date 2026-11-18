@@ -22,6 +22,7 @@ import {
   SNAP_WIDTH,
   spotsBySeat,
   stepAmount,
+  turnSeat,
   turnTitle,
   waitLine,
   type BetSlider,
@@ -60,6 +61,25 @@ describe('рассадка вокруг стола', () => {
         }
       }
     }
+  })
+
+  it('«как сидим» (#315): без поворота место k у всех телефонов в одной точке, место 0 — внизу', () => {
+    for (const wide of [false, true]) {
+      for (let n = 2; n <= 10; n++) {
+        const plain = wide ? seatSpotsWide(n) : seatSpots(n)
+        for (let me = 0; me < n; me++) {
+          const spots = spotsBySeat(n, turnSeat(me, true), wide)
+          // Телефон на любом месте видит ту же картину, что стол без «я»
+          expect(spots, `${n} мест, я на ${me}${wide ? ', широкое' : ''}`).toEqual(plain)
+          expect(spots).toEqual(spotsBySeat(n, null, wide))
+        }
+        expect(plain[0]).toEqual(wide ? MY_SPOT_WIDE : { x: 50, y: 100 })
+      }
+    }
+    // «Я внизу» — как прежде: поворот на моё место
+    expect(turnSeat(3, false)).toBe(3)
+    expect(turnSeat(null, false)).toBeNull()
+    expect(spotsBySeat(6, turnSeat(2, false))).toEqual(spotsBySeat(6, 2))
   })
 
   it('первое место — внизу по центру, следующие — по часовой: влево, вверх, вправо', () => {

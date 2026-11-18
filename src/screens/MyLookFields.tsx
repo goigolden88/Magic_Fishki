@@ -28,16 +28,19 @@ import {
   loadAvatarPicture,
   loadAvatarsShown,
   loadDockSizeChoice,
+  loadSeatedView,
   loadTableSizeChoice,
   saveAvatarPicture,
   saveAvatarsShown,
   saveDockSize,
   saveMyLook,
+  saveSeatedView,
   saveTableSize,
 } from './pokerStorage'
 import { useWide } from './useWide'
 
-// Поля личного «Вида стола» (Р-61) — одни на «Настройки» и «⚙» за столом (#243): сукно, рубашка (и своя картинкой, #220),
+// Поля личного «Вида стола» (Р-61) — одни на «Настройки» и «⚙» за столом (#243): «Стол: я внизу / как сидим» (#315),
+// сукно, рубашка (и своя картинкой, #220),
 // колода, лицо карт, аватарка (#298);
 // на широком окне (Р-63) — размер стола покера и панели ставок. Сохраняется сразу (saveMyLook) и действует
 // на всех столах этого телефона; onChange — новый вид для того, кто его показывает
@@ -82,6 +85,7 @@ export function MyLookFields({ look, onChange }: { look: MyLook; onChange: (look
 
   return (
     <>
+      <SeatedViewField />
       <fieldset className="players-pick">
         <legend className="muted">Сукно</legend>
         <div className="amounts">
@@ -281,6 +285,40 @@ export function AvatarsShownField() {
         {shown
           ? 'У имени каждого места — маленькая аватарка. Только на этом устройстве, за всеми столами.'
           : 'Места — без аватарок. Только на этом устройстве, за всеми столами; свою другие игроки видят как прежде.'}
+      </p>
+    </fieldset>
+  )
+}
+
+// «Стол: я внизу / как сидим» (#315, Р-116) — первым в «Виде стола»: этого устройства, за всеми столами, где есть «я»;
+// сначала — «я внизу». Панель хода и кнопки ставок — внизу в обоих видах
+function SeatedViewField() {
+  useLookVersion()
+  const seated = loadSeatedView()
+  const options: [boolean, string][] = [
+    [false, 'Я внизу'],
+    [true, 'Как сидим'],
+  ]
+  return (
+    <fieldset className="players-pick">
+      <legend className="muted">Стол</legend>
+      <div className="row">
+        {options.map(([value, label]) => (
+          <button
+            key={label}
+            type="button"
+            className={seated === value ? 'big primary grow' : 'big grow'}
+            aria-pressed={seated === value}
+            onClick={() => saveSeatedView(value)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="muted">
+        {seated
+          ? 'Места стоят одинаково у всех: место 1 — внизу, дальше по часовой. Вы — там, где сидите; пересели — ваше место на экране сменилось. Кнопки ставок — внизу, как прежде.'
+          : 'Стол повёрнут так, что вы всегда внизу по центру, остальные — по часовой от вас.'}
       </p>
     </fieldset>
   )
