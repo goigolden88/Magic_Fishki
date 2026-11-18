@@ -92,8 +92,12 @@ import { LookFields } from './LookFields'
 import { LiveHandField, MuckFields } from './RoomFields'
 import { LookGear } from './TableGear'
 import { playFlights, useLandOnHide } from './cardFly'
+import { avatarOf } from '../poker/avatar'
+import { Avatar } from './Avatar'
 import {
   hasOwnBack,
+  loadAvatarsShown,
+  loadMyAvatar,
   loadBigBlinds,
   loadCardAnim,
   loadMyLook,
@@ -411,6 +415,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
             open={open}
             live={live}
             onSeat={room.online ? (seat) => room.send({ type: 'moveSeat', seat }) : undefined}
+            avatars={room.avatars}
           />
         </div>
 
@@ -1360,14 +1365,22 @@ function ShowCard(props: {
 // Касание своего места — имени или стека — суммы ББ ↔ фишки (Р-64); моего места нет (стол на одном телефоне) — касание банка.
 // table — стол в виде этого телефона: касание банка открывает «Ход раздачи» (#258), если настройка стола не выкл;
 // выкл (или стола не дали) — банк как до #258
+// Аватарки (#298): avatars — присланные комнатой (id игрока → аватарка), у кого нет — по умолчанию по имени;
+// avatarKey 'id' — по умолчанию по id (боты); своё место — своя аватарка этого телефона. «Не показывать» — без них
 export function PokerTable(props: {
   view: TableView
   table?: TableState
   open?: boolean
   live?: boolean
   onSeat?: (seat: number) => void
+  avatars?: Record<string, string>
+  avatarKey?: 'name' | 'id'
 }) {
-  const { view: v, table, open = false, live = true, onSeat } = props
+  const { view: v, table, open = false, live = true, onSeat, avatars, avatarKey = 'name' } = props
+  useLookVersion() // аватарки включили, выключили или сменили свою — места сразу в новом
+  const avatarsShown = loadAvatarsShown()
+  const seatAvatar = (s: SeatView): string | null =>
+    avatarsShown ? avatarOf(s.isMe ? loadMyAvatar() : avatars?.[s.id], avatarKey === 'id' && !s.isMe ? s.id : s.name) : null
   const [logOpen, setLogOpen] = useState(false)
   const handLog = table !== undefined && table.settings.liveHand !== false
   const [hudOf, setHudOf] = useState<string | null>(null)
@@ -1472,6 +1485,7 @@ export function PokerTable(props: {
             <SeatSpot
               key={s.id}
               seat={s}
+              avatar={seatAvatar(s)}
               at={spots[s.seat]}
               bottom={s.seat === bottom}
               myCards={s.isMe ? v.myCards : null}
@@ -1778,9 +1792,11 @@ function seenOf(cards: (Card | null)[] | null): number[] {
 // myHand — подпись моей комбинации сейчас, у открытых карт.
 // onHud — касание строки HUD (#79): подробно. hudDetailed — строка подробная, с 3-бетом (#241, #243).
 // note —заметка этого телефона об игроке с этим именем (Р-56): точка у имени; onNote(false) — касание точки, onNote(true) — имени.
-// Моё место (Р-64): касание имени или стека — onUnit, суммы ББ ↔ фишки; заметки о себе нет
+// Моё место (Р-64): касание имени или стека — onUnit, суммы ББ ↔ фишки; заметки о себе нет.
+// avatar (#298) — аватарка у имени, высотой в строку имени: карты и фишки не сдвигает; null — без неё
 function SeatSpot(props: {
   seat: SeatView
+  avatar: string | null
   at: Spot
   bottom: boolean
   myCards: Card[] | null
@@ -1838,6 +1854,7 @@ function SeatSpot(props: {
       )}
       {s.turnLeft !== null && <span className={s.turnBank ? 'seat-timer bank' : 'seat-timer'}>{secondsText(s.turnLeft, s.turnBank)}</span>}
       <span className="seat-head">
+        {props.avatar && <Avatar value={props.avatar} className="seat-avatar" />}
         {note && <NoteDot note={note} labels={labels} onOpen={() => onNote(false)} />}
         {s.isMe ? (
           <button type="button" className="seat-name" aria-label={`${s.name} (вы) — ${unitLabel}`} onClick={onUnit}>

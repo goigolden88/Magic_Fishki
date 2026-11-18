@@ -1807,6 +1807,15 @@ button.seat.free {
   min-width: 0;
 }
 
+/* Аватарка у имени (#298): размер — в строку имени (шрифт имени × его высота строки), строка места не растёт —
+   карты, стек и ставка не сдвигаются; имя короче — многоточием, как и было */
+.seat-avatar {
+  flex: none;
+  font-size: 0.85rem;
+  width: 1.15em;
+  height: 1.15em;
+}
+
 button.seat-name {
   flex: 0 1 auto;
   min-width: 0;
@@ -2679,6 +2688,22 @@ input.own-back-file {
 .look-back {
   margin-right: 6px;
   vertical-align: middle;
+}
+
+/* Аватарки (#298): рисунок набора — SVG, своя картинка — <img>; круг, размер — у места или кнопки выбора */
+.avatar {
+  display: inline-block;
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  vertical-align: middle;
+}
+
+/* Образец в «Моём виде стола» — 2 rem (32 px): так рисунки и проверены */
+.look-avatar {
+  width: 2rem;
+  height: 2rem;
+  margin-right: 0.4rem;
 }
 
 /* Образец колоды в «Виде стола» (Р-61): по карте каждой масти */
@@ -4087,7 +4112,8 @@ input.bet-amount {
     font-size: 0.95rem;
   }
 
-  .seat-name {
+  .seat-name,
+  .seat-avatar {
     font-size: 1rem;
   }
 

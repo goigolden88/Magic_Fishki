@@ -250,7 +250,7 @@ function BotTableCard(props: {
             {v.stageLabel}
           </TableInfo>
           {/* Свои карты — лицом: телефон только мой */}
-          <PokerTable view={v} table={table} open />
+          <PokerTable view={v} table={table} open avatarKey="id" />
         </div>
 
         <div className="table-below">

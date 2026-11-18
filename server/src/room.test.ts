@@ -1178,8 +1178,10 @@ describe('аватарки (#298)', () => {
       42,
       { id: 'cat' },
     ]
+    // Вошедшему — пустой список аватарок комнаты; кривые — никому не уходят
+    expect(avatarsOf(host)).toEqual([{ v: PROTOCOL_VERSION, type: 'avatars', avatars: {} }])
     for (const avatar of bad) await send(r, guest, { type: 'avatar', avatar })
-    expect(avatarsOf(host)).toEqual([])
+    expect(avatarsOf(host)).toHaveLength(1)
     expect(await r.storage.get('avatars')).toBeUndefined()
     // Ровно предел — принимается
     const edge = head + 'A'.repeat(8000 - head.length)

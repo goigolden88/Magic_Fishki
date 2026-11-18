@@ -20,13 +20,15 @@ async function load() {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('ключи браузера в синхронизации', () => {
-  it('едут только ключи копии: токена, репозитория, пароля и своей рубашки нет', async () => {
+  it('едут только ключи копии: токена, репозитория, пароля, своей рубашки и своей аватарки нет', async () => {
     const storage = fakeStorage()
     vi.stubGlobal('localStorage', storage)
     storage.setItem('fishki.sync.token', 'github_pat_секрет')
     storage.setItem('fishki.sync.repo', 'vasya-test/fishki-data')
     storage.setItem('fishki.poker.password', 'пароль')
     storage.setItem('fishki.poker.ownBack', 'data:image/webp;base64,AAAA')
+    storage.setItem('fishki.poker.avatar', 'data:image/webp;base64,AAAA')
+    storage.setItem('fishki.poker.avatarsShown', 'off')
     storage.setItem('fishki.theme', 'day')
     storage.setItem('fishki.sync.stamps', JSON.stringify({ 'fishki.poker.look': '2026-11-10T00:00:00.000Z' }))
     const { syncedPrefs } = await load()

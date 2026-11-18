@@ -284,7 +284,7 @@ async function join(
   const avatars = await loadAvatars(env)
   const changed = 'avatar' in msg && putAvatar(avatars, id, msg.avatar)
   if (changed) await env.storage.put<Avatars>(AVATARS_KEY, avatars)
-  if (Object.keys(avatars).length > 0) send(peer, { type: 'avatars', avatars })
+  send(peer, { type: 'avatars', avatars }) // и пустые: после обрыва телефон забывает прежние
   await save(env, room, now)
   if (changed) broadcastAvatar(env, id, avatars[id] ?? null, peer)
   // Игрок в сети — проверки живости идут
