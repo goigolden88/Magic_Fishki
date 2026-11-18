@@ -3192,6 +3192,7 @@ input.own-back-file {
 
 .casino-table {
   position: relative;
+  z-index: 0; /* надписи особых рук (#296) — внутри стола: не поверх панели кнопок снизу */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -3520,15 +3521,20 @@ input.own-back-file {
 }
 
 /* Особые руки в казино (#296, HandBurst): стрит-флеш — крупно поверх своего стола, но по его ширине
-   (на телефоне стол — половина сукна); префлоп у места — в ширину места, длинное название переносится */
+   (на телефоне стол — половина сукна); префлоп у места — мельче и не шире места (у соседей бывает своя
+   надпись), длинное название переносится по словам и мягким переносам (seatBurst в CasinoDeal.tsx) */
 .casino-board .hand-burst.big {
   max-width: 94%;
-  font-size: clamp(1rem, 4.5vw, 1.6rem);
+  font-size: clamp(1rem, 4.5vw, 1.25rem);
 }
 
 .casino-seat .hand-burst {
   width: max-content;
+  max-width: 100%;
+  padding: 0.1rem 0.15rem;
+  font-size: 0.6rem;
   white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 /* «Открывать столы сами»: четыре коротких выбора в ряд и на 320 px */

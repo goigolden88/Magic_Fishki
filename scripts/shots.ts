@@ -1634,6 +1634,89 @@ async function coolerOnly(cdp: Cdp): Promise<void> {
   }
 }
 
+// npm run shots -- ruki: особые руки в казино (#296) — новая игра «только казино» с четырьмя гостями, холдем,
+// колода разложена заранее: у Ани тузы, у Бори туз-король пик, у Вики короли, на первом столе — роял-флеш Бори.
+// Сразу после раздачи — надписи у трёх мест (04h), открылся первый стол — крупно «Роял-флеш · Боря» на нём (04i)
+async function casinoHandsOnly(cdp: Cdp): Promise<void> {
+  const { buildDeck, HOLDEM } = (
+    await runnerImport<Record<string, any>>(join(process.cwd(), 'src/poker/cards.ts'), { configFile: false, logLevel: 'silent' })
+  ).module
+  const players = GUESTS.slice(0, 4)
+  const hands = [
+    ['Ah', 'Ad'],
+    ['As', 'Ks'],
+    ['Kh', 'Kc'],
+    ['7d', '2c'],
+  ]
+  const board = ['Qs', 'Js', 'Ts', '4h', '2d']
+  // Сдача казино: по одной карте по кругу, затем столы по пять подряд; остальное — как лежит
+  const top = [...hands.map((h) => h[0]), ...hands.map((h) => h[1]), ...board]
+  const deck: string[] = buildDeck(HOLDEM)
+  const want = [...top, ...deck.filter((c) => !top.includes(c))]
+  // Байты для shuffle: Фишер — Йейтс из колоды варианта в want — j на шаг, четыре байта старшим вперёд
+  const out = [...deck]
+  const bytes: number[] = []
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = out.indexOf(want[i])
+    ;[out[i], out[j]] = [out[j], out[i]]
+    bytes.push(0, 0, 0, j)
+  }
+  for (const size of SIZES.slice(0, 2)) {
+    console.log(`Казино, особые руки, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await screen('Казино, особые руки', size, async () => {
+      await themeOnly(d)
+      await d.goto('#/poker')
+      await d.waitText('Войти по ссылке')
+      await d.click('В казино')
+      await d.waitText('Новая игра — только казино')
+      await d.click('Новая игра — только казино')
+      await d.waitFor('input[aria-label="Имя гостя"]')
+      for (const name of players) {
+        await d.type('input[aria-label="Имя гостя"]', name)
+        await sleep(100)
+        await d.click('Добавить')
+        await sleep(100)
+      }
+      await d.click('Начать')
+      await d.waitText('карты раздаёт программа, всё в открытую')
+      await d.waitText(`участников ${players.length}`)
+      // Колода раздачи — разложенная: shuffle берёт случайные числа по четыре байта
+      await d.eval(`(() => {
+        const q = ${JSON.stringify(bytes)}
+        const orig = crypto.getRandomValues.bind(crypto)
+        crypto.getRandomValues = (b) => {
+          if (!(b instanceof Uint8Array) || b.length !== 4 || q.length < 4) return orig(b)
+          b.set(q.splice(0, 4))
+          if (q.length === 0) crypto.getRandomValues = orig
+          return b
+        }
+        return true
+      })()`)
+      await d.click('Раздать')
+      await d.waitFor('.casino-seat .hand-burst', 4000)
+      // Места на широком окне — по кругу (нижний ряд справа налево): сверяются пары «имя — надпись»
+      const marks = await d.eval<string[]>(`[...document.querySelectorAll('.casino-seat')]
+        .filter((el) => el.querySelector('.hand-burst'))
+        .map((el) => el.querySelector('.seat-name').textContent + ': ' + el.querySelector('.hand-burst').textContent.replace(/\\u00ad/g, '').trim())
+        .sort()`)
+      const expected = [`${players[0]}: Карманные тузы`, `${players[1]}: Туз-король одной масти`, `${players[2]}: Карманные короли`]
+      if (marks.join(', ') !== expected.join(', ')) throw new Error(`у мест «${marks.join(', ')}», а не ${expected.join(', ')}`)
+      await sleep(200) // надписи выросли
+      await d.shot('04h-kazino-preflop', false)
+      await d.click('Открыть сейчас')
+      await d.waitFor('.casino-board .hand-burst.big', 4000)
+      const burst = await d.eval<string>("document.querySelector('.casino-board .hand-burst.big').innerText")
+      if (!burst.includes('Роял-флеш') || !burst.includes('Боря')) throw new Error(`на столе «${burst}», а не роял-флеш Бори`)
+      await sleep(500) // надпись выросла
+      await d.shot('04i-kazino-royal-flesh', false)
+      // ~3 с — и надписи нет
+      for (let i = 0; i < 30 && (await d.eval<boolean>("document.querySelector('.hand-burst') !== null")); i++) await sleep(200)
+      if (await d.eval<boolean>("document.querySelector('.hand-burst') !== null")) throw new Error('«Роял-флеш» не пропал')
+    })
+  }
+}
+
 // Стол против ботов (BotTable строкой) на ривере в мой ход: я и Бот Север, до флопа он повышает до 300 (30 ББ),
 // я уравниваю; флоп и тёрн — чеки; на ривере он ставит 400. Сначала у меня флеш (Qh Jh), у него фулл-хаус (Kd Ks)
 async function coolerTable(
@@ -2651,7 +2734,9 @@ async function main(): Promise<void> {
     const onlyHelp = process.argv.includes('spravka') // npm run shots -- spravka: справка группами (#245)
     const onlySync = process.argv.includes('sinhr') // npm run shots -- sinhr: «Синхронизация» в «Настройках» (#265)
     const onlyPre = process.argv.includes('zaranee') // npm run shots -- zaranee: ход заранее за столом с ботами (#299)
+    const onlyHands = process.argv.includes('ruki') // npm run shots -- ruki: особые руки в казино (#296)
     const part =
+      onlyHands ||
       onlyPre ||
       onlySync ||
       onlyHelp ||
@@ -2673,6 +2758,7 @@ async function main(): Promise<void> {
       onlyOwnBack ||
       onlyStraddle ||
       onlyOwnGames
+    if (onlyHands) await casinoHandsOnly(cdp)
     if (onlyPre) await preActionsOnly(cdp)
     if (onlySync) await syncOnly(cdp)
     if (onlyHelp) await helpOnly(cdp)
@@ -2703,6 +2789,7 @@ async function main(): Promise<void> {
     if (!onlyTable && !uchet && !part) await preActionsOnly(cdp)
     if (!onlyTable && !uchet && !part) await handLogOnly(cdp)
     if (!onlyTable && !uchet && !part) await coolerOnly(cdp)
+    if (!onlyTable && !part) await casinoHandsOnly(cdp)
     if (!onlyTable && !uchet && !part) await reportOnly(cdp)
     if (!onlyTable && !uchet && !part) await showOnly(cdp)
     if (!onlyTable && !uchet && !part) await muckOnly(cdp)

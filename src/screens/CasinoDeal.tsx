@@ -969,9 +969,15 @@ function Seat({ seat, index, fit }: { seat: SeatData; index: number; fit?: SeatF
           {(seat.exact ? '' : '≈ ') + formatRub(estimate, true)}
         </span>
       )}
-      {seat.burst && <HandBurst title={seat.burst} ms={PREFLOP_MS} />}
+      {seat.burst && <HandBurst title={seatBurst(seat.burst)} ms={PREFLOP_MS} />}
     </div>
   )
+}
+
+// Надпись особой руки у места (#296): место на телефоне уже слова «Карманные» — мягкие переносы по слогам
+// (автоперенос по словарю есть не в каждом браузере); на широком окне место шире — переносов не видно
+function seatBurst(label: string): string {
+  return label.replace('Карманные', 'Кар­ман­ные').replace('король', 'ко­роль')
 }
 
 // До раздачи — тот же стол: места с именами и рубашками, столы рубашкой с частью банка
