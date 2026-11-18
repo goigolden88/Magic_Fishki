@@ -2438,7 +2438,7 @@ textarea.note-input {
   max-width: 80%;
   padding: 0.4em 0.9em;
   border-radius: 1rem;
-  background: linear-gradient(135deg, #f7d774, #d4a017 55%, #a87908);
+  background: linear-gradient(135deg, #f7d774, #d4a017 55%, #c28d0c);
   box-shadow:
     0 0 0 0.2rem rgba(255, 255, 255, 0.35),
     0 0.4rem 1.6rem rgba(0, 0, 0, 0.45);
@@ -2447,10 +2447,15 @@ textarea.note-input {
   letter-spacing: 0.02em;
 }
 
+/* Кулер в центре — красный, как «Кулер!» у мест */
+.hand-burst.big.red {
+  background: linear-gradient(135deg, #e5484d, #b3261e);
+  color: #fff;
+}
+
 .hand-burst-sub {
   font-size: 0.55em;
   font-weight: 700;
-  opacity: 0.85;
 }
 
 @keyframes special-glow {

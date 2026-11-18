@@ -1460,7 +1460,7 @@ export function PokerTable(props: {
             ms={RIVER_MS}
           />
         ) : (
-          cooler && <HandBurst key={`cooler-${v.handNumber}`} title="Кулер!" big ms={COOLER_MS} />
+          cooler && <HandBurst key={`cooler-${v.handNumber}`} title="Кулер!" big red ms={COOLER_MS} />
         )}
         {hudSeat?.hud && <HudCard name={hudSeat.name} hud={hudSeat.hud} onClose={() => setHudOf(null)} />}
         {noteFor && (

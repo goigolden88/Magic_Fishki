@@ -1604,15 +1604,42 @@ async function coolerOnly(cdp: Cdp): Promise<void> {
       await d.waitFor('.seat-cooler', 3000)
       const marked = await d.eval<number>("document.querySelectorAll('.seat.cooler').length")
       if (marked !== 2) throw new Error(`«Кулер!» у ${marked} мест, а не у двух`)
-      await d.tableShot('16-kuler') // надпись видна с 0,3 до 1,6 с — снимок через 0,4 с
-      await waitGone(d, 'Кулер!') // ~2 с — и надписи нет
+      // #295: и крупно в центре стола
+      await d.waitFor('.felt-wrap > .hand-burst.big', 1000)
+      await sleep(400) // надпись выросла
+      await d.tableShot('16-kuler')
+      await waitGone(d, 'Кулер!') // ~4 с — и надписи нет
+    })
+    // #295: роял-флеш на ривере на вскрытии — крупно в центре стола «Роял-флеш · у вас» (16c); кулера нет
+    await screen('Против ботов, роял-флеш', size, async () => {
+      const text = await coolerTable({ me: ['Ah', 'Kh'], bot1: ['9d', '9s'] }, ['Qh', 'Jh', 'Th', '7d', '2c'])
+      await d.goto('#/poker')
+      await d.waitText('Войти по ссылке')
+      await d.eval(`(localStorage.setItem('fishki.poker.bots', ${JSON.stringify(text)}), true)`)
+      await d.goto('#/poker/bots')
+      await d.reload()
+      await d.waitFor('.dock.actions')
+      await sleep(1500) // раздача долетела
+      await d.click('Колл 400')
+      await d.waitFor('.felt-wrap > .hand-burst.big', 3000)
+      const burst = await d.eval<string>("document.querySelector('.felt-wrap > .hand-burst.big').innerText")
+      if (!burst.includes('Роял-флеш') || !burst.includes('у вас')) throw new Error(`в центре стола «${burst}», а не роял-флеш`)
+      if (await d.eval<boolean>("document.querySelector('.seat.cooler') !== null")) throw new Error('кулер, а его быть не должно')
+      await sleep(500) // надпись выросла
+      await d.tableShot('16c-royal-flesh')
+      // ~3 с — и надписи нет
+      for (let i = 0; i < 30 && (await d.eval<boolean>("document.querySelector('.hand-burst') !== null")); i++) await sleep(200)
+      if (await d.eval<boolean>("document.querySelector('.hand-burst') !== null")) throw new Error('«Роял-флеш» не пропал')
     })
   }
 }
 
 // Стол против ботов (BotTable строкой) на ривере в мой ход: я и Бот Север, до флопа он повышает до 300 (30 ББ),
-// я уравниваю; флоп и тёрн — чеки; на ривере он ставит 400. У меня флеш (Qh Jh), у него фулл-хаус (Kd Ks)
-async function coolerTable(): Promise<string> {
+// я уравниваю; флоп и тёрн — чеки; на ривере он ставит 400. Сначала у меня флеш (Qh Jh), у него фулл-хаус (Kd Ks)
+async function coolerTable(
+  hands: Record<string, string[]> = { me: ['Qh', 'Jh'], bot1: ['Kd', 'Ks'] },
+  board: string[] = ['Ah', 'Kh', '7h', '7d', '2c'],
+): Promise<string> {
   const load = async (file: string) =>
     (await runnerImport<Record<string, any>>(join(process.cwd(), 'src/poker', file), { configFile: false, logLevel: 'silent' })).module
   const table = await load('table.ts')
@@ -1629,8 +1656,6 @@ async function coolerTable(): Promise<string> {
     state = r.state
   }
   send('bot1', { type: 'sit', name: 'Бот Север' })
-  const hands: Record<string, string[]> = { me: ['Qh', 'Jh'], bot1: ['Kd', 'Ks'] }
-  const board = ['Ah', 'Kh', '7h', '7d', '2c']
   // Порядок сдачи — по кругу от первого после кнопки: кнопку даёт пробный старт
   const probe = table.handle(state, 'me', { v: PROTOCOL_VERSION, type: 'start' }, now, rules.deckFor(rules.HOLDEM_GAME))
   if (!probe.ok) throw new Error(probe.error)
