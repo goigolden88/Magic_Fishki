@@ -2898,7 +2898,7 @@ input.own-back-file {
   margin: 0.15rem 0;
 }
 
-/* «Докрутить борд» (#297): карты, что вышли бы, — после борда, приглушены и в пунктирной рамке; под ними — «докрутка» */
+/* «Докрутить борд» (#297): карты, что вышли бы, — после борда, в пунктирной рамке (не приглушены: контраст); под ними — «докрутка» */
 .felt-center .runout-board {
   display: flex;
   flex-direction: column;
@@ -2912,7 +2912,6 @@ input.own-back-file {
   padding: 0.1rem;
   border: 1px dashed currentColor;
   border-radius: 0.3rem;
-  opacity: 0.75;
   vertical-align: middle;
 }
 

@@ -1634,6 +1634,76 @@ async function coolerOnly(cdp: Cdp): Promise<void> {
   }
 }
 
+// npm run shots -- dokrutka: «Докрутить борд» (#297) — стол против ботов на флопе, Бот Север ставит 100, мой ход.
+// «Пас» — банк его без вскрытия, под столом в «Прошлой раздаче» — «Докрутить» (18a); касание — на столе тёрн и ривер
+// с подписью «докрутка» (18), под столом — подпись вместо кнопки (18b); на телефоне и ноутбуке
+async function runoutOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES.slice(0, 2)) {
+    console.log(`Докрутка, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await screen('Против ботов, докрутка', size, async () => {
+      await themeOnly(d)
+      const text = await runoutTable()
+      await d.goto('#/poker')
+      await d.waitText('Войти по ссылке')
+      await d.eval(`(localStorage.setItem('fishki.poker.bots', ${JSON.stringify(text)}), true)`)
+      await d.goto('#/poker/bots')
+      await d.reload()
+      await d.waitFor('.dock.actions')
+      await sleep(1500) // раздача долетела
+      await d.click('Пас')
+      await d.waitText('Докрутить')
+      if (await d.eval<boolean>("document.querySelector('.runout-cards') !== null")) throw new Error('докрутка на столе до касания')
+      await d.eval(`(document.querySelector('.last-hand')?.scrollIntoView({ block: 'center' }), true)`)
+      await d.shot('18a-dokrutit-knopka', false)
+      await d.click('Докрутить')
+      await d.eval(`(document.querySelector('.table-stage')?.scrollIntoView({ block: 'start' }), true)`)
+      await d.waitFor('.runout-cards', 2000)
+      const shown = await d.eval<number>("document.querySelectorAll('.runout-cards .playing-card').length")
+      if (shown !== 2) throw new Error(`в докрутке ${shown} карт, а не две (тёрн и ривер)`)
+      await d.waitText('докрутка')
+      await d.tableShot('18-dokrutka')
+      // Под столом «Прошлая раздача»: вместо кнопки — подпись
+      await d.waitText('Докрутка — на столе')
+      await d.eval(`(document.querySelector('.last-hand')?.scrollIntoView({ block: 'center' }), true)`)
+      await d.shot('18b-dokrutka-itog', false)
+    })
+  }
+}
+
+// Стол против ботов (BotTable строкой) на флопе в мой ход: я и Бот Север, до флопа — колл и чек, на флопе он ставит 100
+async function runoutTable(): Promise<string> {
+  const load = async (file: string) =>
+    (await runnerImport<Record<string, any>>(join(process.cwd(), 'src/poker', file), { configFile: false, logLevel: 'silent' })).module
+  const table = await load('table.ts')
+  const rules = await load('game.ts')
+  const { PROTOCOL_VERSION } = await load('protocol.ts')
+  const now = Date.now()
+  const settings = { sb: 5, bb: 10, startingStack: 1000, maxSeats: 4, cards: 'phones', autoStart: 'off' }
+  const created = table.createTable('me', 'Вы', settings, now)
+  if (!created.ok) throw new Error(created.error)
+  let state = created.state
+  const send = (from: string, body: Record<string, unknown>, deck?: string[]) => {
+    const r = table.handle(state, from, { v: PROTOCOL_VERSION, ...body }, now, deck)
+    if (!r.ok) throw new Error(`${from} ${String(body.type)}: ${r.error}`)
+    state = r.state
+  }
+  send('bot1', { type: 'sit', name: 'Бот Север' })
+  // Кнопка — у меня: сдают с Бота Север, по карте по кругу. У меня 9♣8♣, у него A♦K♦; флоп Q♥7♣2♠, докрутка — T♣ J♥ (мой стрит)
+  const top = ['Ad', '9c', 'Kd', '8c', 'Qh', '7c', '2s', 'Tc', 'Jh']
+  send('me', { type: 'start' }, [...top, ...rules.deckFor(rules.HOLDEM_GAME).filter((c: string) => !top.includes(c))])
+  for (let i = 0; i < 20 && state.hand; i++) {
+    const hand = state.hand
+    const seat = hand.seats[hand.toAct]
+    if (hand.stage === 'flop' && seat.id === 'me' && hand.currentBet > 0) break
+    const facing = seat.bet < hand.currentBet
+    const opens = seat.id === 'bot1' && hand.stage === 'flop' && hand.currentBet === 0
+    send(seat.id, { type: 'act', action: opens ? { type: 'raise', to: 100 } : { type: facing ? 'call' : 'check' } })
+  }
+  if (state.hand?.stage !== 'flop' || state.hand.seats[state.hand.toAct].id !== 'me') throw new Error('не дошёл мой ход на флопе')
+  return JSON.stringify({ id: 'shots-dokrutka', table: state, meId: 'me', level: 'amateur', open: false, showStyles: true, autoFinish: false, hudAll: false, history: [] })
+}
+
 // npm run shots -- ruki: особые руки в казино (#296) — новая игра «только казино» с четырьмя гостями, холдем,
 // колода разложена заранее: у Ани тузы, у Бори туз-король пик, у Вики короли, на первом столе — роял-флеш Бори.
 // Сразу после раздачи — надписи у трёх мест (04h), открылся первый стол — крупно «Роял-флеш · Боря» на нём (04i)
@@ -2735,7 +2805,9 @@ async function main(): Promise<void> {
     const onlySync = process.argv.includes('sinhr') // npm run shots -- sinhr: «Синхронизация» в «Настройках» (#265)
     const onlyPre = process.argv.includes('zaranee') // npm run shots -- zaranee: ход заранее за столом с ботами (#299)
     const onlyHands = process.argv.includes('ruki') // npm run shots -- ruki: особые руки в казино (#296)
+    const onlyRunout = process.argv.includes('dokrutka') // npm run shots -- dokrutka: «Докрутить борд» (#297)
     const part =
+      onlyRunout ||
       onlyHands ||
       onlyPre ||
       onlySync ||
@@ -2758,6 +2830,7 @@ async function main(): Promise<void> {
       onlyOwnBack ||
       onlyStraddle ||
       onlyOwnGames
+    if (onlyRunout) await runoutOnly(cdp)
     if (onlyHands) await casinoHandsOnly(cdp)
     if (onlyPre) await preActionsOnly(cdp)
     if (onlySync) await syncOnly(cdp)
@@ -2789,6 +2862,7 @@ async function main(): Promise<void> {
     if (!onlyTable && !uchet && !part) await preActionsOnly(cdp)
     if (!onlyTable && !uchet && !part) await handLogOnly(cdp)
     if (!onlyTable && !uchet && !part) await coolerOnly(cdp)
+    if (!onlyTable && !uchet && !part) await runoutOnly(cdp)
     if (!onlyTable && !part) await casinoHandsOnly(cdp)
     if (!onlyTable && !uchet && !part) await reportOnly(cdp)
     if (!onlyTable && !uchet && !part) await showOnly(cdp)

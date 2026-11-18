@@ -1449,7 +1449,7 @@ export function PokerTable(props: {
               <div className={runout.shown ? 'board runout-board' : 'board'}>
                 <span>
                   {v.board.length > 0 && <CardRow cards={v.board} win={v.boardWin} fly={BOARD_GROUP} />}
-                  {/* «Докрутить» (#297): карты, что вышли бы, — после борда, приглушённые, с подписью */}
+                  {/* «Докрутить» (#297): карты, что вышли бы, — после борда, в пунктирной рамке, с подписью */}
                   {runout.shown && v.runout && (
                     <span className="runout-cards">
                       <CardRow cards={v.runout} />
