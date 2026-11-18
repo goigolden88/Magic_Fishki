@@ -388,6 +388,23 @@ describe('карты на телефонах', () => {
     expect(leaked(guests[0].peer, secretsFor(room, guests[0].id))).toEqual([])
   })
 
+  it('все спасовали до ривера (#297): остаток борда — в итоге раздачи, в ходе раздачи и в историю — нет', async () => {
+    const { r, host, guests } = await cardsRoom()
+    await send(r, host, { type: 'start' })
+    const board = ((await stored(r))?.table.hand?.cards?.deck ?? []).slice(0, 5)
+    expect(board).toHaveLength(5)
+    // На троих первой ходит кнопка — ведущий; за ним малый блайнд
+    await send(r, host, { type: 'act', action: { type: 'fold' } })
+    expect(leaked(guests[0].peer, board)).toEqual([])
+    await send(r, guests[0].peer, { type: 'act', action: { type: 'fold' } })
+    const room = await stored(r)
+    expect(room?.table.hand).toBeNull()
+    expect(room?.table.lastHand?.record?.board).toEqual([])
+    expect(room?.table.lastHand?.runout).toEqual(board)
+    for (const peer of [host, guests[0].peer, guests[1].peer]) expect(tableOf(peer).lastHand?.runout).toEqual(board)
+    for (const [key, value] of r.storage.data) if (key !== 'room') expect(JSON.stringify(value)).not.toContain('runout')
+  })
+
   it('комната без настройки карт — живые, как раньше: колоды у раздачи нет', async () => {
     const { r, host } = await twoPlayers()
     await send(r, host, { type: 'start' })
