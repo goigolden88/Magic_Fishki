@@ -42,7 +42,9 @@ import type { AutoStart, CardBack, Felt, MuckMode, Settings, TableState } from '
 // 26 — «Мак по выбору» (#286): значение muck 'manual'; пауза выбора в столе (muckVote), ответ решающего (muck)
 // 27 — «Докрутить борд» (#297, Р-112): в итоге раздачи, кончившейся пасом до ривера, — карты стола, что вышли бы
 //      (lastHand.runout); только после конца раздачи, в ход раздачи телефону не приходят
-export const PROTOCOL_VERSION = 27
+// 28 — аватарки (#298, Р-113): поле avatar во входе (join), смена — сообщением avatar; аватарки комнаты телефону —
+//      avatars при входе и avatar при смене. Не в столе: стол уходит всем на каждый ход
+export const PROTOCOL_VERSION = 28
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -125,9 +127,12 @@ export type ClientMessage = ClientBody & { v: number }
 // Сообщения комнаты — их разбирает сервер комнат, не стол.
 // join — первое сообщение после подключения: с playerId и token — возврат на своё место,
 // иначе (или токен чужой) — посадка новым игроком: с regularId — под постоянным из списка
-// комнаты (имя — из списка), без него — гостем под именем name
+// комнаты (имя — из списка), без него — гостем под именем name.
+// avatar (#298) — аватарка входящего: id из набора или своя картинка (isAvatar, src/poker/avatar.ts); null — по
+// умолчанию; нет поля — прежняя; не прошла проверку — отбрасывается, вход идёт
 export type RoomMessage = { v: number } & (
-  | { type: 'join'; name?: string; regularId?: string; playerId?: string; token?: string }
+  | { type: 'join'; name?: string; regularId?: string; playerId?: string; token?: string; avatar?: string | null }
+  | { type: 'avatar'; avatar: string | null } // вошедший сменил аватарку; null — по умолчанию
   | { type: 'finish' } // ведущий: игра окончена — комната стирается
   | { type: 'reseat'; playerId: string } // ведущий: новый токен игроку — для другого устройства, старый больше не пускает
   | { type: 'history' } // вошедший: прислать историю раздач вечера
@@ -159,5 +164,9 @@ export type ServerMessage = { v: number } & (
   | { type: 'ended'; table: TableState; reason: string } // комната стёрта; table — стол на момент конца, тоже в виде телефона
   // Ответ на history: все раздачи вечера по номерам, с первой; карты взявшего без вскрытия — только ему (handFor)
   | { type: 'history'; hands: HistoryHand[] }
+  // Аватарки (#298): вошедшему — все заданные в комнате (id игрока → аватарка; у кого нет — по умолчанию);
+  // сменил кто-то — всем вошедшим одна (null — снова по умолчанию)
+  | { type: 'avatars'; avatars: Record<string, string> }
+  | { type: 'avatar'; playerId: string; avatar: string | null }
   | { type: 'error'; error: string }
 )

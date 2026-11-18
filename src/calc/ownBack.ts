@@ -11,13 +11,14 @@ export const OWN_BACK_FILE_MAX_MB = 20
 
 export type Crop = { sx: number; sy: number; sw: number; sh: number }
 
-// Кусок картинки w × h под пропорцию 5 : 7 по центру — как object-fit: cover: шире — режутся бока, выше — верх и низ
-export function coverCrop(w: number, h: number): Crop {
-  if (w * 7 > h * 5) {
-    const sw = Math.max(1, Math.round((h * 5) / 7))
+// Кусок картинки w × h под пропорцию rw : rh по центру — как object-fit: cover: шире — режутся бока, выше — верх
+// и низ. Сначала — карта 5 : 7; аватарка (#298) — квадрат 1 : 1
+export function coverCrop(w: number, h: number, rw = 5, rh = 7): Crop {
+  if (w * rh > h * rw) {
+    const sw = Math.max(1, Math.round((h * rw) / rh))
     return { sx: Math.floor((w - sw) / 2), sy: 0, sw, sh: h }
   }
-  const sh = Math.max(1, Math.round((w * 7) / 5))
+  const sh = Math.max(1, Math.round((w * rh) / rw))
   return { sx: 0, sy: Math.floor((h - sh) / 2), sw: w, sh }
 }
 

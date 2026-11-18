@@ -1137,3 +1137,85 @@ describe('история раздач вечера (#113)', () => {
     expect(stranger.last()).toEqual({ v: PROTOCOL_VERSION, type: 'error', error: 'Сначала войдите в комнату' })
   })
 })
+
+describe('аватарки (#298)', () => {
+  const picture = 'data:image/webp;base64,' + 'A'.repeat(4000)
+  const avatarsOf = (peer: FakePeer) => peer.sent.filter((m) => m.type === 'avatar' || m.type === 'avatars')
+
+  it('с входом — в своей записи; вошедшему позже — все; в столе и в state их нет', async () => {
+    const { r, host, guest, guestId } = await twoPlayers()
+    await send(r, guest, { type: 'avatar', avatar: picture })
+    expect(host.last()).toEqual({ v: PROTOCOL_VERSION, type: 'avatar', playerId: guestId, avatar: picture })
+    const late = await connect(r)
+    await send(r, late, { type: 'join', name: 'Поздний', avatar: 'cat' })
+    const lateId = (late.sent.find((m) => m.type === 'welcome') as { playerId: string }).playerId
+    expect(late.sent.find((m) => m.type === 'avatars')).toEqual({
+      v: PROTOCOL_VERSION,
+      type: 'avatars',
+      avatars: { [guestId]: picture, [lateId]: 'cat' },
+    })
+    expect(avatarsOf(host).at(-1)).toEqual({ v: PROTOCOL_VERSION, type: 'avatar', playerId: lateId, avatar: 'cat' })
+    // Стол — без картинок: ни в хранилище, ни в рассылке на каждый ход
+    await send(r, host, { type: 'start' })
+    const states = [...host.sent, ...guest.sent, ...late.sent].filter((m) => m.type === 'state')
+    expect(states.length).toBeGreaterThan(0)
+    expect(JSON.stringify(states)).not.toContain('base64')
+    expect(JSON.stringify(states)).not.toContain('"cat"')
+    expect(r.storage.data.get('room')).not.toContain('base64')
+    expect(await r.storage.get('avatars')).toEqual({ [guestId]: picture, [lateId]: 'cat' })
+  })
+
+  it('длинная и чужого вида строка отбрасывается; null — снова по умолчанию', async () => {
+    const { r, host, guest, guestId } = await twoPlayers()
+    const head = 'data:image/webp;base64,'
+    const bad = [
+      head + 'A'.repeat(8000 - head.length + 1), // длиннее предела
+      'data:image/png;base64,AAAA', // не WebP и не JPEG
+      'data:image/svg+xml;base64,AAAA',
+      'javascript:alert(1)',
+      head + 'AA")',
+      'dragon', // не из набора
+      42,
+      { id: 'cat' },
+    ]
+    for (const avatar of bad) await send(r, guest, { type: 'avatar', avatar })
+    expect(avatarsOf(host)).toEqual([])
+    expect(await r.storage.get('avatars')).toBeUndefined()
+    // Ровно предел — принимается
+    const edge = head + 'A'.repeat(8000 - head.length)
+    await send(r, guest, { type: 'avatar', avatar: edge })
+    expect(await r.storage.get('avatars')).toEqual({ [guestId]: edge })
+    // Та же ещё раз — никому не шлётся
+    const sent = host.sent.length
+    await send(r, guest, { type: 'avatar', avatar: edge })
+    expect(host.sent.length).toBe(sent)
+    await send(r, guest, { type: 'avatar', avatar: null })
+    expect(host.last()).toEqual({ v: PROTOCOL_VERSION, type: 'avatar', playerId: guestId, avatar: null })
+    expect(await r.storage.get('avatars')).toEqual({})
+    // Кривая при входе — вход идёт, аватарки нет
+    const other = await connect(r)
+    await send(r, other, { type: 'join', name: 'Третий', avatar: bad[0] })
+    expect(other.playerId()).not.toBeNull()
+    expect(await r.storage.get('avatars')).toEqual({})
+  })
+
+  it('не вошедшему — «Сначала войдите»; возврат по токену без поля — прежняя; убран — стёрта; конец — всё стёрто', async () => {
+    const { r, host, guest, guestId, guestToken } = await twoPlayers()
+    const stranger = await connect(r)
+    await send(r, stranger, { type: 'avatar', avatar: 'sun' })
+    expect(stranger.last()).toEqual({ v: PROTOCOL_VERSION, type: 'error', error: 'Сначала войдите в комнату' })
+
+    await send(r, guest, { type: 'avatar', avatar: 'moon' })
+    const back = await connect(r)
+    await send(r, back, { type: 'join', playerId: guestId, token: guestToken })
+    expect(afterLobby(back)[0]).toMatchObject({ type: 'welcome', playerId: guestId })
+    expect(back.sent.find((m) => m.type === 'avatars')).toMatchObject({ avatars: { [guestId]: 'moon' } })
+
+    await send(r, host, { type: 'remove', playerId: guestId })
+    expect(await r.storage.get('avatars')).toEqual({})
+
+    await send(r, host, { type: 'avatar', avatar: 'heart' })
+    await send(r, host, { type: 'finish' })
+    expect(r.storage.data.size).toBe(0)
+  })
+})

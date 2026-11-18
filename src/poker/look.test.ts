@@ -4,6 +4,7 @@ import {
   backupLook,
   DECK_LABELS,
   deckOf,
+  drawnAvatar,
   drawnBack,
   FACE_LABELS,
   faceOf,
@@ -230,5 +231,33 @@ describe('личный вид стола (Р-61)', () => {
     expect(mergeMyLook({ ...MY_LOOK_DEFAULT, deck: 'two' }, backup).deck).toBe('two')
     expect(mergeMyLook(MY_LOOK_DEFAULT, { ...MY_LOOK_DEFAULT, deck: 'two' }).deck).toBe('two')
     expect(mergeMyLook(MY_LOOK_DEFAULT, MY_LOOK_DEFAULT).deck).toBeNull()
+  })
+})
+
+describe('аватарка в своём виде (#298)', () => {
+  it('разбор: рисунок набора и «Своя» — как есть; чужое и нет поля — по умолчанию, поля нет', () => {
+    expect(parseMyLook({ avatar: 'hedgehog' }).avatar).toBe('hedgehog')
+    expect(parseMyLook({ avatar: 'own' }).avatar).toBe('own')
+    for (const avatar of ['dragon', 'toString', 7, null, 'data:image/webp;base64,AAAA']) {
+      expect(parseMyLook({ felt: 'navy', avatar })).toEqual({ felt: 'navy', cardBack: null, deck: null, face: null })
+    }
+    expect('avatar' in parseMyLook({ felt: 'navy' })).toBe(false)
+  })
+
+  it('выбранная аватарка — запись есть; копия — без «Своей»; восстановление не затирает своё', () => {
+    expect(isDefaultLook({ ...MY_LOOK_DEFAULT, avatar: 'sun' })).toBe(false)
+    expect(isDefaultLook({ ...MY_LOOK_DEFAULT, avatar: null })).toBe(true)
+    expect(backupLook({ ...MY_LOOK_DEFAULT, avatar: 'sun' }).avatar).toBe('sun')
+    expect(backupLook({ ...MY_LOOK_DEFAULT, cardBack: 'own', avatar: 'own' })).toEqual(MY_LOOK_DEFAULT)
+    expect(mergeMyLook(MY_LOOK_DEFAULT, { ...MY_LOOK_DEFAULT, avatar: 'cat' }).avatar).toBe('cat')
+    expect(mergeMyLook({ ...MY_LOOK_DEFAULT, avatar: 'own' }, { ...MY_LOOK_DEFAULT, avatar: 'cat' }).avatar).toBe('own')
+    expect(mergeMyLook(MY_LOOK_DEFAULT, MY_LOOK_DEFAULT)).toEqual(MY_LOOK_DEFAULT)
+  })
+
+  it('«Своя» без картинки на устройстве — по умолчанию', () => {
+    expect(drawnAvatar({ ...MY_LOOK_DEFAULT, avatar: 'own' }, true)).toBe('own')
+    expect(drawnAvatar({ ...MY_LOOK_DEFAULT, avatar: 'own' }, false)).toBeNull()
+    expect(drawnAvatar({ ...MY_LOOK_DEFAULT, avatar: 'moon' }, false)).toBe('moon')
+    expect(drawnAvatar(MY_LOOK_DEFAULT, true)).toBeNull()
   })
 })
