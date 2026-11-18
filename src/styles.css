@@ -1750,12 +1750,13 @@ button.share-closed small {
   transform: translate(calc(var(--seat-w) / 2 - 100%), -50%);
 }
 
-/* Нижнее место (я) — шире прочих, крупные карты; растёт вверх от низа рамки */
+/* Нижнее место растёт вверх от низа рамки */
 .seat.bottom {
   transform: translate(-50%, -100%);
 }
 
-.seat.me {
+/* Моё место крупно (я внизу) — шире прочих, крупные карты; «как сидим» (#315) — обычного размера */
+.seat.big {
   width: calc(var(--seat-w) * 1.3);
 }
 
@@ -2756,12 +2757,12 @@ input.own-back-file {
 }
 
 .seat .card-row .playing-card.mid,
-.seat-cards .playing-card {
+.seat-cards .playing-card.mid {
   flex: 0 1 2rem;
   min-width: 0;
 }
 
-.seat.me .card-row {
+.seat.big .card-row {
   display: flex;
   gap: 0.2rem;
 }
@@ -2787,34 +2788,37 @@ input.own-back-file {
   border-color: var(--gold);
 }
 
-.seat.me.winner {
+.seat.big.winner {
   width: max(var(--seat-w) * 1.3, 5.7rem);
 }
 
 /* Омаха (#80): четыре карты у места — ряд во всю ширину места, карты сжимаются и мельче;
-   моё место шире, чтобы четыре свои карты читались и на 360 px */
-.seat.many .card-row:not(.best-row) {
+   моё место крупно — шире, чтобы четыре свои карты читались и на 360 px; «как сидим» (#315) — свои, как у соседей */
+.seat.many .card-row:not(.best-row),
+.seat.many:not(.big) .seat-cards {
   display: flex;
   gap: 1px;
 }
 
-.seat.many .card-row:not(.best-row) .playing-card.small {
+.seat.many .card-row:not(.best-row) .playing-card.small,
+.seat.many .seat-cards .playing-card.small {
   flex: 0 1 1rem;
   min-width: 0;
   font-size: 0.55rem;
 }
 
 /* Открытые карты своей игры (#226) среди рубашек: сжимаются рубашки, карты лицом — почти нет, чтобы читались */
-.seat.many .card-row:not(.best-row) .playing-card.small:not(.back) {
+.seat.many .card-row:not(.best-row) .playing-card.small:not(.back),
+.seat.many .seat-cards .playing-card.small:not(.back) {
   flex-shrink: 0.2;
 }
 
-.seat.me.many {
+.seat.big.many {
   width: max(var(--seat-w) * 1.3, 7.5rem);
 }
 
-.seat.me.many .seat-cards .playing-card,
-.seat.me.many .card-row .playing-card.mid {
+.seat.big.many .seat-cards .playing-card,
+.seat.big.many .card-row .playing-card.mid {
   font-size: 0.85rem;
   letter-spacing: -0.05em;
 }
@@ -4165,11 +4169,12 @@ input.bet-amount {
   }
 
   .felt-wrap .seat .card-row .playing-card.mid,
-  .felt-wrap .seat-cards .playing-card {
+  .felt-wrap .seat-cards .playing-card.mid {
     flex-basis: 2.7rem;
   }
 
-  .felt-wrap .seat.many .card-row:not(.best-row) .playing-card.small {
+  .felt-wrap .seat.many .card-row:not(.best-row) .playing-card.small,
+  .felt-wrap .seat.many .seat-cards .playing-card.small {
     flex-basis: 1.45rem;
     font-size: 0.75rem;
   }
@@ -4184,16 +4189,16 @@ input.bet-amount {
     width: max(var(--seat-w), 7rem);
   }
 
-  .seat.me.winner {
+  .seat.big.winner {
     width: max(var(--seat-w) * 1.3, 7rem);
   }
 
-  .seat.me.many {
+  .seat.big.many {
     width: max(var(--seat-w) * 1.3, 9.5rem);
   }
 
-  .seat.me.many .seat-cards .playing-card,
-  .seat.me.many .card-row .playing-card.mid {
+  .seat.big.many .seat-cards .playing-card,
+  .seat.big.many .card-row .playing-card.mid {
     font-size: 1.1rem;
   }
 }

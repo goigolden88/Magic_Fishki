@@ -15,6 +15,12 @@ export function spotsBySeat(maxSeats: number, mySeat: number | null, wide = fals
   return spots.map((_, k) => spots[(((k - shift) % n) + n) % n])
 }
 
+// Поворот стола (#315): «я внизу» — моё место внизу, стол повёрнут; «как сидим» (seated) — без поворота: место 0
+// внизу у всех телефонов, я — на своём. Что отдать в spotsBySeat как mySeat
+export function turnSeat(mySeat: number | null, seated: boolean): number | null {
+  return seated ? null : mySeat
+}
+
 // Сколько места занимает место у стола, в процентах слоя мест, на самом тесном экране — телефоне
 // 360×640 с панелью хода (на 320 px по ширине — так же): соседи не ближе этого по ширине или по высоте
 export const SEAT_W = 31
