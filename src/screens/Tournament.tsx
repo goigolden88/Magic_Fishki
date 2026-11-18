@@ -58,7 +58,7 @@ export function FormatFields({ form, players, onChange }: { form: TournamentForm
 }
 
 function TournamentFields({ form, players, onChange }: { form: TournamentForm; players: number; onChange: Change }) {
-  const field = (key: 'buyIn' | 'growth' | 'minutes' | 'antePct' | 'rebuyLevels', label: string) => (
+  const field = (key: 'buyIn' | 'growth' | 'minutes' | 'antePct' | 'rebuyLevels' | 'lateRegLevels', label: string) => (
     <label className="field">
       {label}
       <input inputMode="numeric" pattern="[0-9 ]*" value={form[key]} onChange={(e) => onChange({ ...form, [key]: e.target.value })} />
@@ -97,6 +97,12 @@ function TournamentFields({ form, players, onChange }: { form: TournamentForm; p
         Ребай — выбывший покупает стартовый стек за бай-ин
       </label>
       {form.rebuy && field('rebuyLevels', `До конца уровня (1–${LEVEL_COUNT})`)}
+      {/* #312: поздняя регистрация — опоздавший садится в идущий турнир со стартовым стеком за бай-ин */}
+      <label className="check">
+        <input type="checkbox" checked={form.lateReg} onChange={(e) => onChange({ ...form, lateReg: e.target.checked })} />
+        Поздняя регистрация — опоздавший садится со стартовым стеком за бай-ин
+      </label>
+      {form.lateReg && field('lateRegLevels', `До конца уровня (1–${LEVEL_COUNT})`)}
       <PrizeFields
         own={form.prizesOwn}
         prizes={form.prizes}
@@ -228,6 +234,11 @@ export function TournamentPanel({ view: t, onEnd }: { view: TournamentView; onEn
           {t.stopped && <p className="warn">Перерыв — часы стоят у всех</p>}
           {t.rebuyLevels > 0 && (
             <p className="muted">{t.rebuyOpen || !t.started ? `Ребай — до конца уровня ${t.rebuyLevels}` : 'Ребай закрыт'}</p>
+          )}
+          {t.lateRegLevels > 0 && (
+            <p className="muted">
+              {t.lateRegOpen || !t.started ? `Регистрация — до конца уровня ${t.lateRegLevels}` : 'Регистрация закрыта'}
+            </p>
           )}
         </>
       )}

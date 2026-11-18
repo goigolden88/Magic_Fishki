@@ -4,6 +4,7 @@ import type { Settings, TableFormat } from '../poker/table'
 import {
   DEFAULT_TOURNAMENT,
   defaultPrizes,
+  lateRegLevels,
   PRIZE_RULES,
   prizesError,
   tournamentError,
@@ -23,6 +24,8 @@ export type TournamentForm = {
   antePct: string // % от большого блайнда; пусто — 0
   rebuy: boolean
   rebuyLevels: string // ребай — до конца уровня
+  lateReg: boolean // поздняя регистрация (#312)
+  lateRegLevels: string // поздняя регистрация — до конца уровня
   prizesOwn: boolean // свои проценты призов; нет — по числу игроков
   prizes: string[] // свои проценты по местам
 }
@@ -46,6 +49,8 @@ export function tournamentForm(players: number): TournamentForm {
     antePct: String(t.antePct),
     rebuy: t.rebuyLevels > 0,
     rebuyLevels: String(t.rebuyLevels || 1),
+    lateReg: lateRegLevels(t) > 0,
+    lateRegLevels: String(lateRegLevels(t) || 1),
     prizesOwn: false,
     prizes: defaultPrizes(players).map(String),
   }
@@ -69,6 +74,8 @@ export function tournamentFormOf(s: FormatSettings, players: number): Tournament
     antePct: String(t.antePct),
     rebuy: t.rebuyLevels > 0,
     rebuyLevels: String(t.rebuyLevels || 1),
+    lateReg: lateRegLevels(t) > 0,
+    lateRegLevels: String(lateRegLevels(t) || 1),
     prizesOwn: t.prizes !== null,
     prizes: (t.prizes ?? defaultPrizes(players)).map(String),
   }
@@ -93,9 +100,11 @@ export function formSettings(form: TournamentForm): { ok: true; settings: Format
     levelMinutes: wholeOf(form.minutes) ?? NaN,
     antePct: wholeOf(form.antePct) ?? NaN,
     rebuyLevels: form.rebuy ? (wholeOf(form.rebuyLevels) ?? NaN) : 0,
+    lateRegLevels: form.lateReg ? (wholeOf(form.lateRegLevels) ?? NaN) : 0,
     prizes: prizes.prizes,
   }
   if (form.rebuy && tournament.rebuyLevels === 0) return { ok: false, error: 'Ребай — до конца уровня от 1' }
+  if (form.lateReg && tournament.lateRegLevels === 0) return { ok: false, error: 'Поздняя регистрация — до конца уровня от 1' }
   // Рост нужен только «процентам»: у «классики» поле скрыто — берётся прежнее или по умолчанию
   if (form.scheme === 'classic' && !Number.isInteger(tournament.growthPct)) tournament.growthPct = DEFAULT_TOURNAMENT.growthPct
   const error = tournamentError(tournament)

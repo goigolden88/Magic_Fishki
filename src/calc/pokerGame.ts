@@ -116,8 +116,13 @@ export function gameFromTournament(table: TableState, input: Omit<TableGameInput
     if (player && chips > 0) entries.push({ id: makeId(), playerId: player.id, kind, chips, at })
   }
   if (t && clock) {
-    const startedAt = new Date(clock.startedAt).toISOString()
-    for (const tableId of clock.entrants) add(tableId, 'buyin', t.buyIn, startedAt)
+    // Вход — в минуту «Начать турнир»; поздняя регистрация (#312) — в минуту посадки
+    const satAt = new Map<string, number>()
+    for (const e of table.chipLog) if (e.kind === 'buyin') satAt.set(e.playerId, e.at)
+    for (const tableId of clock.entrants) {
+      const at = Math.max(clock.startedAt, satAt.get(tableId) ?? clock.startedAt)
+      add(tableId, 'buyin', t.buyIn, new Date(at).toISOString())
+    }
     for (const e of table.chipLog) if (e.kind === 'rebuy') add(e.playerId, 'rebuy', t.buyIn, new Date(e.at).toISOString())
     const prizes = prizeAmounts(prizePool(table, t), clock.prizes)
     standings(table).forEach((s, i) => add(s.playerId, 'cashout', prizes[i] ?? 0, input.now))
