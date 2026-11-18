@@ -1539,6 +1539,22 @@ button.bar-button {
   font-weight: 600;
 }
 
+/* «Стол закрыт» (#313): пометка второй строкой под «Поделиться» — видят все */
+button.share-closed {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.1;
+  padding-inline: 0.6rem;
+}
+
+button.share-closed small {
+  font-size: 0.72rem;
+  font-weight: 400;
+  opacity: 0.85;
+}
+
 .table-layout {
   flex: 1;
   min-height: 0;

@@ -25,7 +25,8 @@ export type RoomBody = ClientBody | WithoutV<RoomMessage>
 // closed — комнаты нет; update — другая версия; replaced — стол открыт на другом устройстве
 export type RoomPhase = 'loading' | 'lobby' | 'seated' | 'closed' | 'update' | 'replaced'
 
-export type Lobby = { roster: RosterEntry[]; seated: string[] }
+// closed (#313) — стол закрыт ведущим: новым по ссылке не сесть
+export type Lobby = { roster: RosterEntry[]; seated: string[]; closed: boolean }
 
 export type Room = {
   server: string // сервер комнаты (#83): он — в ссылках «Поделиться» и строке «Сервер: …»
@@ -107,7 +108,7 @@ export function useRoom(code: string, linkServer?: string): Room {
     serverVersion.current = msg.v
     switch (msg.type) {
       case 'lobby':
-        setLobby({ roster: msg.roster as RosterEntry[], seated: msg.seated as string[] })
+        setLobby({ roster: msg.roster as RosterEntry[], seated: msg.seated as string[], closed: msg.closed === true })
         if (!seat.current && joining.current !== 'new') setPhase((p) => (p === 'loading' ? 'lobby' : p))
         return
       case 'welcome': {

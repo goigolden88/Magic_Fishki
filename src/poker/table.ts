@@ -93,7 +93,13 @@ export type Settings = {
   // сбрасывает карты без показа (showdownOpen); 'manual' (#286) — «Мак по выбору»: он же решает сам кнопками
   // за паузу MuckVote, не решил — карты открываются. Только карты на телефонах; меняется между раздачами
   muck?: MuckMode
+  // «Стол закрыт» (#313): новые по ссылке не садятся (sit — отказ CLOSED_ERROR), свои возвращаются по токену.
+  // Ведущий меняет в любой момент (closeTable); у столов до него поля нет — открыт
+  closed?: boolean
 }
+
+// Отказ посадки на закрытый стол (#313)
+export const CLOSED_ERROR = 'Стол закрыт ведущим'
 
 // Режимы вскрытия: «Мак сам» (#279), «Мак по выбору» (#286)
 export const MUCK_MODES = ['auto', 'manual'] as const
@@ -322,6 +328,8 @@ export function createTable(
   hostRegularId: string | null = null,
 ): Result {
   const s = { ...DEFAULT_SETTINGS, ...settings }
+  // «Стол закрыт» (#313) — не настройка создания: новый стол открыт, закрывает ведущий за столом
+  delete s.closed
   const error = settingsError(s)
   if (error) return { ok: false, error }
   const state: TableState = {
@@ -637,6 +645,8 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
       return isHost ? changeSettings(state, msg, now) : hostOnly
     case 'look':
       return isHost ? changeLook(state, msg) : hostOnly
+    case 'closeTable':
+      return isHost ? closeTable(state, msg.closed) : hostOnly
     case 'remove':
       return isHost ? remove(state, from, msg.playerId, now) : hostOnly
     case 'passHost': {
@@ -668,6 +678,8 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
 // regularId — постоянный игрок; за столом он один: второй раз под ним не сесть
 function sit(state: TableState, id: string, name: unknown, now: number, regularId: unknown): string | null {
   if (state.players.some((p) => p.id === id)) return 'Вы уже за столом'
+  // Закрытый стол (#313) — и в кэше, и в турнире: закрывает и позднюю регистрацию
+  if (state.settings.closed === true) return CLOSED_ERROR
   const lateError = lateEntryError(state, id, now)
   if (lateError) return lateError
   const trimmed = typeof name === 'string' ? name.trim() : ''
@@ -1204,6 +1216,16 @@ function changeLook(state: TableState, msg: Extract<ClientBody, { type: 'look' }
   return null
 }
 
+// «Стол закрыт» (#313): не правило раздачи — ведущий меняет в любой момент; открыт — поля нет, как у старых столов
+function closeTable(state: TableState, closed: unknown): string | null {
+  if (typeof closed !== 'boolean') return 'Неизвестное сообщение — обновите приложение'
+  const s: Settings = { ...state.settings }
+  if (closed) s.closed = true
+  else delete s.closed
+  state.settings = s
+  return null
+}
+
 // «Микс» (#166): предлагает батон прошлой раздачи — тот, у кого фишка дилера между раздачами, если он
 // за столом; «Микс» выключен, идёт раздача или раздач ещё не было — никто (null)
 export function mixProposer(state: TableState): string | null {
@@ -1422,6 +1444,7 @@ function settingsError(s: Settings): string | null {
   if (s.straddle !== undefined && typeof s.straddle !== 'boolean') return 'Страддл — включён или выключен'
   if (s.publicHud !== undefined && typeof s.publicHud !== 'boolean') return 'HUD видят — все или каждый только свою'
   if (s.liveHand !== undefined && typeof s.liveHand !== 'boolean') return 'Ход раздачи по касанию банка — включён или выключен'
+  if (s.closed !== undefined && typeof s.closed !== 'boolean') return 'Стол — открыт или закрыт'
   if (s.muck !== undefined && !(MUCK_MODES as readonly unknown[]).includes(s.muck)) return 'Вскрытие — все открывают, мак сам или мак по выбору'
   if (s.muck !== undefined && s.cards !== 'phones') return 'Мак на вскрытии — только с картами на телефонах'
   // Свои игры (#224): верные описания, каждой хватает карт на все места; только карты на телефонах

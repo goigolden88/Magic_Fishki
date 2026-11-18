@@ -79,7 +79,7 @@ import { formatDate, today } from '../dates'
 import { DEFAULT_QUICK_AMOUNTS } from '../model'
 import type { Card } from '../poker/cards'
 import { FINISHED, type ClientBody } from '../poker/protocol'
-import { limitFor, ownGameOf, type MuckMode, type TableState } from '../poker/table'
+import { CLOSED_ERROR, limitFor, ownGameOf, type MuckMode, type TableState } from '../poker/table'
 import { getSettings, saveGame } from '../store/db'
 import { ulid } from '../ulid'
 import { NO_COPY, useHandCopy, useMyCards } from './handCopy'
@@ -140,9 +140,11 @@ export function PokerRoomScreen({ code, server }: { code: string; server?: strin
     if (seat) saveLastGame('room', code, seat.server)
   }, [code, room.me])
 
-  async function shareRoom() {
+  // Закрытый стол (#313): ссылка та же, но новые по ней не сядут — сказать об этом рядом
+  async function shareRoom(closed: boolean) {
     const url = roomLink(location.href, code, undefined, room.server)
-    setNote(await shareLink(`Покер — стол ${code}: ${url}`))
+    const note = await shareLink(`Покер — стол ${code}: ${url}`)
+    setNote(closed ? `${note ? `${note}. ` : ''}Стол закрыт ведущим — новые по ссылке не сядут, пока его не откроют` : note)
   }
 
   // «Закончить игру» (Р-20): итог — игрой в историю на этом телефоне, затем комната закрывается у всех.
@@ -176,6 +178,8 @@ export function PokerRoomScreen({ code, server }: { code: string; server?: strin
 
   // За столом (#97) — экран колонкой по высоте окна: шапка в строку, стол, панель хода внизу
   const seated = room.phase === 'seated' && room.table !== null && room.me !== null
+  // «Стол закрыт» (#313): за столом — из настроек стола, до входа — из списка входа
+  const closed = seated ? room.table?.settings.closed === true : room.phase === 'lobby' && room.lobby?.closed === true
   return (
     <main className={seated ? 'screen poker table-screen' : 'screen poker'}>
       <header className="bar">
@@ -184,8 +188,13 @@ export function PokerRoomScreen({ code, server }: { code: string; server?: strin
         </a>
         {seated && <h1 className="bar-title">Стол {code}</h1>}
         {(room.phase === 'lobby' || room.phase === 'seated') && (
-          <button type="button" className={seated ? 'primary bar-button' : 'big primary'} onClick={() => void shareRoom()}>
+          <button
+            type="button"
+            className={`${seated ? 'primary bar-button' : 'big primary'}${closed ? ' share-closed' : ''}`}
+            onClick={() => void shareRoom(closed)}
+          >
             Поделиться
+            {closed && <small>стол закрыт</small>}
           </button>
         )}
       </header>
@@ -284,6 +293,13 @@ function LobbyCard({ lobby, room }: { lobby: Lobby; room: Room }) {
   return (
     <section className="card">
       <h2>Кто вы?</h2>
+      {/* «Стол закрыт» (#313): новым не сесть, пока ведущий не откроет; свои возвращаются по своей ссылке */}
+      {lobby.closed && (
+        <p className="warn">
+          {CLOSED_ERROR} — новых по ссылке не сажают. Кто уже за столом, вернётся сам на своём телефоне; на другом —
+          попросите ведущего «Пересадить на новое устройство».
+        </p>
+      )}
       {lobby.roster.map((r) => (
         <button
           key={r.id}
@@ -311,7 +327,7 @@ function LobbyCard({ lobby, room }: { lobby: Lobby; room: Room }) {
           Гость
         </button>
       )}
-      {room.error && <p className="warn">{room.error}</p>}
+      {room.error && !(lobby.closed && room.error === CLOSED_ERROR) && <p className="warn">{room.error}</p>}
     </section>
   )
 }
@@ -2230,19 +2246,19 @@ function HostCard(props: {
         </button>
       )}
 
-      {!hand && (
-        <TableSettingsCard
-          key={JSON.stringify([
-            timerSettings(table.settings),
-            table.settings.ante,
-            table.settings.tournament?.prizes,
-            table.settings.publicHud,
-          ])}
-          room={room}
-          table={table}
-          view={v}
-        />
-      )}
+      {/* «Стол закрыт» (#313) — в любой момент, остальные настройки — между раздачами */}
+      <TableSettingsCard
+        key={JSON.stringify([
+          timerSettings(table.settings),
+          table.settings.ante,
+          table.settings.tournament?.prizes,
+          table.settings.publicHud,
+        ])}
+        room={room}
+        table={table}
+        view={v}
+        between={!hand}
+      />
 
       {/* Вид стола (#77) — и во время раздачи; у всех меняется сразу */}
       <details className="table-settings">
@@ -2430,8 +2446,10 @@ export function MoveSeat(props: { view: TableView; seat: number; online: boolean
 // «Настройки стола» ведущего между раздачами (#75): время на ход, запас времени (#223) и раздача «сама» — со следующей раздачи.
 // Сохранили — форма заново из стола (key)
 // Кэш (#78) — ещё и анте; турнир до «Начать турнир» — призы по местам: тогда видно, сколько пришло.
-// Кому виден HUD (#79), ход раздачи по касанию банка (#258) и вскрытие (#279, только карты на телефонах) — здесь же
-function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableState; view: TableView }) {
+// Кому виден HUD (#79), ход раздачи по касанию банка (#258) и вскрытие (#279, только карты на телефонах) — здесь же.
+// «Стол закрыт» (#313) — первым и в раздаче тоже: действует сразу, без «Сохранить»; остальное — только между раздачами
+function TableSettingsCard(props: { room: Room; table: TableState; view: TableView; between: boolean }) {
+  const { room, table, view: v, between } = props
   const saved = timerSettings(table.settings)
   const [form, setForm] = useState<TimerForm>(() => timerForm(saved.turnSeconds, saved.autoStart, saved.timeBank))
   const savedAnte = table.settings.ante ?? 0
@@ -2484,36 +2502,65 @@ function TableSettingsCard({ room, table, view: v }: { room: Room; table: TableS
   return (
     <details className="table-settings">
       <summary>Настройки стола</summary>
-      {saved.autoStart !== 'off' && !v.paused && (
-        <p className="muted">Раздача начнётся сама — чтобы спокойно поменять, сначала «Перерыв».</p>
+      <ClosedField
+        closed={table.settings.closed === true}
+        disabled={!room.online}
+        onChange={(closed) => room.send({ type: 'closeTable', closed })}
+      />
+      {!between && <p className="muted">Остальные настройки — между раздачами.</p>}
+      {between && (
+        <>
+          {saved.autoStart !== 'off' && !v.paused && (
+            <p className="muted">Раздача начнётся сама — чтобы спокойно поменять, сначала «Перерыв».</p>
+          )}
+          <TimerFields form={form} onChange={setForm} />
+          {!t && (
+            <label className="field">
+              Анте, фишек — 0, если нет
+              <input inputMode="numeric" pattern="[0-9 ]*" value={anteText} onChange={(e) => setAnteText(e.target.value)} />
+            </label>
+          )}
+          {!t && ante === null && <p className="warn">Анте — целое число фишек, не меньше нуля</p>}
+          {editPrizes && (
+            <PrizeFields
+              own={prizesOwn}
+              prizes={prizes}
+              players={table.players.length}
+              onChange={(own, list) => {
+                setPrizesOwn(own)
+                setPrizes(list)
+              }}
+            />
+          )}
+          <HudFields all={publicHud} onChange={setPublicHud} />
+          <LiveHandField on={liveHand} onChange={setLiveHand} />
+          {phones && <MuckFields muck={muck} onChange={setMuck} />}
+          <button type="button" className="big primary wide" disabled={!changed || !ok || !room.online} onClick={save}>
+            Сохранить
+          </button>
+          <p className="muted">Действует со следующей раздачи.</p>
+        </>
       )}
-      <TimerFields form={form} onChange={setForm} />
-      {!t && (
-        <label className="field">
-          Анте, фишек — 0, если нет
-          <input inputMode="numeric" pattern="[0-9 ]*" value={anteText} onChange={(e) => setAnteText(e.target.value)} />
-        </label>
-      )}
-      {!t && ante === null && <p className="warn">Анте — целое число фишек, не меньше нуля</p>}
-      {editPrizes && (
-        <PrizeFields
-          own={prizesOwn}
-          prizes={prizes}
-          players={table.players.length}
-          onChange={(own, list) => {
-            setPrizesOwn(own)
-            setPrizes(list)
-          }}
-        />
-      )}
-      <HudFields all={publicHud} onChange={setPublicHud} />
-      <LiveHandField on={liveHand} onChange={setLiveHand} />
-      {phones && <MuckFields muck={muck} onChange={setMuck} />}
-      <button type="button" className="big primary wide" disabled={!changed || !ok || !room.online} onClick={save}>
-        Сохранить
-      </button>
-      <p className="muted">Действует со следующей раздачи.</p>
     </details>
+  )
+}
+
+// «Стол закрыт» (#313): переключатель ведущего — действует сразу, у всех
+function ClosedField(props: { closed: boolean; disabled: boolean; onChange: (closed: boolean) => void }) {
+  const { closed, disabled, onChange } = props
+  return (
+    <fieldset className="players-pick">
+      <legend className="muted">Вход по ссылке</legend>
+      <label className="check">
+        <input type="checkbox" checked={closed} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
+        Стол закрыт
+      </label>
+      <p className="muted">
+        {closed
+          ? 'Новые по ссылке не садятся. Кто уже за столом, возвращается на своё место после обрыва и со своего телефона.'
+          : 'Ссылка открыта: по ней садится любой. Закройте, когда все собрались, — свои места никто не потеряет.'}
+      </p>
+    </fieldset>
   )
 }
 

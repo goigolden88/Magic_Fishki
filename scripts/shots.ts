@@ -1338,6 +1338,99 @@ async function showOnly(cdp: Cdp): Promise<void> {
 
 const SHOW_CODE = 'KQ7MZP'
 
+// npm run shots -- zakryt (#313): «Стол закрыт». Ведущий (я) закрыл стол — пометка на «Поделиться» и отметка первой
+// в «Настройках стола» (09m); новый по ссылке — «Кто вы?» с предупреждением и отказом входа (09n). Соединение подменено,
+// как у «Показать»; у нового — своё: при подключении список входа с closed, на вход — отказ и снова список
+async function closedOnly(cdp: Cdp): Promise<void> {
+  const load = async (file: string) =>
+    (await runnerImport<Record<string, any>>(join(process.cwd(), 'src/poker', file), { configFile: false, logLevel: 'silent' })).module
+  const table = await load('table.ts')
+  const { PROTOCOL_VERSION } = await load('protocol.ts')
+  const now = Date.now()
+  const created = table.createTable('me', 'Борис', { sb: 5, bb: 10, startingStack: 1000, maxSeats: 6, cards: 'phones', autoStart: 'off' }, now)
+  if (!created.ok) throw new Error(created.error)
+  let state = created.state
+  const send = (from: string, body: Record<string, unknown>) => {
+    const r = table.handle(state, from, { v: PROTOCOL_VERSION, ...body }, now)
+    if (!r.ok) throw new Error(`${from} ${String(body.type)}: ${r.error}`)
+    state = r.state
+  }
+  send('vera', { type: 'sit', name: 'Вера' })
+  send('gosha', { type: 'sit', name: 'Гоша' })
+  send('me', { type: 'closeTable', closed: true })
+  const view = table.viewFor(state, 'me')
+  for (const size of SIZES.slice(0, 2)) {
+    console.log(`«Стол закрыт», ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await themeOnly(d)
+    await screen('Комната: ведущий закрыл стол', size, async () => {
+      await d.goto('#/poker')
+      await d.waitText('Войти по ссылке')
+      await d.eval(`(localStorage.setItem('fishki.poker.seats', ${JSON.stringify(JSON.stringify({ [SHOW_CODE]: { playerId: 'me', token: 'shots' } }))}), true)`)
+      await d.eval(`(${fakeRoomSocket.toString()})(${JSON.stringify(view)}), true`)
+      await d.goto(`#/poker/${SHOW_CODE}`)
+      await d.waitText('стол закрыт')
+      const opened = await d.eval<boolean>(
+        `(() => { const s = [...document.querySelectorAll('summary')].find((x) => x.innerText === 'Настройки стола'); if (!s) return false; s.click(); s.scrollIntoView({ block: 'start' }); return true })()`,
+      )
+      if (!opened) throw new Error('нет «Настроек стола» у ведущего')
+      await d.waitText('Новые по ссылке не садятся')
+      await sleep(500)
+      await d.shot('09m-stol-zakryt-veduschiy', false)
+    })
+    await screen('Комната: вход на закрытый стол', size, async () => {
+      await d.goto('#/poker')
+      await d.waitText('Войти по ссылке')
+      await d.eval(`(localStorage.removeItem('fishki.poker.seats'), true)`)
+      await d.eval(`(${fakeLobbySocket.toString()})(${PROTOCOL_VERSION}), true`)
+      await d.goto(`#/poker/${SHOW_CODE}`)
+      await d.waitText('Кто вы?')
+      await d.eval(`(() => { const i = document.querySelector('main input'); const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; set.call(i, 'Дима'); i.dispatchEvent(new Event('input', { bubbles: true })); return true })()`)
+      await d.click('Сесть за стол')
+      await sleep(500)
+      await d.shot('09n-stol-zakryt-vhod', false)
+    })
+  }
+}
+
+// Соединение комнаты для нового на закрытом столе (#313): при подключении — список входа с closed, на вход — отказ
+// «Стол закрыт ведущим» и снова список
+function fakeLobbySocket(v: number): void {
+  const w = window as unknown as Record<string, unknown>
+  class FakeSocket {
+    static CONNECTING = 0
+    static OPEN = 1
+    static CLOSING = 2
+    static CLOSED = 3
+    readyState = 0
+    onopen: (() => void) | null = null
+    onmessage: ((e: { data: string }) => void) | null = null
+    onclose: ((e: { code: number }) => void) | null = null
+    constructor() {
+      setTimeout(() => {
+        this.readyState = 1
+        this.onopen?.()
+        this.reply({ type: 'lobby', roster: [], seated: [], closed: true })
+      }, 50)
+    }
+    reply(body: Record<string, unknown>) {
+      setTimeout(() => this.onmessage?.({ data: JSON.stringify({ v, ...body }) }), 10)
+    }
+    send(raw: string) {
+      if (raw === 'ping') return setTimeout(() => this.onmessage?.({ data: 'pong' }), 10)
+      const msg = JSON.parse(raw) as { type: string }
+      if (msg.type === 'join') {
+        this.reply({ type: 'error', error: 'Стол закрыт ведущим' })
+        this.reply({ type: 'lobby', roster: [], seated: [], closed: true })
+      }
+    }
+    close() {
+      this.readyState = 3
+    }
+  }
+  w.WebSocket = FakeSocket
+}
+
 // npm run shots -- mak (#279): «Прошлая раздача» в комнате с «Мак сам» — у проигравшего на вскрытии «Гоша — сбросил без
 // показа», без карт. Соединение подменено, как у «Показать» (fakeRoomSocket); снимок — на 390
 async function muckOnly(cdp: Cdp): Promise<void> {
@@ -2921,7 +3014,9 @@ async function main(): Promise<void> {
     const onlyRunout = process.argv.includes('dokrutka') // npm run shots -- dokrutka: «Докрутить борд» (#297)
     const onlyAvatars = process.argv.includes('avatarki') // npm run shots -- avatarki: аватарки за столом (#298)
     const onlyLateReg = process.argv.includes('pozdnyaya') // npm run shots -- pozdnyaya: поздняя регистрация турнира (#312)
+    const onlyClosed = process.argv.includes('zakryt') // npm run shots -- zakryt: «Стол закрыт» (#313)
     const part =
+      onlyClosed ||
       onlyLateReg ||
       onlyAvatars ||
       onlyRunout ||
@@ -2947,6 +3042,7 @@ async function main(): Promise<void> {
       onlyOwnBack ||
       onlyStraddle ||
       onlyOwnGames
+    if (onlyClosed) await closedOnly(cdp)
     if (onlyLateReg) for (const size of SIZES) await lateRegStep(cdp, size)
     if (onlyAvatars) await avatarsOnly(cdp)
     if (onlyRunout) await runoutOnly(cdp)
@@ -2988,6 +3084,7 @@ async function main(): Promise<void> {
     if (!onlyTable && !uchet && !part) await reportOnly(cdp)
     if (!onlyTable && !uchet && !part) await showOnly(cdp)
     if (!onlyTable && !uchet && !part) await muckOnly(cdp)
+    if (!onlyTable && !uchet && !part) await closedOnly(cdp)
     if (!onlyTable && !part) await whatsNewOnly(cdp)
     if (!onlyTable && !part) await syncOnly(cdp)
     if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !part) {
