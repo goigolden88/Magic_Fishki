@@ -3,7 +3,7 @@
 // скажет сервер. Время — параметром now, как у стола
 import { bestHand, bestLow, type Card } from '../poker/cards'
 import { splitFives, splitLines, splitText, withLow } from './hiLoView'
-import { publicCards, type GameRound } from '../poker/game'
+import { publicCards, type GameDef, type GameRound } from '../poker/game'
 import { formatDate } from '../dates'
 import { potLimit, type HandLogEntry, type Stage, type Street } from '../poker/hand'
 import { HUD_FEW_HANDS, type HudCounts } from '../poker/hud'
@@ -12,6 +12,7 @@ import { handFor, hiddenOwner, hiddenWinner, type HistoryHand } from '../poker/h
 import { bankOf, blindsNow, hiddenOf, HOST_TAKEOVER_MS, waitingRebuy, type HandRecord, type HandResult, type TableState } from '../poker/table'
 import { allInOdds } from './allInOdds'
 import { coolerOf, type Cooler } from './cooler'
+import { preflopSpecial, riverSpecial, type SpecialHand } from './specialHand'
 import { handBlinds as tableBlinds, type SavedHand } from './evenings'
 import { handMoney, handNet, handPositions, positionLabels, type HandMoney } from './handResult'
 import { isOwnGameId } from '../poker/ownGame'
@@ -169,6 +170,9 @@ export type TableView = {
   bb: number // большой блайнд: в раздаче — её, между раздачами — следующей; для показа сумм в ББ (Р-62)
   tournament: TournamentView | null // кэш — null
   cooler: Cooler | null // между раздачами — кулер прошлой (#262, coolerOf): у мест победителя и проигравшего; иначе null
+  // Особая рука (#295, specialHand): на префлопе — мои AA, KK, AK в холдеме (own); между раздачами — стрит-флеш
+  // прошлой на ривере (riverSpecial); иначе null. Стол на одном телефоне — только открытые на вскрытии
+  special: SpecialHand | null
 }
 
 export const STAGE_LABELS: Record<Stage, string> = {
@@ -301,7 +305,14 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
     bb: hand ? hand.bb : (tournament?.blinds.bb ?? table.settings.bb),
     tournament,
     cooler: !hand && table.lastHand ? coolerOf(table.lastHand) : null,
+    special: hand ? preflopOf(cards?.game, hand.stage === 'preflop' && mySeat && !mySeat.folded ? myCards : null, meId) : riverSpecial(table.lastHand, meId),
   }
+}
+
+// Мои AA, KK, AK на префлопе (#295) — особая рука только для меня; иначе null
+function preflopOf(game: GameDef | undefined, mine: Card[] | null, meId: string): SpecialHand | null {
+  const label = preflopSpecial(game, mine)
+  return label ? { kind: 'preflop', playerId: meId, label, own: true } : null
 }
 
 // Турнир на экране: до «Начать турнир» — первый уровень целиком, призы по нынешнему числу игроков.

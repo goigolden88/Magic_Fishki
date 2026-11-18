@@ -121,6 +121,8 @@ export function localTableView(table: TableState, now: number, bets?: QuickBets)
     actions: id ? actionsView(table, id, bets) : null,
     canTakeHost: false,
     myRebuy: null,
+    // Один телефон на всех (#295): экран видят все — только открытое на вскрытии
+    special: v.special && !v.special.own ? v.special : null,
   }
 }
 

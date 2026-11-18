@@ -10,6 +10,8 @@ import {
   type DealSnapshot,
 } from '../calc/dealAnimation'
 import type { Cooler } from '../calc/cooler'
+import type { SpecialHand } from '../calc/specialHand'
+import { HandBurst } from './HandBurst'
 import { formatChips, formatNumber, formatRub, parseChips, signedStackText, stackText } from '../calc/format'
 import {
   betShareText,
@@ -1338,7 +1340,10 @@ export function PokerTable(props: {
   const [noteFor, setNoteFor] = useState<{ name: string; edit: boolean } | null>(null)
   const { notes, labels } = useNotes()
   const wrap = useRef<HTMLDivElement>(null)
-  const { dealing, cooler } = useTableDeal(wrap, v, live)
+  const { dealing, cooler, special } = useTableDeal(wrap, v, live)
+  // В центре стола (#295): ривер со стрит-флешем — крупно, с именем; иначе кулер — крупно «Кулер!»
+  const river = special?.kind === 'river' ? special : null
+  const riverWho = river ? (v.seats.find((s) => s.id === river.playerId) ?? null) : null
   const inBB = useBigBlinds()
   const unit = inBB ? v.bb : null
   const toggleUnit = useUnitToggle(inBB)
@@ -1439,12 +1444,24 @@ export function PokerTable(props: {
               unit={unit}
               onUnit={toggleUnit.toggle}
               cooler={cooler !== null && (cooler.winner === s.id || cooler.loser === s.id)}
+              preflop={special?.kind === 'preflop' && s.isMe ? special.label : null}
             />
           ))}
           {v.freeSeats.map((k) => (
             <FreeSeat key={`free-${k}`} seat={k} at={spots[k]} bottom={k === bottom} onSeat={onSeat} />
           ))}
         </div>
+        {river ? (
+          <HandBurst
+            key={`river-${v.handNumber}`}
+            title={river.label}
+            sub={riverWho?.isMe ? 'у вас' : (riverWho?.name ?? null)}
+            big
+            ms={RIVER_MS}
+          />
+        ) : (
+          cooler && <HandBurst key={`cooler-${v.handNumber}`} title="Кулер!" big red ms={COOLER_MS} />
+        )}
         {hudSeat?.hud && <HudCard name={hudSeat.name} hud={hudSeat.hud} onClose={() => setHudOf(null)} />}
         {noteFor && (
           <NotePop
@@ -1576,8 +1593,12 @@ function useUnitToggle(inBB: boolean): { hint: { text: string; at: number } | nu
 // Стол только открыли, он не live, вкладка не видна или «Анимация карт» выключена — карты сразу на местах.
 // Пока раздача летит — true: мои карты летят рубашкой и при «Всегда открыты», «Подглядеть» работает как всегда
 const WAKE_MS = 1000
-// Кулер (#262, Р-97): «Кулер!» у мест победителя и проигравшего — столько, после полёта последних карт стола
-const COOLER_MS = 2000
+// Кулер (#262, Р-97): «Кулер!» у мест победителя и проигравшего и крупно в центре стола (#295) — столько,
+// после полёта последних карт стола
+const COOLER_MS = 4000
+// Особые руки (#295): префлоп — скромно у моего места, после полёта карт раздачи; ривер — крупно в центре
+const PREFLOP_MS = 1500
+const RIVER_MS = 3000
 
 // Системное «Уменьшить движение» — кулер не всплывает, даже если «Анимация карт» включена своим выбором
 function reducedMotion(): boolean {
@@ -1588,19 +1609,37 @@ function reducedMotion(): boolean {
   }
 }
 
-// Пока играет раздача — dealing; кулер прошлой раздачи на глазах — места победителя и проигравшего (иначе null).
-// Кулер — раз на раздачу: только когда он появился на глазах (не первый стол, не возврат на вкладку)
-function useTableDeal(ref: RefObject<HTMLDivElement | null>, v: TableView, live: boolean): { dealing: boolean; cooler: Cooler | null } {
+// Пока играет раздача — dealing; кулер прошлой раздачи на глазах — места победителя и проигравшего (иначе null);
+// особая рука на глазах (#295) — special (иначе null).
+// Кулер и особая рука — раз на раздачу: только когда появились на глазах (не первый стол, не возврат на вкладку)
+function useTableDeal(
+  ref: RefObject<HTMLDivElement | null>,
+  v: TableView,
+  live: boolean,
+): { dealing: boolean; cooler: Cooler | null; special: SpecialHand | null } {
   const prev = useRef<DealSnapshot | null>(null)
   const prevCooler = useRef('')
+  const prevSpecial = useRef('')
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const coolerTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const specialTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const shownAt = useRef(0) // когда вернулись на вкладку: накопленное во сне догоняет — не проигрывать
   const [dealing, setDealing] = useState(false)
   const [cooler, setCooler] = useState<Cooler | null>(null)
+  const [special, setSpecial] = useState<SpecialHand | null>(null)
   const snap = tableSnapshot(v)
   const key = JSON.stringify(snap)
   const coolerKey = v.cooler ? JSON.stringify([v.handNumber, v.cooler.winner, v.cooler.loser]) : ''
+  const specialKey = v.special ? JSON.stringify([v.handNumber, v.special.kind, v.special.playerId]) : ''
+
+  // Показать found после полёта карт (wait) на ms: таймер свой у каждой надписи
+  const later = <T,>(slot: typeof timer, set: (x: T | null) => void, found: T, wait: number, ms: number) => {
+    clearTimeout(slot.current)
+    slot.current = setTimeout(() => {
+      set(found)
+      slot.current = setTimeout(() => set(null), ms)
+    }, wait)
+  }
 
   // До отрисовки: карты не мелькают на местах перед полётом
   useLayoutEffect(() => {
@@ -1608,6 +1647,8 @@ function useTableDeal(ref: RefObject<HTMLDivElement | null>, v: TableView, live:
     prev.current = snap
     const coolerBefore = prevCooler.current
     prevCooler.current = coolerKey
+    const specialBefore = prevSpecial.current
+    prevSpecial.current = specialKey
     const root = ref.current
     const waking = Date.now() - shownAt.current < WAKE_MS
     if (!root || !live || waking || document.visibilityState !== 'visible' || !loadCardAnim()) return
@@ -1618,35 +1659,35 @@ function useTableDeal(ref: RefObject<HTMLDivElement | null>, v: TableView, live:
       setDealing(true)
       timer.current = setTimeout(() => setDealing(false), flightsEnd(plan.flights))
     }
+    if (before === null || reducedMotion()) return
+    // Досданный на олл-ине борд летит — «Кулер!» и ривер после его последней карты; префлоп — после карт раздачи
+    const wait = plan ? flightsEnd(plan.flights) : 0
     const found = v.cooler
-    if (before === null || !found || coolerKey === coolerBefore || reducedMotion()) return
-    // Досданный на олл-ине борд летит — «Кулер!» после его последней карты, не раньше ривера
-    clearTimeout(coolerTimer.current)
-    coolerTimer.current = setTimeout(
-      () => {
-        setCooler(found)
-        coolerTimer.current = setTimeout(() => setCooler(null), COOLER_MS)
-      },
-      plan ? flightsEnd(plan.flights) : 0,
-    )
-  }, [key, coolerKey])
+    if (found && coolerKey !== coolerBefore) later(coolerTimer, setCooler, found, wait, COOLER_MS)
+    const hand = v.special
+    if (hand && specialKey !== specialBefore) later(specialTimer, setSpecial, hand, wait, hand.kind === 'river' ? RIVER_MS : PREFLOP_MS)
+  }, [key, coolerKey, specialKey])
 
   useLandOnHide(ref, () => {
     if (document.visibilityState === 'visible') shownAt.current = Date.now()
     clearTimeout(timer.current)
     clearTimeout(coolerTimer.current)
+    clearTimeout(specialTimer.current)
     setDealing(false)
     setCooler(null)
+    setSpecial(null)
   })
   useEffect(
     () => () => {
       clearTimeout(timer.current)
       clearTimeout(coolerTimer.current)
+      clearTimeout(specialTimer.current)
     },
     [],
   )
-  // Новая раздача началась раньше конца — кулер прошлой не держится
-  return { dealing, cooler: v.cooler ? cooler : null }
+  // Новая раздача началась раньше конца — кулер и ривер прошлой не держатся; префлоп — до флопа
+  const same = special !== null && v.special !== null && special.kind === v.special.kind && special.playerId === v.special.playerId
+  return { dealing, cooler: v.cooler ? cooler : null, special: same ? special : null }
 }
 
 // У бокового края — прижато к нему
@@ -1707,9 +1748,11 @@ function SeatSpot(props: {
   onNote: (edit: boolean) => void
   unit: number | null // стек и ставка — в ББ (Р-62); null — фишками
   onUnit: () => void
-  cooler?: boolean // кулер прошлой раздачи (#262): место подсвечено и «Кулер!» над ним, ~2 с
+  cooler?: boolean // кулер прошлой раздачи (#262): место подсвечено и «Кулер!» над ним, ~4 с (#295)
+  preflop?: string | null // моя особая рука на префлопе (#295): место подсвечено и скромная надпись, ~1,5 с
 }) {
   const { seat: s, at, bottom, myCards, myHand, open, hudDetailed, onHud, note, labels, onNote, unit, onUnit, cooler = false } = props
+  const preflop = props.preflop ?? null
   const unitLabel = unit === null ? 'показать суммы в ББ' : 'показать суммы в фишках'
   const marks = [
     s.place !== null && `${s.place} место`,
@@ -1730,6 +1773,7 @@ function SeatSpot(props: {
     s.best && 'winner',
     many && 'many',
     cooler && 'cooler',
+    preflop && 'special',
   ]
     .filter(Boolean)
     .join(' ')
@@ -1740,6 +1784,7 @@ function SeatSpot(props: {
           Кулер!
         </span>
       )}
+      {preflop && <HandBurst title={preflop} ms={PREFLOP_MS} />}
       {s.position && <span className="seat-pos">{s.position}</span>}
       {s.button && (
         <span className="seat-dealer" aria-label="кнопка">

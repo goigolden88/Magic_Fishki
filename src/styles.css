@@ -2341,11 +2341,12 @@ textarea.note-input {
   white-space: nowrap;
 }
 
-/* Кулер (#262, Р-97): у мест победителя и проигравшего ~2 с — подсветка рамки и «Кулер!» над местом.
-   Экран включает его только при «Анимации карт» и без системного «Уменьшить движение» */
+/* Кулер (#262, Р-97): у мест победителя и проигравшего ~4 с (#295) — подсветка рамки и «Кулер!» над местом,
+   крупно — в центре стола (.hand-burst). Экран включает его только при «Анимации карт» и без системного
+   «Уменьшить движение» */
 .seat.cooler {
   z-index: 3;
-  animation: cooler-glow 2s ease-out both;
+  animation: cooler-glow 4s ease-out both;
 }
 
 /* Надпись — поверх середины места: у мест у края стола не уходит за край */
@@ -2363,7 +2364,7 @@ textarea.note-input {
   letter-spacing: 0.02em;
   white-space: nowrap;
   pointer-events: none;
-  animation: cooler-pop 2s ease-out both;
+  animation: cooler-pop 4s ease-out both;
 }
 
 @keyframes cooler-glow {
@@ -2389,6 +2390,97 @@ textarea.note-input {
     opacity: 1;
   }
   25%,
+  80% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0;
+  }
+}
+
+/* Праздник руки (#295, HandBurst): надпись посреди контейнера — у моего места скромно (префлоп AA, KK, AK),
+   в центре стола крупно (ривер — стрит-флеш, кулер). Длительность — от экрана (animation-duration);
+   касаний не ловит. Включает экран — при тех же условиях, что кулер */
+.seat.special {
+  z-index: 3;
+  animation: special-glow 1.5s ease-out both;
+}
+
+.hand-burst {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: 100%;
+  padding: 0.1rem 0.5rem;
+  border-radius: 0.6rem;
+  background: #d4a017;
+  color: #1b1405;
+  font-size: 0.8rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: burst-pop 1.5s ease-out both;
+}
+
+/* Крупно — в центре стола, поверх борда: не шире стола и с переносом длинного названия */
+.hand-burst.big {
+  top: 48%;
+  z-index: 5;
+  width: max-content;
+  max-width: 80%;
+  padding: 0.4em 0.9em;
+  border-radius: 1rem;
+  background: linear-gradient(135deg, #f7d774, #d4a017 55%, #c28d0c);
+  box-shadow:
+    0 0 0 0.2rem rgba(255, 255, 255, 0.35),
+    0 0.4rem 1.6rem rgba(0, 0, 0, 0.45);
+  font-size: clamp(1.4rem, 7vw, 2.6rem);
+  white-space: normal;
+  letter-spacing: 0.02em;
+}
+
+/* Кулер в центре — красный, как «Кулер!» у мест */
+.hand-burst.big.red {
+  background: linear-gradient(135deg, #e5484d, #b3261e);
+  color: #fff;
+}
+
+.hand-burst-sub {
+  font-size: 0.55em;
+  font-weight: 700;
+}
+
+@keyframes special-glow {
+  0%,
+  70% {
+    border-color: #d4a017;
+    box-shadow:
+      0 0 0 0.15rem #d4a017,
+      var(--seat-shadow);
+  }
+  100% {
+    box-shadow: var(--seat-shadow);
+  }
+}
+
+@keyframes burst-pop {
+  0% {
+    transform: translate(-50%, -50%) scale(0.4);
+    opacity: 0;
+  }
+  12% {
+    transform: translate(-50%, -50%) scale(1.15);
+    opacity: 1;
+  }
+  22%,
   80% {
     transform: translate(-50%, -50%) scale(1);
     opacity: 1;
