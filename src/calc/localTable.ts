@@ -1,7 +1,10 @@
 // Стол на одном телефоне (Р-21): правила src/poker/ работают прямо в приложении, ведущий —
 // сам телефон и ходит за каждого. Сервера нет: экран держит стол и зовёт handle, как сервер
 // комнат, а от чьего имени слать сообщение — решается здесь. Время — параметром now
+import { buildDeck, HOLDEM, type Card } from '../poker/cards'
+import { shuffle } from '../poker/game'
 import { finishedHand, keepHand, type HistoryHand } from '../poker/history'
+import type { RandomBytes } from '../poker/tokens'
 import { PROTOCOL_VERSION, type BetAction, type ClientBody } from '../poker/protocol'
 import { createTable, handle, type Result, type Settings, type TableState } from '../poker/table'
 import { actionsView, hudView, tableView, type TableView } from './pokerView'
@@ -51,8 +54,13 @@ export function withTable(local: LocalTable, next: TableState): LocalTable {
   return { ...local, table: next, history: keepHand(local.history, finishedHand(local.table, next)) }
 }
 
-function send(table: TableState, from: string, body: ClientBody, now: number): Result {
-  return handle(table, from, { v: PROTOCOL_VERSION, ...body }, now)
+function send(table: TableState, from: string, body: ClientBody, now: number, deck?: Card[]): Result {
+  return handle(table, from, { v: PROTOCOL_VERSION, ...body }, now, deck)
+}
+
+// «Перемешать места» (#316) от ведущего: сервера нет — колоду 52 карт тасует телефон; random — для тестов
+export function shuffleSeatsNow(table: TableState, now: number, random?: RandomBytes): Result {
+  return send(table, table.hostId, { type: 'shuffleSeats' }, now, shuffle(buildDeck(HOLDEM), random))
 }
 
 // Чей ход: id игрока; торги закрыты или раздачи нет — null
