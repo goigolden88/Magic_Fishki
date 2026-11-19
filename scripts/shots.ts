@@ -1432,6 +1432,73 @@ async function seatedOnly(cdp: Cdp): Promise<void> {
   }
 }
 
+// npm run shots -- peremeshat (#316): «Перемешать места» — розыгрыш кнопки до первой раздачи. Комната на шестерых,
+// я (Борис) — ведущий, после перемешивания — на месте 4; у мест — карты розыгрыша лицом, у старшей (Аня, K♠ старше
+// K♥ Димы) — «Баттон»; внизу — «Перемешать места» рядом с «Начать раздачу». «Я внизу» (09q) и «как сидим» (09r),
+// на 390 и 1366; карт розыгрыша на столе нет или нет «Баттона» — сбой
+async function shuffleOnly(cdp: Cdp): Promise<void> {
+  const view = await shuffleTable()
+  for (const size of SIZES.slice(0, 2)) {
+    for (const [seated, file] of [
+      [false, '09q-peremeshat-ya-vnizu'],
+      [true, '09r-peremeshat-kak-sidim'],
+    ] as const) {
+      console.log(`«Перемешать места», ${seated ? '«как сидим»' : '«я внизу»'}, ${size.width} × ${size.height}`)
+      const d = await Device.open(cdp, size)
+      await themeOnly(d)
+      await screen(`Комната: перемешать места, ${seated ? 'как сидим' : 'я внизу'}`, size, async () => {
+        await d.goto('#/poker')
+        await d.waitText('Войти по ссылке')
+        await d.eval(`(localStorage.setItem('fishki.poker.seats', ${JSON.stringify(JSON.stringify({ [SHOW_CODE]: { playerId: 'me', token: 'shots' } }))}), true)`)
+        await d.eval(`(localStorage.setItem('fishki.poker.seated', ${seated ? "'on'" : "''"}), true)`)
+        await d.eval(`(${fakeRoomSocket.toString()})(${JSON.stringify(view)}), true`)
+        await d.goto(`#/poker/${SHOW_CODE}`)
+        await d.waitText('Перемешать места')
+        await sleep(600)
+        const drawn = await d.eval<number>(`document.querySelectorAll('.spots .seat-draw').length`)
+        if (drawn !== 5) throw new Error(`карт розыгрыша у мест — ${drawn}, а не 5`)
+        await d.waitText('Баттон')
+        await d.tableShot(file)
+      })
+    }
+  }
+}
+
+// Комната на шестерых с живыми картами до первой раздачи, в виде моего телефона: я (Борис) — ведущий, Вера, Гоша, Дима,
+// Аня; ведущий перемешал места колодой, где новая рассадка — Вера, Гоша, Дима, я, Аня, а карты розыгрыша — Q♦, 7♠, K♥,
+// 4♣, K♠: старшая — у Ани
+async function shuffleTable(): Promise<unknown> {
+  const load = async (file: string) =>
+    (await runnerImport<Record<string, any>>(join(process.cwd(), 'src/poker', file), { configFile: false, logLevel: 'silent' })).module
+  const table = await load('table.ts')
+  const { buildDeck, HOLDEM } = await load('cards.ts')
+  const { PROTOCOL_VERSION } = await load('protocol.ts')
+  const now = Date.now()
+  const created = table.createTable('me', 'Борис', { sb: 5, bb: 10, startingStack: 1000, maxSeats: 6, autoStart: 'off' }, now)
+  if (!created.ok) throw new Error(created.error)
+  let state = created.state
+  const send = (from: string, body: Record<string, unknown>, deck?: string[]) => {
+    const r = table.handle(state, from, { v: PROTOCOL_VERSION, ...body }, now, deck)
+    if (!r.ok) throw new Error(`${from} ${String(body.type)}: ${r.error}`)
+    state = r.state
+  }
+  for (const [id, name] of [
+    ['vera', 'Вера'],
+    ['gosha', 'Гоша'],
+    ['dima', 'Дима'],
+    ['anya', 'Аня'],
+  ]) {
+    send(id, { type: 'sit', name })
+  }
+  // Ключи рассадки по местам до перемешивания (я, Вера, Гоша, Дима, Аня), затем карты розыгрыша по новым местам
+  const top = ['Tc', '2c', '5h', '8d', 'Js', 'Qd', '7s', 'Kh', '4c', 'Ks']
+  send('me', { type: 'shuffleSeats' }, [...top, ...(buildDeck(HOLDEM) as string[]).filter((c) => !top.includes(c))])
+  if (state.seatDraw?.button !== 'anya') throw new Error('старшая карта розыгрыша — не у Ани')
+  const mine = (state as { players: { id: string; seat: number }[] }).players.find((p) => p.id === 'me')
+  if (!mine || mine.seat === 0) throw new Error('я на месте 1 — разницы видов на снимке не будет')
+  return table.viewFor(state, 'me')
+}
+
 // Комната на шестерых с картами на телефонах, в виде моего телефона: Аня (ведущая), Вера, Гоша, я (Борис), Дима —
 // первая раздача, до моего хода все уравнивают
 async function seatedTable(): Promise<unknown> {
@@ -3091,7 +3158,9 @@ async function main(): Promise<void> {
     const onlyLateReg = process.argv.includes('pozdnyaya') // npm run shots -- pozdnyaya: поздняя регистрация турнира (#312)
     const onlyClosed = process.argv.includes('zakryt') // npm run shots -- zakryt: «Стол закрыт» (#313)
     const onlySeated = process.argv.includes('sidim') // npm run shots -- sidim: «Стол: я внизу / как сидим» (#315)
+    const onlyShuffle = process.argv.includes('peremeshat') // npm run shots -- peremeshat: «Перемешать места» (#316)
     const part =
+      onlyShuffle ||
       onlySeated ||
       onlyClosed ||
       onlyLateReg ||
@@ -3119,6 +3188,7 @@ async function main(): Promise<void> {
       onlyOwnBack ||
       onlyStraddle ||
       onlyOwnGames
+    if (onlyShuffle) await shuffleOnly(cdp)
     if (onlySeated) await seatedOnly(cdp)
     if (onlyClosed) await closedOnly(cdp)
     if (onlyLateReg) for (const size of SIZES) await lateRegStep(cdp, size)
@@ -3164,6 +3234,7 @@ async function main(): Promise<void> {
     if (!onlyTable && !uchet && !part) await muckOnly(cdp)
     if (!onlyTable && !uchet && !part) await closedOnly(cdp)
     if (!onlyTable && !uchet && !part) await seatedOnly(cdp)
+    if (!onlyTable && !uchet && !part) await shuffleOnly(cdp)
     if (!onlyTable && !part) await whatsNewOnly(cdp)
     if (!onlyTable && !part) await syncOnly(cdp)
     if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !part) {

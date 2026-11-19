@@ -17,6 +17,8 @@ export const BOARD_GROUP = 'board'
 // Второй и третий борд (#167): k — номер борда с нуля, первый — BOARD_GROUP
 export const boardGroup = (k: number) => (k === 0 ? BOARD_GROUP : `board-${k + 1}`)
 export const seatGroup = (seat: number) => `seat-${seat}`
+// Карта розыгрыша кнопки у места (#316)
+export const drawGroup = (seat: number) => `draw-${seat}`
 export const flyKey = (group: string, card: number) => `${group}:${card}`
 
 // count карт подряд: каждая через равный промежуток, последняя долетает к total
@@ -45,6 +47,12 @@ export function streetFlights(from: number, to: number, group = BOARD_GROUP, aft
   const count = Math.max(0, to - from)
   const times = spread(count, STREET_FLY_MS, STREET_MAX_GAP_MS, STREET_TOTAL_MS)
   return times.map((t, i) => ({ key: flyKey(group, from + i), ...t, delay: t.delay + after }))
+}
+
+// Розыгрыш кнопки (#316): по карте каждому месту по часовой, с первого — как раздача одной карты
+export function drawFlights(seats: number[]): Flight[] {
+  const times = spread(seats.length, DEAL_FLY_MS, DEAL_MAX_GAP_MS, DEAL_TOTAL_MS)
+  return seats.map((seat, i) => ({ key: flyKey(drawGroup(seat), 0), ...times[i] }))
 }
 
 // Конец полёта последней карты, мс

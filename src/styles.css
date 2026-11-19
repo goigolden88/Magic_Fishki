@@ -2767,6 +2767,16 @@ input.own-back-file {
   gap: 0.2rem;
 }
 
+/* Розыгрыш кнопки (#316): одна карта у места — по центру; у старшей — «Баттон» под ней */
+.seat .seat-draw {
+  display: flex;
+  justify-content: center;
+}
+
+.seat-mark.draw-button {
+  font-weight: 700;
+}
+
 /* «Подглядеть» на моём месте: палец на картах — без выделения, меню и прокрутки */
 .seat-cards {
   display: flex;
@@ -3752,6 +3762,11 @@ input.bet-range::-moz-range-thumb {
 
 .bet-form .dock-row {
   margin-top: 0.3rem;
+}
+
+/* «Перемешать места» (#316) до первой раздачи — своим рядом над «Начать раздачу» */
+.dock-row.shuffle-row {
+  margin-bottom: 0.4rem;
 }
 
 /* «Мак по выбору» (#286): свои карты над кнопками «Показать» и «Сбросить» */

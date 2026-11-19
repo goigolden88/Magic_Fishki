@@ -65,6 +65,8 @@ export type SeatView = {
   place: number | null // турнир: место выбывшего, а когда окончен — у всех; иначе null
   hud: HudView | null // HUD вечера (#79): раздач ещё не было или HUD чужой при «только свою» — null
   tag?: string // подпись под именем: стиль бота за столом против ботов (#139); у остальных столов поля нет
+  // «Перемешать места» (#316): между раздачами после розыгрыша — карта розыгрыша у места; нет — null
+  draw: Card | null
 }
 
 // HUD вечера (#79): проценты — целые; null — не было случая (ATS, CB). AF — «1,5», «∞» (коллов нет,
@@ -180,6 +182,10 @@ export type TableView = {
   // Особая рука (#295, specialHand): на префлопе — мои AA, KK, AK в холдеме (own); между раздачами — стрит-флеш
   // прошлой на ривере (riverSpecial); иначе null. Стол на одном телефоне — только открытые на вскрытии
   special: SpecialHand | null
+  // «Перемешать места» (#316): розыгрыш кнопки до начала раздачи — когда (at, по нему анимация) и у кого старшая;
+  // не было или раздача началась — null
+  draw: { at: number; button: string } | null
+  canShuffle: boolean // мне, ведущему: можно «Перемешать места» — между раздачами, турнир не начат, играют двое и больше
 }
 
 export const STAGE_LABELS: Record<Stage, string> = {
@@ -208,6 +214,8 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
   const tournament = tournamentView(table, meId, now)
   // Место у места за столом: у выбывших, а когда турнир окончен — у всех
   const places = new Map((tournament?.results ?? []).filter((r) => r.out || tournament?.ended).map((r) => [r.id, r.place]))
+  const draw = hand ? null : (table.seatDraw ?? null)
+  const playing = table.players.filter((p) => p.chips > 0 && !p.sittingOut).length
 
   const seats: SeatView[] = [...table.players]
     .sort((a, b) => a.seat - b.seat)
@@ -228,7 +236,8 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
         bet: s ? s.bet : 0,
         isMe: p.id === meId,
         isHost: p.id === table.hostId,
-        button: hand ? index === hand.button : table.buttonSeat === p.seat,
+        // Между раздачами после розыгрыша (#316) — у вытянувшего старшую: с неё начнётся следующая
+        button: hand ? index === hand.button : draw ? draw.button === p.id : table.buttonSeat === p.seat,
         position: hand && index !== -1 ? positions[(index - hand.button + positions.length) % positions.length] : null,
         toAct: hand !== null && index !== -1 && index === hand.toAct,
         inHand: s !== null,
@@ -240,6 +249,7 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
         turnBank: hand !== null && index !== -1 && index === hand.toAct && turnBank,
         place: places.get(p.id) ?? null,
         hud: table.settings.publicHud || p.id === meId ? hudView(table, p.id) : null,
+        draw: draw?.cards[p.id] ?? null,
       }
     })
   const me = seats.find((s) => s.isMe) ?? null
@@ -278,12 +288,7 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
     pots: hand ? potsView(table, nameOf) : [],
     toActName: hand && hand.toAct !== -1 ? nameOf(hand.seats[hand.toAct].id) : null,
     actions: actionsView(table, meId, bets),
-    canStart:
-      isHost &&
-      !hand &&
-      !table.muckVote &&
-      !tournament?.ended &&
-      table.players.filter((p) => p.chips > 0 && !p.sittingOut).length >= 2,
+    canStart: isHost && !hand && !table.muckVote && !tournament?.ended && playing >= 2,
     canTakeHost:
       !isHost && host !== undefined && !host.online && now - (host.offlineSince ?? now) > HOST_TAKEOVER_MS,
     rebuyRequests: table.rebuyRequests.map((r) => ({ ...r, name: nameOf(r.playerId) })),
@@ -314,6 +319,8 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
     tournament,
     cooler: !hand && table.lastHand ? coolerOf(table.lastHand) : null,
     special: hand ? preflopOf(cards?.game, hand.stage === 'preflop' && mySeat && !mySeat.folded ? myCards : null, meId) : riverSpecial(table.lastHand, meId),
+    draw: draw ? { at: draw.at, button: draw.button } : null,
+    canShuffle: isHost && !hand && !table.muckVote && !table.tournament && playing >= 2,
   }
 }
 

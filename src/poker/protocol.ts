@@ -48,7 +48,9 @@ import type { AutoStart, CardBack, Felt, MuckMode, Settings, TableState } from '
 //      пока она открыта
 // 30 — «Стол закрыт» (#313): настройка closed в столе, смена ведущим в любой момент (closeTable); вход без токена
 //      на закрытый стол — отказ CLOSED_ERROR; в списке входа (lobby) — closed: true, пока стол закрыт
-export const PROTOCOL_VERSION = 30
+// 31 — «Перемешать места» (#316, Р-117): сообщение ведущего shuffleSeats (колоду тасует сервер), итог розыгрыша
+//      кнопки в столе (seatDraw) до начала раздачи
+export const PROTOCOL_VERSION = 31
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -93,6 +95,7 @@ export type ClientBody =
   | { type: 'setStack'; playerId: string; chips: number } // ведущий: правка стека между раздачами
   | { type: 'sitOut'; sittingOut: boolean; playerId?: string } // пропуск раздач; за другого — ведущий
   | { type: 'moveSeat'; seat: number; playerId?: string } // пересесть на свободное место между раздачами; за другого — ведущий
+  | { type: 'shuffleSeats' } // ведущий, между раздачами (турнир — до старта): перемешать места и разыграть кнопку (#316)
   | { type: 'remove'; playerId: string } // ведущий: убрать игрока со стола
   | { type: 'passHost'; to: string } // ведущий: передать ведение
   | { type: 'takeHost' } // взять ведение, если ведущий вне сети дольше минуты

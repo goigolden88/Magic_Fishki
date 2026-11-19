@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { Card } from '../../src/poker/cards'
-import { deckFor, HOLDEM_GAME } from '../../src/poker/game'
+import { buildDeck, HOLDEM, type Card } from '../../src/poker/cards'
+import { deckFor, HOLDEM_GAME, shuffle } from '../../src/poker/game'
+import { drawSeats, SHUFFLE_BETWEEN } from '../../src/poker/seatDraw'
+import type { RandomBytes } from '../../src/poker/tokens'
 import type { HistoryHand } from '../../src/poker/history'
 import type { OwnGame } from '../../src/poker/ownGame'
 import { PING_MS, PROTOCOL_VERSION, VERSION_ERROR } from '../../src/poker/protocol'
@@ -751,6 +753,51 @@ describe('пересадить на другое устройство', () => {
     expect(host.last()).toMatchObject({ type: 'error' })
     expect(guest.closed).toBeNull()
     expect((await stored(r))?.tokens[guestId]).toBeDefined()
+  })
+})
+
+describe('«Перемешать места» (#316)', () => {
+  // Предсказуемая «случайность» комнаты: колоду тасует сервер, а не телефон
+  const fixed: RandomBytes = (b) => {
+    for (let i = 0; i < b.length; i++) b[i] = (i * 37 + 11) % 256
+    return b
+  }
+
+  it('колода — с сервера: рассадка и карты розыгрыша по ней, у всех телефонов одни; присланная колода — мимо', async () => {
+    const { r, host, guests } = await cardsRoom({ cards: 'live' })
+    r.env.random = fixed
+    const before = (await stored(r))!.table.players
+    const expected = drawSeats(before, before.map((p) => p.id), shuffle(buildDeck(HOLDEM), fixed))
+    await send(r, host, { type: 'shuffleSeats', deck: buildDeck(HOLDEM) }, 5)
+    const room = await stored(r)
+    expect(room?.table.seatDraw).toEqual({ at: 5, cards: expected.cards, button: expected.button })
+    expect(Object.fromEntries(room!.table.players.map((p) => [p.id, p.seat]))).toEqual(expected.seats)
+    for (const peer of [host, ...guests.map((g) => g.peer)]) {
+      expect(tableOf(peer).seatDraw).toEqual(room?.table.seatDraw)
+      expect(tableOf(peer).players).toEqual(room?.table.players)
+    }
+  })
+
+  it('и при картах на телефонах — первая раздача с кнопкой у старшей карты', async () => {
+    const { r, host } = await cardsRoom()
+    await send(r, host, { type: 'shuffleSeats' })
+    const drawn = (await stored(r))!.table
+    const winner = drawn.seatDraw!.button
+    expect(Object.values(drawn.seatDraw!.cards)).toHaveLength(3)
+    await send(r, host, { type: 'start' })
+    const room = await stored(r)
+    const hand = room!.table.hand!
+    expect(hand.seats[hand.button].id).toBe(winner)
+    expect(room?.table.seatDraw).toBeNull()
+  })
+
+  it('не ведущий и во время раздачи — отказ', async () => {
+    const { r, host, guests } = await cardsRoom()
+    await send(r, guests[0].peer, { type: 'shuffleSeats' })
+    expect(guests[0].peer.last()).toEqual({ v: PROTOCOL_VERSION, type: 'error', error: 'Это может только ведущий' })
+    await send(r, host, { type: 'start' })
+    await send(r, host, { type: 'shuffleSeats' })
+    expect(host.last()).toEqual({ v: PROTOCOL_VERSION, type: 'error', error: SHUFFLE_BETWEEN })
   })
 })
 

@@ -25,6 +25,7 @@ import { isOwnGameId, ownGameDef, ownGamesError, type OwnGame, type TableGameId 
 import { isMixShare, MIX_VOTE_MS, mixPasses, type MixResult, type MixShare, type MixVote } from './mix'
 import { PROTOCOL_VERSION, VERSION_ERROR, type BetAction, type ClientBody } from './protocol'
 import { isMaxRuns, RUN_VOTE_MS, runCount, runVoteDone, type MaxRuns, type RunVote } from './runs'
+import { drawSeats, isSeatDeck, SHUFFLE_BETWEEN, SHUFFLE_NO_DECK, SHUFFLE_TOURNAMENT, type SeatDraw } from './seatDraw'
 import {
   addBusts,
   buildLevels,
@@ -312,6 +313,8 @@ export type TableState = {
   runVote?: RunVote | null
   // «Мак по выбору» (#286): идущая пауза выбора после раздачи; у столов до него поля нет — нет
   muckVote?: MuckVote | null
+  // «Перемешать места» (#316): итог розыгрыша кнопки — до начала следующей раздачи; у столов до него поля нет — нет
+  seatDraw?: SeatDraw | null
 }
 
 // Срок хода: ход — номер раздачи и число ходов в ней (log), чтобы будильник не принял старый срок за новый.
@@ -639,6 +642,8 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
       if (id !== from && !isHost) return hostOnly
       return moveSeat(state, id, msg.seat)
     }
+    case 'shuffleSeats':
+      return isHost ? shuffleSeats(state, deck, now) : hostOnly
     case 'pause':
       return isHost ? pause(state, msg.paused === true, now) : hostOnly
     case 'tableSettings':
@@ -741,6 +746,24 @@ function moveSeat(state: TableState, playerId: string, seat: unknown): string | 
   return null
 }
 
+// «Перемешать места» (#316): ведущий между раздачами (в «Перерыв» тоже; в турнире — до старта). Колода — 52 карты,
+// перемешанные сервером (на одном телефоне — телефоном): по ней новая рассадка по тем же занятым местам и карта
+// розыгрыша каждому, кто играет в следующей раздаче; у старшей — кнопка этой раздачи (start). Стеки, журнал
+// фишек и докупы не трогает. Раздача «сама» после розыгрыша — с полной паузы
+function shuffleSeats(state: TableState, deck: Card[] | undefined, now: number): string | null {
+  if (state.settings.format === 'tournament' && state.tournament) return SHUFFLE_TOURNAMENT
+  if (state.hand) return SHUFFLE_BETWEEN
+  if (state.muckVote) return MUCK_WAIT
+  const playing = state.players.filter((p) => p.chips > 0 && !p.sittingOut).map((p) => p.id)
+  if (playing.length < 2) return 'Нужно хотя бы двое с фишками'
+  if (!isSeatDeck(deck)) return SHUFFLE_NO_DECK
+  const drawn = drawSeats(state.players, playing, deck)
+  for (const p of state.players) p.seat = drawn.seats[p.id]
+  state.seatDraw = { at: now, cards: drawn.cards, button: drawn.button as string }
+  state.nextHandAt = null
+  return null
+}
+
 // now — время начала: в турнире по нему уровень блайндов и анте; первая раздача запускает часы
 function start(state: TableState, deck: Card[] | undefined, now: number): string | null {
   if (state.hand) return 'Раздача ещё идёт'
@@ -760,11 +783,14 @@ function start(state: TableState, deck: Card[] | undefined, now: number): string
     const error = beginTournament(state, t, now)
     if (error) return error
   }
-  // Кнопка — следующее играющее место по кругу после прошлой
+  // Кнопка — у вытянувшего старшую карту розыгрыша (#316), если он играет; иначе — следующее играющее место
+  // по кругу после прошлой
   const prev = state.buttonSeat
   const after = prev === null ? -1 : playing.findIndex((p) => p.seat > prev)
-  const button = after === -1 ? 0 : after
+  const drawn = state.seatDraw ? playing.findIndex((p) => p.id === state.seatDraw?.button) : -1
+  const button = drawn !== -1 ? drawn : after === -1 ? 0 : after
   state.buttonSeat = playing[button].seat
+  if (state.seatDraw) state.seatDraw = null
   state.handCount++
   // Докрутка прошлой (#297) — только до начала следующей: колода та же по составу, её карт в ходе раздачи телефону не слать
   if (state.lastHand) delete state.lastHand.runout
