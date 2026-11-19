@@ -19,7 +19,7 @@ import {
   type ServerMessage,
 } from '../../src/poker/protocol'
 import { deckFor, shuffle } from '../../src/poker/game'
-import type { Card } from '../../src/poker/cards'
+import { buildDeck, HOLDEM, type Card } from '../../src/poker/cards'
 import { finishedHand, handFor, type HistoryHand } from '../../src/poker/history'
 import {
   createTable,
@@ -165,7 +165,8 @@ export async function message(env: RoomEnv, peer: Peer, raw: string, now: number
   if (msg.type === 'reseat') return reseat(env, room, peer, me, msg.playerId, now)
   if (msg.type === 'history') return sendHistory(env, peer, me)
   if (msg.type === 'avatar') return changeAvatar(env, me, msg.avatar)
-  const r = handle(room.table, me, msg, now, msg.type === 'start' ? newDeck(env, room.table) : undefined)
+  const deck = msg.type === 'start' ? newDeck(env, room.table) : msg.type === 'shuffleSeats' ? seatDeck(env) : undefined
+  const r = handle(room.table, me, msg, now, deck)
   if (!r.ok) return send(peer, { type: 'error', error: r.error })
   await keepHand(env, room.table, r.state)
   room.table = r.state
@@ -184,6 +185,12 @@ export async function message(env: RoomEnv, peer: Peer, raw: string, now: number
 function newDeck(env: RoomEnv, table: TableState): Card[] | undefined {
   const game = gameFor(table.settings)
   return game ? shuffle(deckFor(game), env.random) : undefined
+}
+
+// «Перемешать места» (#316): рассадка и карты розыгрыша кнопки — по колоде 52 карт, перемешанной здесь, при любых
+// картах стола: случайность — с сервера, у всех телефонов одна
+function seatDeck(env: RoomEnv): Card[] {
+  return shuffle(buildDeck(HOLDEM), env.random)
 }
 
 // Соединение закрылось: у игрока не осталось других — он вне сети
