@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { shuffleSeatsNow, startLocalTable } from '../calc/localTable'
+import { tableView } from '../calc/pokerView'
 import { buildDeck, HOLDEM, type Card } from './cards'
 import { shuffle } from './game'
 import { PROTOCOL_VERSION, type ClientBody } from './protocol'
@@ -213,6 +214,34 @@ describe.each(MODES)('«Перемешать места» за столом — 
     const s = play(newTable(['p0', 'p1', 'p2'], { maxSeats: 6 }), [shuffleStep('p0', deck), { from: 'p1', msg: { type: 'moveSeat', seat: 4 } }, start('p0')], roundtrip)
     expect(s.hand!.seats[s.hand!.button].id).toBe('p1')
     expect(s.buttonSeat).toBe(4)
+  })
+})
+
+describe('вид стола', () => {
+  const deck = stacked(['5c', 'Td', '3h', '4s', 'Kd', 'Ks'])
+
+  it('после розыгрыша: у мест — карты розыгрыша, кнопка — у старшей; началась раздача — розыгрыша нет', () => {
+    const s = play(newTable(['p0', 'p1', 'p2']), [shuffleStep('p0', deck, 9)], false)
+    const v = tableView(s, 'p2', 0)
+    expect(v.draw).toEqual({ at: 9, button: 'p1' })
+    expect(v.seats.map((x) => [x.id, x.seat, x.draw, x.button])).toEqual([
+      ['p2', 0, '4s', false],
+      ['p0', 1, 'Kd', false],
+      ['p1', 2, 'Ks', true],
+    ])
+    const dealt = tableView(play(s, [start('p0')], false), 'p2', 0)
+    expect(dealt.draw).toBeNull()
+    expect(dealt.seats.every((x) => x.draw === null)).toBe(true)
+  })
+
+  it('«Перемешать места» — ведущему между раздачами; в раздаче, игроку и в начатом турнире — нет', () => {
+    const s = newTable(['p0', 'p1'])
+    expect(tableView(s, 'p0', 0).canShuffle).toBe(true)
+    expect(tableView(s, 'p1', 0).canShuffle).toBe(false)
+    expect(tableView(play(s, [start('p0')], false), 'p0', 0).canShuffle).toBe(false)
+    const cup = newTable(['p0', 'p1'], { format: 'tournament', tournament: { ...DEFAULT_TOURNAMENT, buyIn: 500 } })
+    expect(tableView(cup, 'p0', 0).canShuffle).toBe(true)
+    expect(tableView(play(cup, [start('p0')], false), 'p0', 0).canShuffle).toBe(false)
   })
 })
 

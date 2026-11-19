@@ -8,6 +8,7 @@ import {
   rebuyNow,
   removePlayer,
   seatPlayer,
+  shuffleSeatsNow,
   toActId,
   tournamentRebuyFor,
   withTable,
@@ -47,6 +48,7 @@ import {
   MoveSeat,
   PokerTable,
   PotList,
+  ShuffleField,
   useLookVersion,
 } from './PokerRoom'
 import { TableInfo } from './GameRules'
@@ -254,6 +256,8 @@ function LocalTableCard(props: {
 
   const dock = dockOf(v)
   const pause = () => apply((s, now) => hostDo(s, { type: 'pause', paused: !v.paused }, now))
+  // «Перемешать места» (#316): сервера нет — колоду тасует этот телефон
+  const shuffleSeats = () => apply((s, now) => shuffleSeatsNow(s, now))
 
   // Колонка (#97): стол — на весь первый экран, под ним листается ведущий, панель хода — внизу.
   // Широкое окно (Р-63): стол и панель — целиком в окне, панель — справа внизу поверх края стола (#210); под ними листается страница
@@ -314,6 +318,14 @@ function LocalTableCard(props: {
             {/* Турнир идёт — новых не сажаем, кроме поздней регистрации (#312) */}
             {(!t?.started || t.lateRegOpen) && <SeatNew table={table} regulars={regulars} apply={apply} />}
 
+            {/* «Перемешать места» (#316): после первой раздачи — здесь, между раздачами; до неё — внизу, у «Начать раздачу» */}
+            {!hand && v.handNumber > 0 && (
+              <details className="table-settings">
+                <summary>Настройки стола</summary>
+                <ShuffleField view={v} disabled={false} onShuffle={shuffleSeats} />
+              </details>
+            )}
+
             {/* Вид стола (#77): карты здесь живые (Р-21) — только сукно */}
             <details className="table-settings">
               <summary>Вид стола</summary>
@@ -367,6 +379,7 @@ function LocalTableCard(props: {
             pause={t !== null && t.started && !t.ended}
             onStart={() => apply((s, now) => hostDo(s, { type: 'start' }, now))}
             onPause={pause}
+            onShuffle={shuffleSeats}
           />
         )}
       </div>

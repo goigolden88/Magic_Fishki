@@ -3,6 +3,8 @@ import {
   BOARD_GROUP,
   boardGroup,
   dealPlan,
+  drawFlights,
+  drawGroup,
   flightsEnd,
   flyKey,
   seatGroup,
@@ -93,6 +95,7 @@ import { LookFields } from './LookFields'
 import { LiveHandField, MuckFields } from './RoomFields'
 import { LookGear } from './TableGear'
 import { playFlights, useLandOnHide } from './cardFly'
+import { SHUFFLE_TOURNAMENT } from '../poker/seatDraw'
 import { avatarOf } from '../poker/avatar'
 import { Avatar } from './Avatar'
 import {
@@ -526,6 +529,7 @@ function TableCard(props: { room: Room; table: TableState; me: string; code: str
             voting={mix?.kind === 'vote' || muck !== null}
             onStart={() => room.send({ type: 'start' })}
             onPause={() => room.send({ type: 'pause', paused: !v.paused })}
+            onShuffle={() => room.send({ type: 'shuffleSeats' })}
           />
         )}
       </div>
@@ -551,13 +555,26 @@ function OpenCards({ open, onOpen }: { open: boolean; onOpen: (on: boolean) => v
 
 // Между раздачами у ведущего — внизу экрана: «Начать раздачу» и «Перерыв» / «Продолжить».
 // pause — «Перерыв» есть на этом столе (на одном телефоне — только в идущем турнире);
-// voting — идёт голосование «Микса» (#166): раздача ждёт его итога
-export function HostDock(props: { view: TableView; pause: boolean; voting?: boolean; onStart: () => void; onPause: () => void }) {
-  const { view: v, pause, voting = false, onStart, onPause } = props
+// voting — идёт голосование «Микса» (#166): раздача ждёт его итога.
+// onShuffle — «Перемешать места» (#316): до первой раздачи — здесь, рядом с «Начать раздачу»; потом — в «Настройках стола»
+export function HostDock(props: {
+  view: TableView
+  pause: boolean
+  voting?: boolean
+  onStart: () => void
+  onPause: () => void
+  onShuffle?: () => void
+}) {
+  const { view: v, pause, voting = false, onStart, onPause, onShuffle } = props
   const t = v.tournament
   return (
     <section className="dock">
       <div className="dock-row">
+        {onShuffle && v.handNumber === 0 && (
+          <button type="button" className="big grow" disabled={!v.canShuffle || voting} onClick={onShuffle}>
+            Перемешать места
+          </button>
+        )}
         {!v.paused && (
           <button type="button" className="big primary grow" disabled={!v.canStart || voting} onClick={onStart}>
             {t && !t.started ? 'Начать турнир' : 'Начать раздачу'}
@@ -1410,6 +1427,7 @@ export function PokerTable(props: {
   const { notes, labels } = useNotes()
   const wrap = useRef<HTMLDivElement>(null)
   const { dealing, cooler, special } = useTableDeal(wrap, v, live)
+  const drawOpen = useSeatDraw(wrap, v, live)
   const runout = useRunout(v)
   // В центре стола (#295): ривер со стрит-флешем — крупно, с именем; иначе кулер — крупно «Кулер!»
   const river = special?.kind === 'river' ? special : null
@@ -1530,6 +1548,7 @@ export function PokerTable(props: {
               onUnit={toggleUnit.toggle}
               cooler={cooler !== null && (cooler.winner === s.id || cooler.loser === s.id)}
               preflop={special?.kind === 'preflop' && s.isMe ? special.label : null}
+              drawOpen={drawOpen}
             />
           ))}
           {v.freeSeats.map((k) => (
@@ -1776,6 +1795,40 @@ function useTableDeal(
   return { dealing, cooler: v.cooler ? cooler : null, special: same ? special : null }
 }
 
+// Розыгрыш кнопки (#316): новый розыгрыш на глазах — карты летят к местам рубашкой, сели — открываются,
+// у старшей — «Баттон». Стол только открыли, он не live, вкладка не видна или «Анимация карт» выключена — карты
+// сразу лицом. Возвращает: карты розыгрыша открыты (пока летят — false)
+function useSeatDraw(ref: RefObject<HTMLDivElement | null>, v: TableView, live: boolean): boolean {
+  const at = v.draw?.at ?? null
+  const prev = useRef<number | null | undefined>(undefined)
+  const [closed, setClosed] = useState<number | null>(null) // розыгрыш (at), чьи карты ещё летят рубашкой
+  const flying = useRef<number[]>([])
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  // Новый розыгрыш — сначала рубашки (до отрисовки), потом полёт
+  useLayoutEffect(() => {
+    const before = prev.current
+    prev.current = at
+    if (at === null || before === undefined || before === at) return
+    if (!ref.current || !live || document.visibilityState !== 'visible' || !loadCardAnim()) return
+    flying.current = v.seats.filter((s) => s.draw).map((s) => s.seat)
+    setClosed(at)
+  }, [at])
+  useLayoutEffect(() => {
+    const root = ref.current
+    if (closed === null || !root) return
+    const flights = drawFlights(flying.current)
+    playFlights(root, flights)
+    clearTimeout(timer.current)
+    timer.current = setTimeout(() => setClosed(null), flightsEnd(flights))
+  }, [closed])
+  useLandOnHide(ref, () => {
+    clearTimeout(timer.current)
+    setClosed(null)
+  })
+  useEffect(() => () => clearTimeout(timer.current), [])
+  return closed === null || closed !== at
+}
+
 // У бокового края — прижато к нему
 function edgeOf(at: Spot): string | null {
   return at.x <= 10 ? 'edge-l' : at.x >= 90 ? 'edge-r' : null
@@ -1841,8 +1894,13 @@ function SeatSpot(props: {
   onUnit: () => void
   cooler?: boolean // кулер прошлой раздачи (#262): место подсвечено и «Кулер!» над ним, ~4 с (#295)
   preflop?: string | null // моя особая рука на префлопе (#295): место подсвечено и скромная надпись, ~1,5 с
+  // Розыгрыш кнопки (#316): карты розыгрыша открыты; пока летят рубашкой — false, и кнопки «D» у мест не видно
+  drawOpen?: boolean
 }) {
   const { seat: s, at, bottom, big, myCards, myHand, open, hudDetailed, onHud, note, labels, onNote, unit, onUnit, cooler = false } = props
+  const drawOpen = props.drawOpen ?? true
+  // Карта розыгрыша у места — вместо карт и руки прошлой раздачи
+  const draw = s.draw
   const cardSize = big ? 'mid' : 'small'
   const preflop = props.preflop ?? null
   const unitLabel = unit === null ? 'показать суммы в ББ' : 'показать суммы в фишках'
@@ -1879,7 +1937,7 @@ function SeatSpot(props: {
       )}
       {preflop && <HandBurst title={preflop} ms={PREFLOP_MS} />}
       {s.position && <span className="seat-pos">{s.position}</span>}
-      {s.button && (
+      {s.button && drawOpen && (
         <span className="seat-dealer" aria-label="кнопка">
           D
         </span>
@@ -1907,7 +1965,11 @@ function SeatSpot(props: {
         <span className="seat-chips">{stackText(s.chips, unit)}</span>
       )}
       {s.hud && <HudLine hud={s.hud} onOpen={onHud} detailed={hudDetailed} />}
-      {myCards ? (
+      {draw ? (
+        <span className="card-row seat-draw" aria-label={drawOpen ? 'карта розыгрыша кнопки' : 'карта розыгрыша летит'}>
+          <PlayingCard card={drawOpen ? draw : null} size={cardSize} fly={flyKey(drawGroup(s.seat), 0)} />
+        </span>
+      ) : myCards ? (
         <PeekCards
           cards={myCards}
           open={open}
@@ -1920,8 +1982,9 @@ function SeatSpot(props: {
       ) : (
         s.cards && <CardRow cards={s.cards} size={cardSize} fly={seatGroup(s.seat)} />
       )}
-      {s.handName && <span className="seat-mark">{s.handName}</span>}
-      {s.best && <CardRow cards={s.best} size="small" best />}
+      {draw && s.button && drawOpen && <span className="seat-mark draw-button">Баттон</span>}
+      {!draw && s.handName && <span className="seat-mark">{s.handName}</span>}
+      {!draw && s.best && <CardRow cards={s.best} size="small" best />}
       {marks.length > 0 && <span className="seat-mark">{marks.join(' · ')}</span>}
       {s.bet > 0 && <span className={`bet-chip ${betSide(at)}`}>{stackText(s.bet, unit)}</span>}
     </div>
@@ -2526,6 +2589,7 @@ function TableSettingsCard(props: { room: Room; table: TableState; view: TableVi
       {!between && <p className="muted">Остальные настройки — между раздачами.</p>}
       {between && (
         <>
+          {v.handNumber > 0 && <ShuffleField view={v} disabled={!room.online} onShuffle={() => room.send({ type: 'shuffleSeats' })} />}
           {saved.autoStart !== 'off' && !v.paused && (
             <p className="muted">Раздача начнётся сама — чтобы спокойно поменять, сначала «Перерыв».</p>
           )}
@@ -2558,6 +2622,25 @@ function TableSettingsCard(props: { room: Room; table: TableState; view: TableVi
         </>
       )}
     </details>
+  )
+}
+
+// «Перемешать места» (#316) в «Настройках стола» — после первой раздачи, между раздачами (до неё — внизу экрана,
+// рядом с «Начать раздачу»). Турнир начат — кнопка неактивна, под ней — почему
+export function ShuffleField(props: { view: TableView; disabled: boolean; onShuffle: () => void }) {
+  const { view: v, disabled, onShuffle } = props
+  return (
+    <fieldset className="players-pick">
+      <legend className="muted">Места</legend>
+      <button type="button" className="big wide" disabled={disabled || !v.canShuffle} onClick={onShuffle}>
+        Перемешать места
+      </button>
+      <p className="muted">
+        {v.tournament?.started
+          ? `${SHUFFLE_TOURNAMENT}.`
+          : 'Игроки случайно пересаживаются, затем каждому — по карте: у старшей — баттон следующей раздачи.'}
+      </p>
+    </fieldset>
   )
 }
 
