@@ -569,12 +569,14 @@ export function HostDock(props: {
   const t = v.tournament
   return (
     <section className="dock">
-      <div className="dock-row">
-        {onShuffle && v.handNumber === 0 && (
+      {onShuffle && v.handNumber === 0 && (
+        <div className="dock-row shuffle-row">
           <button type="button" className="big grow" disabled={!v.canShuffle || voting} onClick={onShuffle}>
             Перемешать места
           </button>
-        )}
+        </div>
+      )}
+      <div className="dock-row">
         {!v.paused && (
           <button type="button" className="big primary grow" disabled={!v.canStart || voting} onClick={onStart}>
             {t && !t.started ? 'Начать турнир' : 'Начать раздачу'}
