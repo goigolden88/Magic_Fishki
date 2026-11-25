@@ -441,7 +441,8 @@ function PlayerList({ table, view: v, amounts, apply }: { table: TableState; vie
                     className="big wide"
                     onClick={() => apply((s, at) => hostDo(s, { type: 'sitOut', sittingOut: !p.sittingOut, playerId: p.id }, at))}
                   >
-                    {p.sittingOut ? 'Вернуть в раздачи' : 'Пропускает раздачи'}
+                    {/* Турнир (#323): отошедшего сдают, блайнды и анте с него, ход за него — сразу */}
+                    {p.sittingOut ? 'Вернулся — играет сам' : 'Отошёл — карты сбрасываются сами'}
                   </button>
                   <MoveSeat view={v} seat={p.seat} online onMove={(seat) => moveSeat(p.id, seat)} />
                   {!t.ended && (

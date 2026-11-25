@@ -53,6 +53,12 @@ export function readHand(hand: Hand): HandRead {
       pot += e.bet
       continue
     }
+    // BB вслепую вернувшегося (#323): ставка круга до ББ, не ход. У стола с ботами возврат без долга — не бывает
+    if (e.type === 'post') {
+      pot += e.bet - (bets.get(e.playerId) ?? 0)
+      bets.set(e.playerId, e.bet)
+      continue
+    }
     if (e.street !== street) {
       street = e.street
       bets = new Map()

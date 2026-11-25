@@ -1910,7 +1910,7 @@ function SeatSpot(props: {
     s.place !== null && `${s.place} место`,
     s.allIn && 'олл-ин',
     !s.online && 'вне сети',
-    s.sittingOut && 'пропуск',
+    s.outMark,
     s.folded && 'пас',
   ].filter(Boolean)
   // Омаха (#80): четыре карты у места — карты плотнее, моё место шире
@@ -2176,8 +2176,10 @@ function MyCard({ room, table, view: v, amounts }: { room: Room; table: TableSta
           </button>
         )}
         {me.place !== null && !t.ended && !t.canRebuy && <p className="muted">Вы выбыли: {me.place} место</p>}
+        {/* Турнир (#323): отошедшего сдают — блайнды и анте идут, карты сбрасываются сами */}
+        {me.sittingOut && <p className="muted">Вы отошли: блайнды и анте идут, карты сбрасываются сами</p>}
         <button type="button" className="big wide" onClick={() => room.send({ type: 'sitOut', sittingOut: !me.sittingOut })}>
-          {me.sittingOut ? 'Вернуться в раздачи' : 'Пропускать раздачи'}
+          {me.sittingOut ? 'Вернуться' : 'Отойти'}
         </button>
       </section>
     )
@@ -2230,14 +2232,61 @@ function MyCard({ room, table, view: v, amounts }: { room: Room; table: TableSta
           Попросить докуп
         </button>
       )}
-      <button
-        type="button"
-        className="big wide"
-        onClick={() => room.send({ type: 'sitOut', sittingOut: !me.sittingOut })}
-      >
-        {me.sittingOut ? 'Вернуться в раздачи' : 'Пропускать раздачи'}
-      </button>
+      <SitOutButtons room={room} me={me} owes={v.backOwesBB} />
     </section>
+  )
+}
+
+// Кэш (#323): «Отойду перед своим BB» — переключатель, «Пропускать раздачи» — встать сразу. Вернуться после
+// пропущенных раздач — «Поставить BB и играть» или «Ждать свой BB»; не пропустил или играть некому — сразу
+function SitOutButtons({ room, me, owes }: { room: Room; me: SeatView; owes: boolean }) {
+  const send = (back?: 'post' | 'wait') => room.send({ type: 'sitOut', sittingOut: false, ...(back ? { back } : {}) })
+  if (!me.sittingOut) {
+    return (
+      <>
+        <button
+          type="button"
+          className={me.sitOutBB ? 'big primary wide' : 'big wide'}
+          aria-pressed={me.sitOutBB}
+          onClick={() => room.send({ type: 'sitOutBB', on: !me.sitOutBB })}
+        >
+          Отойду перед своим BB
+        </button>
+        {me.sitOutBB && <p className="muted">Доиграете и встанете сами перед раздачей, где BB ваш</p>}
+        {me.postBB && <p className="muted">В следующей раздаче — BB вслепую</p>}
+        <button type="button" className="big wide" onClick={() => room.send({ type: 'sitOut', sittingOut: true })}>
+          Пропускать раздачи
+        </button>
+      </>
+    )
+  }
+  if (me.waitBB) {
+    return (
+      <>
+        <p className="muted">Ждёте свой BB: вернётесь сами в раздаче, где он ваш</p>
+        <button type="button" className="big primary wide" onClick={() => send('post')}>
+          Поставить BB и играть
+        </button>
+      </>
+    )
+  }
+  if (!owes) {
+    return (
+      <button type="button" className="big wide" onClick={() => send()}>
+        Вернуться в раздачи
+      </button>
+    )
+  }
+  return (
+    <>
+      <p className="muted">Пока вас не было, раздачи шли — вернуться:</p>
+      <button type="button" className="big primary wide" onClick={() => send('post')}>
+        Поставить BB и играть
+      </button>
+      <button type="button" className="big wide" onClick={() => send('wait')}>
+        Ждать свой BB
+      </button>
+    </>
   )
 }
 
@@ -2440,7 +2489,14 @@ function HostCard(props: {
                   className="big wide"
                   onClick={() => room.send({ type: 'sitOut', sittingOut: !p.sittingOut, playerId: p.id })}
                 >
-                  {p.sittingOut ? 'Вернуть в раздачи' : 'Пропускает раздачи'}
+                  {/* Ведущий возвращает сразу, без долга BB (#323); турнир — отошёл: сдают, ход за него сразу */}
+                  {v.tournament
+                    ? p.sittingOut
+                      ? 'Вернулся — играет сам'
+                      : 'Отошёл — карты сбрасываются сами'
+                    : p.sittingOut
+                      ? 'Вернуть в раздачи'
+                      : 'Пропускает раздачи'}
                 </button>
                 <MoveSeat
                   view={v}

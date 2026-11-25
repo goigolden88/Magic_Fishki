@@ -50,7 +50,10 @@ import type { AutoStart, CardBack, Felt, MuckMode, Settings, TableState } from '
 //      на закрытый стол — отказ CLOSED_ERROR; в списке входа (lobby) — closed: true, пока стол закрыт
 // 31 — «Перемешать места» (#316, Р-117): сообщение ведущего shuffleSeats (колоду тасует сервер), итог розыгрыша
 //      кнопки в столе (seatDraw) до начала раздачи
-export const PROTOCOL_VERSION = 31
+// 32 — «Отойти» по правилам румов (#323, Р-118): кэш — отметка «Отойду перед своим BB» (sitOutBB), возврат после
+//      пропущенных раздач — выбором back в sitOut ('post' — BB вслепую, запись 'post' в журнале раздачи; 'wait' — ждать
+//      свой BB), поля игрока sitOutBB, outAt, waitBB, postBB; турнир — отошедшего сдают, ход за него сразу
+export const PROTOCOL_VERSION = 32
 
 export const VERSION_ERROR = 'Другая версия приложения — обновите приложение'
 
@@ -93,7 +96,10 @@ export type ClientBody =
   | { type: 'rebuy'; amount: number } // игрок просит докуп
   | { type: 'rebuyAnswer'; playerId: string; approve: boolean } // ведущий: «да» или «нет»
   | { type: 'setStack'; playerId: string; chips: number } // ведущий: правка стека между раздачами
-  | { type: 'sitOut'; sittingOut: boolean; playerId?: string } // пропуск раздач; за другого — ведущий
+  // пропуск раздач (турнир — «Отойти»); за другого — ведущий. back (#323) — возврат кэша после пропущенных раздач:
+  // 'post' — «Поставить BB и играть», 'wait' — «Ждать свой BB»; не нужен — не смотрится
+  | { type: 'sitOut'; sittingOut: boolean; playerId?: string; back?: 'post' | 'wait' }
+  | { type: 'sitOutBB'; on: boolean } // кэш (#323): «Отойду перед своим BB» — отметка (on) или снять
   | { type: 'moveSeat'; seat: number; playerId?: string } // пересесть на свободное место между раздачами; за другого — ведущий
   | { type: 'shuffleSeats' } // ведущий, между раздачами (турнир — до старта): перемешать места и разыграть кнопку (#316)
   | { type: 'remove'; playerId: string } // ведущий: убрать игрока со стола

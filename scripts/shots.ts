@@ -1393,6 +1393,95 @@ async function closedOnly(cdp: Cdp): Promise<void> {
   }
 }
 
+// npm run shots -- otoiti (#323): «Отойти» по правилам румов, карточка «Мои фишки» в комнате. Кэш: я (Борис) отметил
+// «Отойду перед своим BB» (09s); я пропускал, а раздача прошла — «Поставить BB и играть» и «Ждать свой BB» (09t).
+// Турнир: я отошёл — «Вы отошли…» и «Вернуться» (09u). Соединение подменено, как у «Показать»; на 390 и 1366
+async function sitOutOnly(cdp: Cdp): Promise<void> {
+  const load = async (file: string) =>
+    (await runnerImport<Record<string, any>>(join(process.cwd(), 'src/poker', file), { configFile: false, logLevel: 'silent' })).module
+  const table = await load('table.ts')
+  const { DEFAULT_TOURNAMENT } = await load('tournament.ts')
+  const { PROTOCOL_VERSION } = await load('protocol.ts')
+  const now = Date.now()
+  const build = (settings: Record<string, unknown>, steps: (send: (from: string, body: Record<string, unknown>) => void, get: () => any) => void) => {
+    const base = { sb: 5, bb: 10, startingStack: 1000, maxSeats: 6, cards: 'live', autoStart: 'off' }
+    const created = table.createTable('host', 'Аня', { ...base, ...settings }, now)
+    if (!created.ok) throw new Error(created.error)
+    let state = created.state
+    const send = (from: string, body: Record<string, unknown>) => {
+      const r = table.handle(state, from, { v: PROTOCOL_VERSION, ...body }, now)
+      if (!r.ok) throw new Error(`${from} ${String(body.type)}: ${r.error}`)
+      state = r.state
+    }
+    send('me', { type: 'sit', name: 'Борис' })
+    send('vera', { type: 'sit', name: 'Вера' })
+    send('gosha', { type: 'sit', name: 'Гоша' })
+    steps(send, () => state)
+    return table.viewFor(state, 'me')
+  }
+  // Раздача до конца: ходящие сбрасывают, банк оставшемуся
+  const finish = (send: (from: string, body: Record<string, unknown>) => void, get: () => any) => {
+    for (let i = 0; i < 8 && get().hand && get().hand.toAct !== -1; i++) {
+      const hand = get().hand
+      send(hand.seats[hand.toAct].id, { type: 'act', action: { type: 'fold' } })
+    }
+    const hand = get().hand
+    if (hand) send('host', { type: 'award', winners: hand.pots.map((p: { eligible: string[] }) => [p.eligible[0]]) })
+  }
+  const cases = [
+    {
+      file: '09s-otoidu-pered-bb',
+      title: 'отметка «перед своим BB»',
+      wait: 'Доиграете и встанете сами',
+      view: build({}, (send, get) => {
+        send('host', { type: 'start' })
+        finish(send, get)
+        send('me', { type: 'sitOutBB', on: true })
+      }),
+    },
+    {
+      file: '09t-vernutsya-bb',
+      title: 'вернуться: поставить BB или ждать',
+      wait: 'Ждать свой BB',
+      view: build({}, (send, get) => {
+        send('me', { type: 'sitOut', sittingOut: true })
+        send('host', { type: 'start' })
+        finish(send, get)
+      }),
+    },
+    {
+      file: '09u-turnir-otoshel',
+      title: 'турнир: отошёл',
+      wait: 'Вы отошли',
+      view: build(
+        { sb: 10, bb: 20, format: 'tournament', tournament: { ...DEFAULT_TOURNAMENT, buyIn: 500, levelMinutes: 10, antePct: 10 } },
+        (send) => {
+          send('me', { type: 'sitOut', sittingOut: true })
+          send('host', { type: 'start' })
+        },
+      ),
+    },
+  ]
+  for (const size of SIZES.slice(0, 2)) {
+    for (const c of cases) {
+      console.log(`«Отойти», ${c.title}, ${size.width} × ${size.height}`)
+      const d = await Device.open(cdp, size)
+      await themeOnly(d)
+      await screen(`Комната: ${c.title}`, size, async () => {
+        await d.goto('#/poker')
+        await d.waitText('Войти по ссылке')
+        await d.eval(`(localStorage.setItem('fishki.poker.seats', ${JSON.stringify(JSON.stringify({ [SHOW_CODE]: { playerId: 'me', token: 'shots' } }))}), true)`)
+        await d.eval(`(${fakeRoomSocket.toString()})(${JSON.stringify(c.view)}), true`)
+        await d.goto(`#/poker/${SHOW_CODE}`)
+        await d.waitText(c.wait)
+        await d.eval(`([...document.querySelectorAll('h2')].find((h) => h.innerText.startsWith('Мои фишки')).closest('section').scrollIntoView({ block: 'center' }), true)`)
+        await sleep(500)
+        await d.shot(c.file, false)
+      })
+    }
+  }
+}
+
 // npm run shots -- sidim (#315): «Стол: я внизу / как сидим». Комната на шестерых, я (Борис) — на месте 4, мой ход
 // на префлопе, свои карты открыты; соединение подменено, как у «Показать». Тот же стол в обоих видах — «я внизу» (09o)
 // и «как сидим» (09p), на 390 и 1366; на каждом — места не наезжают друг на друга, иначе сбой. Каждый вид — своё
@@ -3159,7 +3248,9 @@ async function main(): Promise<void> {
     const onlyClosed = process.argv.includes('zakryt') // npm run shots -- zakryt: «Стол закрыт» (#313)
     const onlySeated = process.argv.includes('sidim') // npm run shots -- sidim: «Стол: я внизу / как сидим» (#315)
     const onlyShuffle = process.argv.includes('peremeshat') // npm run shots -- peremeshat: «Перемешать места» (#316)
+    const onlySitOut = process.argv.includes('otoiti') // npm run shots -- otoiti: «Отойти» по правилам румов (#323)
     const part =
+      onlySitOut ||
       onlyShuffle ||
       onlySeated ||
       onlyClosed ||
@@ -3188,6 +3279,7 @@ async function main(): Promise<void> {
       onlyOwnBack ||
       onlyStraddle ||
       onlyOwnGames
+    if (onlySitOut) await sitOutOnly(cdp)
     if (onlyShuffle) await shuffleOnly(cdp)
     if (onlySeated) await seatedOnly(cdp)
     if (onlyClosed) await closedOnly(cdp)
@@ -3235,6 +3327,7 @@ async function main(): Promise<void> {
     if (!onlyTable && !uchet && !part) await closedOnly(cdp)
     if (!onlyTable && !uchet && !part) await seatedOnly(cdp)
     if (!onlyTable && !uchet && !part) await shuffleOnly(cdp)
+    if (!onlyTable && !uchet && !part) await sitOutOnly(cdp)
     if (!onlyTable && !part) await whatsNewOnly(cdp)
     if (!onlyTable && !part) await syncOnly(cdp)
     if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !part) {

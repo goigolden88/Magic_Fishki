@@ -153,13 +153,15 @@ export function handText(saved: SavedHand): string {
       lines.push(`${name(id)}: posts ${label} ${amount}${allIn(left.get(id) === 0)}`)
     }
   }
-  // Страддл (#222) — записью журнала, после блайндов: ставка круга до первого хода
+  // Страддл (#222) и BB вслепую вернувшегося (#323) — записью журнала, после блайндов: ставка круга до первого хода
   for (const e of log) {
-    if (e.type !== 'straddle') continue
-    put(e.playerId, e.bet - (streetBet.get(e.playerId) ?? 0))
+    if (e.type !== 'straddle' && e.type !== 'post') continue
+    const add = e.bet - (streetBet.get(e.playerId) ?? 0)
+    put(e.playerId, add)
     streetBet.set(e.playerId, e.bet)
     max = Math.max(max, e.bet)
-    lines.push(`${name(e.playerId)}: posts straddle ${e.bet}${allIn(e.allIn)}`)
+    const what = e.type === 'post' ? `big blind ${add}` : `straddle ${e.bet}`
+    lines.push(`${name(e.playerId)}: posts ${what}${allIn(e.allIn)}`)
   }
 
   lines.push('*** HOLE CARDS ***')
@@ -185,7 +187,7 @@ export function handText(saved: SavedHand): string {
   }
 
   for (const e of log) {
-    if (e.type === 'ante' || e.type === 'straddle') continue
+    if (e.type === 'ante' || e.type === 'straddle' || e.type === 'post') continue
     while (street < streets.indexOf(e.street)) nextStreet()
     const who = name(e.playerId)
     const before = streetBet.get(e.playerId) ?? 0

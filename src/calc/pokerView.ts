@@ -9,7 +9,15 @@ import { potLimit, type HandLogEntry, type Stage, type Street } from '../poker/h
 import { HUD_FEW_HANDS, type HudCounts } from '../poker/hud'
 import { buildPots } from '../poker/pots'
 import { handFor, hiddenOwner, hiddenWinner, type HistoryHand } from '../poker/history'
-import { bankOf, blindsNow, hiddenOf, HOST_TAKEOVER_MS, waitingRebuy, type HandRecord, type HandResult, type TableState } from '../poker/table'
+import {
+  bankOf,
+  blindsNow,
+  dealtNext,
+  hiddenOf,
+  HOST_TAKEOVER_MS,
+  returnOwesBB,
+  waitingRebuy,
+  type HandRecord, type HandResult, type TableState } from '../poker/table'
 import { allInOdds } from './allInOdds'
 import { coolerOf, type Cooler } from './cooler'
 import { preflopSpecial, riverSpecial, type SpecialHand } from './specialHand'
@@ -59,7 +67,13 @@ export type SeatView = {
   folded: boolean
   allIn: boolean
   online: boolean
-  sittingOut: boolean
+  sittingOut: boolean // кэш — пропускает раздачи; турнир (#323) — отошёл: сдают, ходы за него сами
+  // Кэш (#323): отметил «Отойду перед своим BB» (sitOutBB), пропускает до своего BB (waitBB), в следующей раздаче ставит
+  // BB вслепую (postBB); у турнира — false
+  sitOutBB: boolean
+  waitBB: boolean
+  postBB: boolean
+  outMark: string | null // пометка у места: «пропуск», «ждёт BB» (кэш), «отошёл» (турнир); играет — null
   turnLeft: number | null // чей ход и таймер идёт — сколько секунд осталось
   turnBank: boolean // чей ход, и идёт его запас (#223): turnLeft — секунды запаса; чужой запас, пока не тратится, не виден
   place: number | null // турнир: место выбывшего, а когда окончен — у всех; иначе null
@@ -148,6 +162,8 @@ export type TableView = {
   toActName: string | null
   actions: ActionsView | null // null — я не в раздаче
   canStart: boolean // ведущему: можно начать раздачу
+  // Кэш (#323): я пропускаю, и вернуться — с выбором «Поставить BB и играть» или «Ждать свой BB» (returnOwesBB)
+  backOwesBB: boolean
   canTakeHost: boolean // ведущий вне сети дольше минуты — можно взять ведение
   rebuyRequests: { playerId: string; name: string; amount: number }[]
   myRebuy: number | null // мой запрос на докуп ждёт ведущего
@@ -215,6 +231,8 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
   // Место у места за столом: у выбывших, а когда турнир окончен — у всех
   const places = new Map((tournament?.results ?? []).filter((r) => r.out || tournament?.ended).map((r) => [r.id, r.place]))
   const draw = hand ? null : (table.seatDraw ?? null)
+  // Кого сдадут (#323): в турнире — и отошедших; «Перемешать места» — только играющих
+  const dealt = dealtNext(table).length
   const playing = table.players.filter((p) => p.chips > 0 && !p.sittingOut).length
 
   const seats: SeatView[] = [...table.players]
@@ -245,6 +263,10 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
         allIn: s?.allIn ?? false,
         online: p.online,
         sittingOut: p.sittingOut,
+        sitOutBB: p.sitOutBB === true,
+        waitBB: p.waitBB === true,
+        postBB: p.postBB === true,
+        outMark: !p.sittingOut ? null : table.settings.format === 'tournament' ? 'отошёл' : p.waitBB ? 'ждёт BB' : 'пропуск',
         turnLeft: hand !== null && index !== -1 && index === hand.toAct ? turnLeft : null,
         turnBank: hand !== null && index !== -1 && index === hand.toAct && turnBank,
         place: places.get(p.id) ?? null,
@@ -288,7 +310,8 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
     pots: hand ? potsView(table, nameOf) : [],
     toActName: hand && hand.toAct !== -1 ? nameOf(hand.seats[hand.toAct].id) : null,
     actions: actionsView(table, meId, bets),
-    canStart: isHost && !hand && !table.muckVote && !tournament?.ended && playing >= 2,
+    canStart: isHost && !hand && !table.muckVote && !tournament?.ended && dealt >= 2,
+    backOwesBB: returnOwesBB(table, meId),
     canTakeHost:
       !isHost && host !== undefined && !host.online && now - (host.offlineSince ?? now) > HOST_TAKEOVER_MS,
     rebuyRequests: table.rebuyRequests.map((r) => ({ ...r, name: nameOf(r.playerId) })),
@@ -914,6 +937,8 @@ function betText(e: HandLogEntry, bb: number | null): string {
       return e.allIn ? `анте ${to}, олл-ин` : `анте ${to}`
     case 'straddle':
       return e.allIn ? `страддл ${to}, олл-ин` : `страддл ${to}`
+    case 'post':
+      return e.allIn ? `BB вслепую ${to}, олл-ин` : `BB вслепую ${to}`
     case 'fold':
       return 'пас'
     case 'check':
