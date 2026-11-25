@@ -195,9 +195,19 @@ export type TablePlayer = {
   seat: number // номер места, 0…maxSeats−1
   chips: number // стек между раздачами
   buyIn: number // закуплено всего: закуп и докупы
-  sittingOut: boolean // пропускает раздачи
+  // Кэш — пропускает раздачи: не сдают, блайнды не платит. Турнир (#323) — «отошёл»: сдают, блайнды и анте платит,
+  // в его ход сразу чек или сброс (autoAway)
+  sittingOut: boolean
   online: boolean
   offlineSince: number | null
+  // Кэш (#323), у столов до него полей нет — нет. sitOutBB — «Отойду перед своим BB»: играет, а перед раздачей, где BB
+  // выпал бы ему, встаёт сам (start). outAt — встал: номер последней сданной тогда раздачи (handCount); сдана новая —
+  // возврат с выбором (returnOwesBB). waitBB — «Ждать свой BB»: пропускает, пока BB не выпадет ему (тогда start
+  // возвращает его сам). postBB — «Поставить BB и играть»: в следующей своей раздаче ставит BB вслепую сверх блайндов
+  sitOutBB?: true
+  outAt?: number
+  waitBB?: true
+  postBB?: true
 }
 
 export type ChipLogEntry =
@@ -361,7 +371,7 @@ export function createTable(
 export function handle(state: TableState, from: string, message: unknown, now: number, deck?: Card[]): Result {
   if (!isRecord(message) || message.v !== PROTOCOL_VERSION) return { ok: false, error: VERSION_ERROR }
   const next = structuredClone(state)
-  const error = apply(next, from, message as ClientBody, now, deck) ?? settle(next, now)
+  const error = apply(next, from, message as ClientBody, now, deck) ?? autoAway(next) ?? settle(next, now)
   if (error) return { ok: false, error }
   closeVote(next, now)
   closeMuck(next, now)
@@ -438,8 +448,9 @@ export function onTime(state: TableState, now: number, deck?: Card[]): TableStat
   if (!hand && typeof state.nextHandAt === 'number' && now >= state.nextHandAt) {
     const next = structuredClone(state)
     next.nextHandAt = null
-    // Не начать (меньше двоих с фишками, перерыв) — раздача «сама» стоит до ведущего
-    if (!next.paused) start(next, deck, now)
+    // Не начать (меньше двоих с фишками, перерыв) — раздача «сама» стоит до ведущего. Турнир (#323): первые по кругу
+    // отошедшие ходят сразу (autoAway)
+    if (!next.paused && start(next, deck, now) === null && autoAway(next) === null) settle(next, now)
     clock(next, now)
     return next
   }
@@ -447,7 +458,8 @@ export function onTime(state: TableState, now: number, deck?: Card[]): TableStat
 }
 
 // Истёк ход: тот же ход, что у ведущего «Пропустить», с пометкой в журнале раздачи.
-// Истечений подряд TIMEOUTS_TO_SIT_OUT — игрок пропускает раздачи. Ошибка — строка
+// Истечений подряд TIMEOUTS_TO_SIT_OUT — игрок пропускает раздачи (кэш) или отошёл (турнир, #323: дальше за него
+// ход сразу — autoAway). Ошибка — строка
 function expire(state: TableState, now: number): string | null {
   const hand = state.hand as Hand
   const id = hand.seats[hand.toAct].id
@@ -459,10 +471,58 @@ function expire(state: TableState, now: number): string | null {
   timeouts[id] = (timeouts[id] ?? 0) + 1
   const p = state.players.find((x) => x.id === id)
   if (p && timeouts[id] >= TIMEOUTS_TO_SIT_OUT) {
-    p.sittingOut = true
+    goOut(state, p)
     delete timeouts[id]
   }
-  return settle(state, now)
+  return autoAway(state) ?? settle(state, now)
+}
+
+// Игрок встал: в кэше (#323) — с номером последней сданной раздачи (вернётся после новой — с выбором) и без отметок;
+// уже стоял — номер прежний
+function goOut(state: TableState, p: TablePlayer): void {
+  const was = p.sittingOut
+  p.sittingOut = true
+  if (state.settings.format === 'tournament') return
+  delete p.sitOutBB
+  delete p.postBB
+  delete p.waitBB
+  if (!was || typeof p.outAt !== 'number') p.outAt = state.handCount
+}
+
+// Вернулся в раздачи (кэш, #323): без отметок ожидания
+function comeBack(p: TablePlayer): void {
+  p.sittingOut = false
+  delete p.outAt
+  delete p.waitBB
+}
+
+// Турнир (#323): ход дошёл до отошедшего — за него сразу чек, если можно, иначе сброс, без таймера и без пометки
+// истечения; подряд несколько отошедших — цепочкой, до первого не отошедшего или конца торгов. Кэш — ничего
+function autoAway(state: TableState): string | null {
+  if (state.settings.format !== 'tournament') return null
+  for (let hand = state.hand; hand && hand.toAct !== -1; hand = state.hand) {
+    const id = hand.seats[hand.toAct].id
+    if (state.players.find((p) => p.id === id)?.sittingOut !== true) return null
+    const error = skip(state)
+    if (error) return error
+  }
+  return null
+}
+
+// Кого сдают в следующей раздаче, не считая «ждущих свой BB» (#323): кэш — с фишками и не пропускают;
+// турнир — все с фишками, и отошедшие
+export function dealtNext(state: TableState): TablePlayer[] {
+  const tournament = state.settings.format === 'tournament'
+  return state.players.filter((p) => p.chips > 0 && (tournament || !p.sittingOut))
+}
+
+// Кэш (#323): вернуться в раздачи — с выбором «Поставить BB и играть» или «Ждать свой BB»: игрок пропускает,
+// с тех пор как встал, сдана хотя бы одна раздача, а играют без него хотя бы двое. Иначе (и в турнире) — сразу
+export function returnOwesBB(state: TableState, playerId: string): boolean {
+  if (state.settings.format === 'tournament') return false
+  const p = state.players.find((x) => x.id === playerId)
+  if (!p?.sittingOut || typeof p.outAt !== 'number' || state.handCount <= p.outAt) return false
+  return dealtNext(state).filter((x) => x.id !== playerId).length >= 2
 }
 
 // Срок хода после любой перемены стола: новый ход — новый срок от now; тот же — срок прежний.
@@ -518,8 +578,9 @@ function refillBanks(state: TableState, handNumber: number): void {
 }
 
 // Раздача «сама» — через паузу из настроек; выкл, перерыв, идёт раздача, раздач ещё не было,
-// турнир окончен или ждёт ребая, играть некому (с фишками и не пропускают меньше двоих),
-// идёт голосование «Микса» (#166) или пауза «Мак по выбору» (#286: ждёт её конца) — нет
+// турнир окончен или ждёт ребая, играть некому (кэш — с фишками и не пропускают меньше двоих; турнир, #323 —
+// с фишками меньше двоих или все отошли), идёт голосование «Микса» (#166) или пауза «Мак по выбору» (#286: ждёт
+// её конца) — нет
 function armNext(state: TableState, now: number): void {
   const mode = state.settings.autoStart ?? 'off'
   state.nextHandAt = mode !== 'off' && autoReady(state) ? now + AUTO_START_MS[mode] : null
@@ -527,9 +588,10 @@ function armNext(state: TableState, now: number): void {
 
 function autoReady(state: TableState): boolean {
   const ended = typeof state.tournament?.endedAt === 'number'
-  const playing = state.players.filter((p) => p.chips > 0 && !p.sittingOut).length
+  const playing = dealtNext(state)
+  const someone = playing.some((p) => !p.sittingOut)
   const voting = Boolean(state.mixVote) || Boolean(state.muckVote)
-  return !state.hand && !state.paused && !voting && state.handCount > 0 && !ended && !alone(state) && playing >= 2
+  return !state.hand && !state.paused && !voting && state.handCount > 0 && !ended && !alone(state) && playing.length >= 2 && someone
 }
 
 // После любой перемены между раздачами (#106): снова двое с фишками — докуп, возврат в раздачи,
@@ -631,12 +693,11 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
     case 'sitOut': {
       const id = msg.playerId ?? from
       if (id !== from && !isHost) return hostOnly
-      const p = state.players.find((x) => x.id === id)
-      if (!p) return 'Такого игрока нет за столом'
-      p.sittingOut = msg.sittingOut === true
-      // Вернулся в раздачи — истечения считаются заново
-      return p.sittingOut ? null : resetTimeouts(state, id)
+      // Ведущий из управления столом (playerId; и на одном телефоне, и у стола с ботами) — возврат без долга
+      return sitOut(state, id, msg, isHost && msg.playerId !== undefined)
     }
+    case 'sitOutBB':
+      return markBB(state, me, msg.on)
     case 'moveSeat': {
       const id = msg.playerId ?? from
       if (id !== from && !isHost) return hostOnly
@@ -678,6 +739,40 @@ function apply(state: TableState, from: string, msg: ClientBody, now: number, de
     default:
       return 'Неизвестное сообщение — обновите приложение'
   }
+}
+
+// Почему возврат кэша не прошёл без выбора (#323)
+export const BACK_CHOICE = 'Выберите: поставить BB и играть или ждать свой BB'
+
+// «Пропускать раздачи» (турнир — «Отойти») и возврат. Встал — со следующей раздачи (идущую, где сдан, доигрывает;
+// в турнире его ход — сразу за него, autoAway). Возврат в кэше (#323): returnOwesBB — по выбору back: 'post' — сразу,
+// в следующей раздаче ставит BB вслепую (postBB); 'wait' — пропускает дальше до своего BB (waitBB); без выбора — отказ.
+// Не должен, турнир или ведущий за него (free) — сразу, без долга. Вернулся — истечения считаются заново
+function sitOut(state: TableState, id: string, msg: Extract<ClientBody, { type: 'sitOut' }>, free: boolean): string | null {
+  const p = state.players.find((x) => x.id === id)
+  if (!p) return 'Такого игрока нет за столом'
+  if (msg.sittingOut === true) {
+    goOut(state, p)
+    return null
+  }
+  if (!p.sittingOut) return resetTimeouts(state, id)
+  if (free || !returnOwesBB(state, id)) comeBack(p)
+  else if (msg.back === 'post') {
+    comeBack(p)
+    p.postBB = true
+  } else if (msg.back === 'wait') p.waitBB = true
+  else return BACK_CHOICE
+  return resetTimeouts(state, id)
+}
+
+// «Отойду перед своим BB» (#323, только кэш): on — отметка, нет — снята. Стоит, пока игрок не встанет (start)
+function markBB(state: TableState, me: TablePlayer, on: unknown): string | null {
+  if (state.settings.format === 'tournament') return 'В турнире — «Отойти»: блайнды идут, карты сбрасываются сами'
+  if (typeof on !== 'boolean') return 'Неизвестное сообщение — обновите приложение'
+  if (on && me.sittingOut) return 'Вы уже пропускаете раздачи'
+  if (on) me.sitOutBB = true
+  else delete me.sitOutBB
+  return null
 }
 
 // regularId — постоянный игрок; за столом он один: второй раз под ним не сесть
@@ -768,7 +863,7 @@ function shuffleSeats(state: TableState, deck: Card[] | undefined, now: number):
 function start(state: TableState, deck: Card[] | undefined, now: number): string | null {
   if (state.hand) return 'Раздача ещё идёт'
   if (typeof state.tournament?.endedAt === 'number') return 'Турнир окончен'
-  const playing = state.players.filter((p) => p.chips > 0 && !p.sittingOut).sort((a, b) => a.seat - b.seat)
+  const { playing, leaving, joining } = whoPlays(state)
   if (playing.length < 2) return 'Нужно хотя бы двое с фишками'
   // Карты на телефонах: описание игры — у раздачи (холдем или омаха), колода — от сервера
   let deal: { game: GameDef; deck: Card[] } | undefined
@@ -783,21 +878,66 @@ function start(state: TableState, deck: Card[] | undefined, now: number): string
     const error = beginTournament(state, t, now)
     if (error) return error
   }
-  // Кнопка — у вытянувшего старшую карту розыгрыша (#316), если он играет; иначе — следующее играющее место
-  // по кругу после прошлой
-  const prev = state.buttonSeat
-  const after = prev === null ? -1 : playing.findIndex((p) => p.seat > prev)
-  const drawn = state.seatDraw ? playing.findIndex((p) => p.id === state.seatDraw?.button) : -1
-  const button = drawn !== -1 ? drawn : after === -1 ? 0 : after
+  const button = buttonOf(state, playing)
   state.buttonSeat = playing[button].seat
   if (state.seatDraw) state.seatDraw = null
+  // Кэш (#323): отметившие «Отойду перед своим BB», кому он выпал, — встали, не сыграв эту; дождавшиеся своего BB — в игре
+  for (const p of leaving) goOut(state, p)
+  for (const p of joining) comeBack(p)
+  // «Поставить BB и играть» — ставит в этой раздаче; кому BB и так выпал — без лишнего
+  const posts = playing.filter((p) => p.postBB).map((p) => p.id)
+  for (const p of playing) delete p.postBB
   state.handCount++
   // Докрутка прошлой (#297) — только до начала следующей: колода та же по составу, её карт в ходе раздачи телефону не слать
   if (state.lastHand) delete state.lastHand.runout
   const { sb, bb, ante } = blindsNow(state, now)
   const straddle = state.settings.format !== 'tournament' && state.settings.straddle === true
-  state.hand = startHand(state.handCount, playing, button, sb, bb, deal, ante, limitFor(state.settings), straddle)
+  state.hand = startHand(state.handCount, playing, button, sb, bb, deal, ante, limitFor(state.settings), straddle, posts)
   return null
+}
+
+// Кнопка новой раздачи — индекс в playing (по местам): у вытянувшего старшую карту розыгрыша (#316), если он играет;
+// иначе — следующее играющее место по кругу после прошлой
+function buttonOf(state: TableState, playing: TablePlayer[]): number {
+  const prev = state.buttonSeat
+  const after = prev === null ? -1 : playing.findIndex((p) => p.seat > prev)
+  const drawn = state.seatDraw ? playing.findIndex((p) => p.id === state.seatDraw?.button) : -1
+  return drawn !== -1 ? drawn : after === -1 ? 0 : after
+}
+
+// Чьё место — BB новой раздачи при таком составе (как в startHand: хедз-ап — не кнопка, иначе второй после неё)
+function bigBlindOf(state: TableState, playing: TablePlayer[]): TablePlayer {
+  const n = playing.length
+  return playing[(buttonOf(state, playing) + (n === 2 ? 1 : 2)) % n]
+}
+
+// Кто играет новую раздачу, по местам (dealtNext). Кэш (#323): BB выпал отметившему «Отойду перед своим BB» —
+// он встаёт (leaving), BB — следующему играющему по кругу, и так, пока BB не у неотмеченного; «ждущий свой BB», кому
+// с ним за столом BB выпал бы, — в раздаче (joining), такой один. Меньше двоих — playing короче двух: раздачи нет
+function whoPlays(state: TableState): { playing: TablePlayer[]; leaving: TablePlayer[]; joining: TablePlayer[] } {
+  const bySeat = (list: TablePlayer[]) => [...list].sort((a, b) => a.seat - b.seat)
+  let playing = bySeat(dealtNext(state))
+  const leaving: TablePlayer[] = []
+  const joining: TablePlayer[] = []
+  if (state.settings.format === 'tournament') return { playing, leaving, joining }
+  const waiters = bySeat(state.players.filter((p) => p.chips > 0 && p.sittingOut && p.waitBB))
+  while (playing.length >= 2) {
+    const bb = bigBlindOf(state, playing)
+    if (bb.sitOutBB) {
+      leaving.push(bb)
+      playing = playing.filter((p) => p !== bb)
+      continue
+    }
+    if (joining.length > 0) break
+    const waiter = waiters.find((w) => {
+      const withHim = bySeat([...playing, w])
+      return bigBlindOf(state, withHim) === w
+    })
+    if (!waiter) break
+    joining.push(waiter)
+    playing = bySeat([...playing, waiter])
+  }
+  return { playing, leaving, joining }
 }
 
 // «Начать турнир»: часы идут с этой минуты; играют все за столом, призы — заданные или по числу игроков

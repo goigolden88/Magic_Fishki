@@ -26,11 +26,12 @@ export type HandSeat = {
 
 // timeout — ход сделан за игрока: время на ход вышло (#75, ставит table.ts).
 // 'ante' — анте в начале раздачи (#78): bet — сколько поставил в банк, ставкой круга оно не считается.
-// 'straddle' — страддл UTG после блайндов (#222): bet — его ставка круга, 2 ББ
+// 'straddle' — страддл UTG после блайндов (#222): bet — его ставка круга, 2 ББ.
+// 'post' — BB вслепую вернувшегося в кэш (#323, «Поставить BB и играть»), после блайндов: bet — его ставка круга, ББ
 export type HandLogEntry = {
   street: Street
   playerId: string
-  type: BetAction['type'] | 'ante' | 'straddle'
+  type: BetAction['type'] | 'ante' | 'straddle' | 'post'
   bet: number
   allIn: boolean
   timeout?: true
@@ -61,7 +62,9 @@ export type StartSeat = { id: string; chips: number }
 // seats — играющие в порядке мест, button — индекс кнопки в них; deal — карты на телефонах:
 // описание игры и перемешанная колода; ante — анте с каждого до блайндов (0 — нет); limit — предел ставки;
 // straddle — страддл (#222): UTG после блайндов вслепую ставит 2 ББ, если в раздаче трое и больше
-// и у него на это хватает фишек
+// и у него на это хватает фишек; posts — вернувшиеся в кэш с «Поставить BB и играть» (#323): после блайндов
+// доставляют свою ставку круга до ББ вслепую (не хватает — олл-ин тем, что есть), это не ход: в свой ход
+// без повышения — чек. Кому выпал BB — ничего сверх
 export function startHand(
   number: number,
   seats: StartSeat[],
@@ -72,6 +75,7 @@ export function startHand(
   ante = 0,
   limit: Limit = 'nolimit',
   straddle = false,
+  posts: string[] = [],
 ): Hand {
   const hand: Hand = {
     number,
@@ -120,13 +124,19 @@ export function startHand(
   const bbIndex = (sbIndex + 1) % n
   put(hand.seats[sbIndex], Math.min(sb, hand.seats[sbIndex].chips))
   put(hand.seats[bbIndex], Math.min(bb, hand.seats[bbIndex].chips))
+  for (const s of hand.seats) {
+    if (!posts.includes(s.id) || s.bet >= bb || s.chips === 0) continue
+    put(s, Math.min(bb - s.bet, s.chips))
+    hand.log.push({ street: 'preflop', playerId: s.id, type: 'post', bet: s.bet, allIn: s.allIn })
+  }
   // Страддл — следующий за ББ (втроём — кнопка): ставка круга и полное повышение — 2 ББ, минимальный
-  // рейз — ещё на 2 ББ. Он не ходил, поэтому круг до флопа закрывается на нём: может чек или рейз
+  // рейз — ещё на 2 ББ. Он не ходил, поэтому круг до флопа закрывается на нём: может чек или рейз.
+  // Поставил BB вслепую (#323) — доставляет до 2 ББ
   const utgIndex = (bbIndex + 1) % n
   const utg = hand.seats[utgIndex]
   const amount = 2 * bb
-  if (straddle && n >= 3 && utg.chips >= amount) {
-    put(utg, amount)
+  if (straddle && n >= 3 && utg.chips >= amount - utg.bet) {
+    put(utg, amount - utg.bet)
     hand.straddle = amount
     hand.currentBet = amount
     hand.fullBet = amount
