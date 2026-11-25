@@ -73,6 +73,7 @@ export type SeatView = {
   sitOutBB: boolean
   waitBB: boolean
   postBB: boolean
+  outMark: string | null // пометка у места: «пропуск», «ждёт BB» (кэш), «отошёл» (турнир); играет — null
   turnLeft: number | null // чей ход и таймер идёт — сколько секунд осталось
   turnBank: boolean // чей ход, и идёт его запас (#223): turnLeft — секунды запаса; чужой запас, пока не тратится, не виден
   place: number | null // турнир: место выбывшего, а когда окончен — у всех; иначе null
@@ -265,6 +266,7 @@ export function tableView(table: TableState, meId: string, now: number, bets: Qu
         sitOutBB: p.sitOutBB === true,
         waitBB: p.waitBB === true,
         postBB: p.postBB === true,
+        outMark: !p.sittingOut ? null : table.settings.format === 'tournament' ? 'отошёл' : p.waitBB ? 'ждёт BB' : 'пропуск',
         turnLeft: hand !== null && index !== -1 && index === hand.toAct ? turnLeft : null,
         turnBank: hand !== null && index !== -1 && index === hand.toAct && turnBank,
         place: places.get(p.id) ?? null,
