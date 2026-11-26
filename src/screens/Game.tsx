@@ -151,6 +151,89 @@ export function GameScreen({ id }: { id: string }) {
       ? [...result.players].sort((x, y) => y.kopecks - x.kopecks)
       : [...result.players].sort((x, y) => y.poker.chips - x.poker.chips)
 
+  // «Итог» с «Переводами»: у открытой игры — после записей, у закрытой — наверху, под курсом (#327)
+  const summary = (
+    <section className="card summary">
+      <h2>Итог</h2>
+      {!onlyCasino && <p className={b.ok ? 'ok' : 'warn'}>{balanceText(b)}</p>}
+      {result.hasCasino && (
+        <p className={result.casinoOk ? 'ok' : 'warn'}>
+          {result.casinoOk
+            ? `Казино сходится: все раунды в ноль (раундов: ${formatNumber(rounds.length)})`
+            : 'Казино не сходится — проверьте раунды'}
+        </p>
+      )}
+      {current.players.length > 0 &&
+        (onlyCasino ? (
+          <table className="totals">
+            <tbody>
+              {sorted.map((r) => (
+                <tr key={r.playerId}>
+                  <td>{nameById.get(r.playerId)}</td>
+                  <td className={'num ' + sign(r.kopecks)}>
+                    <strong>{formatRub(r.kopecks, true)}</strong>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : result.hasCasino ? (
+          <table className="totals three">
+            <thead>
+              <tr>
+                <th />
+                <th className="num">покер</th>
+                <th className="num">казино</th>
+                <th className="num">итого</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.map((r) => (
+                <tr key={r.playerId}>
+                  <td>{nameById.get(r.playerId)}</td>
+                  <td className="num">{r.inPoker ? formatRub(r.poker.kopecks, true) : '—'}</td>
+                  <td className="num">{r.inCasino ? formatRub(r.casino, true) : '—'}</td>
+                  <td className={'num ' + sign(r.kopecks)}>
+                    <strong>{formatRub(r.kopecks, true)}</strong>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : (
+          <table className="totals">
+            <tbody>
+              {sorted.map(({ poker: t }) => (
+                <tr key={t.playerId}>
+                  <td>{nameById.get(t.playerId)}</td>
+                  <td className="num">{formatChips(t.chips, true)}</td>
+                  <td className={'num ' + sign(t.kopecks)}>{formatRub(t.kopecks, true)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ))}
+
+      <h2>Переводы</h2>
+      {!result.ok ? (
+        <p className="muted">Появятся, когда игра сойдётся</p>
+      ) : list.length === 0 ? (
+        <p className="muted">Переводить никому не нужно</p>
+      ) : (
+        <ul className="transfers">
+          {list.map((t, i) => (
+            <li key={i}>
+              <span>
+                {nameById.get(t.from)} → {nameById.get(t.to)}
+              </span>
+              <strong>{formatRub(t.kopecks)}</strong>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+
   return (
     <main className="screen">
       <BackBar />
@@ -188,6 +271,9 @@ export function GameScreen({ id }: { id: string }) {
           </div>
         </form>
       )}
+
+      {/* #327: закрытую игру открывают ради итога — он первым, над казино и игроками */}
+      {current.closed && summary}
 
       {/* Р-29: казино — сверху, под курсом; в игре «покер» блока нет */}
       {mode !== 'poker' && (!current.closed || rounds.length > 0) && (
@@ -249,85 +335,7 @@ export function GameScreen({ id }: { id: string }) {
         </button>
       )}
 
-      <section className="card summary">
-        <h2>Итог</h2>
-        {!onlyCasino && <p className={b.ok ? 'ok' : 'warn'}>{balanceText(b)}</p>}
-        {result.hasCasino && (
-          <p className={result.casinoOk ? 'ok' : 'warn'}>
-            {result.casinoOk
-              ? `Казино сходится: все раунды в ноль (раундов: ${formatNumber(rounds.length)})`
-              : 'Казино не сходится — проверьте раунды'}
-          </p>
-        )}
-        {current.players.length > 0 &&
-          (onlyCasino ? (
-            <table className="totals">
-              <tbody>
-                {sorted.map((r) => (
-                  <tr key={r.playerId}>
-                    <td>{nameById.get(r.playerId)}</td>
-                    <td className={'num ' + sign(r.kopecks)}>
-                      <strong>{formatRub(r.kopecks, true)}</strong>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : result.hasCasino ? (
-            <table className="totals three">
-              <thead>
-                <tr>
-                  <th />
-                  <th className="num">покер</th>
-                  <th className="num">казино</th>
-                  <th className="num">итого</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((r) => (
-                  <tr key={r.playerId}>
-                    <td>{nameById.get(r.playerId)}</td>
-                    <td className="num">{r.inPoker ? formatRub(r.poker.kopecks, true) : '—'}</td>
-                    <td className="num">{r.inCasino ? formatRub(r.casino, true) : '—'}</td>
-                    <td className={'num ' + sign(r.kopecks)}>
-                      <strong>{formatRub(r.kopecks, true)}</strong>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <table className="totals">
-              <tbody>
-                {sorted.map(({ poker: t }) => (
-                  <tr key={t.playerId}>
-                    <td>{nameById.get(t.playerId)}</td>
-                    <td className="num">{formatChips(t.chips, true)}</td>
-                    <td className={'num ' + sign(t.kopecks)}>{formatRub(t.kopecks, true)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ))}
-
-        <h2>Переводы</h2>
-        {!result.ok ? (
-          <p className="muted">Появятся, когда игра сойдётся</p>
-        ) : list.length === 0 ? (
-          <p className="muted">Переводить никому не нужно</p>
-        ) : (
-          <ul className="transfers">
-            {list.map((t, i) => (
-              <li key={i}>
-                <span>
-                  {nameById.get(t.from)} → {nameById.get(t.to)}
-                </span>
-                <strong>{formatRub(t.kopecks)}</strong>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      {!current.closed && summary}
 
       <button className="big primary wide" onClick={() => void share()}>
         Поделиться итогом
