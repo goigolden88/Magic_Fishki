@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Entry, EntryKind, Game, Player, Regular } from '../model'
 import { formatTenths } from './format'
-import { basisText, rebuysPerGame, regularStats } from './stats'
+import { basisText, defaultPeriod, periodText, rebuysPerGame, regularStats, statsYears } from './stats'
 
 // Выдуманные игроки и игры
 const REGULARS: Regular[] = [
@@ -147,14 +147,87 @@ describe('статистика постоянных игроков', () => {
   })
 })
 
+describe('статистика за год (#328)', () => {
+  // На границе года: 31 декабря и 1 января
+  const dec31 = makeGame('y1', '2025-12-31', 1, [
+    { player: anna('q1'), buyin: 500, cashout: 1500 },
+    { player: boris('q2'), buyin: 1000, cashout: 0 },
+  ])
+  const jan1 = makeGame('y2', '2026-01-01', 1, [
+    { player: anna('q3'), buyin: 500, rebuys: [500], cashout: 0 },
+    { player: boris('q4'), buyin: 500, cashout: 1500 },
+  ])
+  const open2024 = makeGame('y3', '2024-06-01', 1, [{ player: anna('q5'), buyin: 500 }], { closed: false })
+  const demo2023 = makeGame('y4', '2023-03-03', 1, [{ player: anna('q6'), buyin: 100, cashout: 900 }], {
+    demo: true,
+  })
+  const all = [jan1, dec31, open2024, demo2023, G1]
+
+  it('годы — закрытых игр без демо, новые первыми', () => {
+    expect(statsYears(all)).toEqual([2026, 2025])
+    expect(statsYears([open2024, demo2023])).toEqual([])
+  })
+
+  it('по умолчанию — текущий год, если в нём есть закрытые игры, иначе всё время', () => {
+    expect(defaultPeriod([2026, 2025], 2026)).toBe(2026)
+    expect(defaultPeriod([2025], 2026)).toBeNull()
+    expect(defaultPeriod([], 2026)).toBeNull()
+  })
+
+  it('год — по дате игры: 31 декабря в своём году, 1 января — в следующем', () => {
+    const s25 = regularStats(REGULARS, all, 2025)
+    expect(s25.period).toBe(2025)
+    expect(s25.closedGames).toBe(1)
+    expect(s25.totalGames).toBe(1)
+    const a25 = s25.rows.find((r) => r.regularId === 'r-anna')!
+    expect(a25.games).toBe(1)
+    expect(a25.kopecks).toBe(100000)
+    expect(a25.best!.gameId).toBe('y1')
+
+    const s26 = regularStats(REGULARS, all, 2026)
+    expect(s26.closedGames).toBe(2) // 1 января и G1 (сентябрь 2026)
+    const a26 = s26.rows.find((r) => r.regularId === 'r-anna')!
+    expect(a26.games).toBe(2)
+    expect(a26.wins).toBe(1)
+    expect(a26.rebuys).toBe(1)
+    expect(a26.kopecks).toBe(-100000 + 50000)
+    expect(a26.worst!.gameId).toBe('y2')
+    expect(s26.rows.map((r) => r.name)).toEqual(['Борис', 'Анна', 'Вера'])
+  })
+
+  it('открытые и демо в год не входят; открытые видны в «из»', () => {
+    const s24 = regularStats(REGULARS, all, 2024)
+    expect(s24.closedGames).toBe(0)
+    expect(s24.totalGames).toBe(1) // открытая
+    expect(s24.rows.every((r) => r.games === 0)).toBe(true)
+    const s23 = regularStats(REGULARS, all, 2023)
+    expect(s23.totalGames).toBe(0) // только демо
+  })
+
+  it('всё время — все годы, как без периода', () => {
+    const s = regularStats(REGULARS, all, null)
+    expect(s.period).toBeNull()
+    expect(s.closedGames).toBe(3)
+    expect(s.totalGames).toBe(4)
+    expect(regularStats(REGULARS, all)).toEqual(s)
+  })
+})
+
 describe('основание статистики', () => {
-  const basis = (closedGames: number, totalGames: number) => basisText({ closedGames, totalGames, rows: [] })
+  const basis = (closedGames: number, totalGames: number, period: number | null = null) =>
+    basisText({ period, closedGames, totalGames, rows: [] })
 
   it('число закрытых из всех, падеж по числу', () => {
-    expect(basis(2, 3)).toBe('По 2 закрытым играм из 3')
-    expect(basis(1, 1)).toBe('По 1 закрытой игре из 1')
-    expect(basis(21, 30)).toBe('По 21 закрытой игре из 30')
-    expect(basis(11, 12)).toBe('По 11 закрытым играм из 12')
+    expect(basis(2, 3)).toBe('По 2 закрытым играм из 3 за всё время')
+    expect(basis(1, 1)).toBe('По 1 закрытой игре из 1 за всё время')
+    expect(basis(21, 30)).toBe('По 21 закрытой игре из 30 за всё время')
+    expect(basis(11, 12)).toBe('По 11 закрытым играм из 12 за всё время')
+  })
+
+  it('называет год', () => {
+    expect(basis(2, 3, 2026)).toBe('По 2 закрытым играм из 3 за 2026')
+    expect(periodText(2025)).toBe('за 2025')
+    expect(periodText(null)).toBe('за всё время')
   })
 })
 

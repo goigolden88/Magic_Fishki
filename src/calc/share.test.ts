@@ -162,6 +162,7 @@ function stat(name: string, games: number, wins: number, poker: number, casino =
 describe('статистика игроков для мессенджера', () => {
   it('заголовок с основанием, игроки в порядке экрана, казино — в скобках', () => {
     const stats: Stats = {
+      period: 2026,
       closedGames: 3,
       totalGames: 4,
       rows: [
@@ -172,7 +173,7 @@ describe('статистика игроков для мессенджера', ()
     }
     expect(plain(statsShareText(stats))).toBe(
       [
-        'Статистика · По 3 закрытым играм из 4',
+        'Статистика · По 3 закрытым играм из 4 за 2026',
         'Анна +1475 ₽ · игр 3, в плюсе 2',
         'Борис +182,5 ₽ · игр 2, в плюсе 1 (покер +100 ₽, казино +82,5 ₽)',
         'Вера −1550,05 ₽ · игр 3, в плюсе 0 (покер −1500 ₽, казино −50,05 ₽)',
@@ -181,12 +182,19 @@ describe('статистика игроков для мессенджера', ()
   })
 
   it('игроки без закрытых игр не входят', () => {
-    const stats: Stats = { closedGames: 1, totalGames: 2, rows: [stat('Анна', 1, 0, 0), stat('Борис', 0, 0, 0)] }
-    expect(plain(statsShareText(stats))).toBe(['Статистика · По 1 закрытой игре из 2', 'Анна 0 ₽ · игр 1, в плюсе 0'].join('\n'))
+    const stats: Stats = {
+      period: null,
+      closedGames: 1,
+      totalGames: 2,
+      rows: [stat('Анна', 1, 0, 0), stat('Борис', 0, 0, 0)],
+    }
+    expect(plain(statsShareText(stats))).toBe(
+      ['Статистика · По 1 закрытой игре из 2 за всё время', 'Анна 0 ₽ · игр 1, в плюсе 0'].join('\n'),
+    )
   })
 
   it('крупные суммы — с пробелами', () => {
-    const stats: Stats = { closedGames: 12, totalGames: 12, rows: [stat('Анна', 12, 7, 2100105)] }
+    const stats: Stats = { period: null, closedGames: 12, totalGames: 12, rows: [stat('Анна', 12, 7, 2100105)] }
     expect(plain(statsShareText(stats)).split('\n')[1]).toBe('Анна +21 001,05 ₽ · игр 12, в плюсе 7')
   })
 })
