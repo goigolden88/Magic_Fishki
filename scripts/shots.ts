@@ -734,6 +734,81 @@ async function playerStep(cdp: Cdp, size: Size, theme: Theme): Promise<void> {
   })
 }
 
+// Копии закрытой игры в прошлом году — прямо в IndexedDB страницы (у формы «Новая игра» даты нет): «Пятница» —
+// у Ани +1 000 фишек, «Суббота» — Аня +500; обе — 28 и 29 декабря прошлого года. Выдуманные, без демо
+const LAST_YEAR_GAMES = `new Promise((resolve, reject) => {
+  const open = indexedDB.open('magic_fishki')
+  open.onerror = () => reject(open.error)
+  open.onsuccess = () => {
+    const db = open.result
+    const tx = db.transaction('games', 'readwrite')
+    const store = tx.objectStore('games')
+    const all = store.getAll()
+    all.onsuccess = () => {
+      const game = all.result.find((g) => g.closed && !g.demo)
+      if (!game) return reject(new Error('нет закрытой игры'))
+      const year = Number(game.date.slice(0, 4)) - 1
+      const copy = (id, day, name, out) => {
+        const date = year + '-12-' + day
+        const entries = game.entries.map((e, i) => {
+          const at = date + 'T20:00:00.000Z'
+          if (e.kind !== 'cashout') return { ...e, id: id + '-' + i, at }
+          const who = game.players.find((p) => p.id === e.playerId)
+          return { ...e, id: id + '-' + i, at, chips: out[who.name] }
+        })
+        store.put({ ...game, id, name, date, entries, updatedAt: date + 'T23:00:00.000Z' })
+      }
+      copy('shots-friday', '28', 'Пятница', { 'Аня': 2000, 'Боря': 0 })
+      copy('shots-saturday', '29', 'Суббота', { 'Аня': 1500, 'Боря': 500 })
+    }
+    tx.oncomplete = () => resolve(true)
+    tx.onerror = () => reject(tx.error)
+  }
+})`
+
+// «Игроки» по годам (#328): постоянные «Аня» и «Боря», закрытая игра сегодня и две — в прошлом году;
+// снимок по умолчанию — текущий год (07b), затем касание «Всё время» (07c); npm run shots -- gody — только он,
+// на 390 и 1366
+async function playersYearsOnly(cdp: Cdp): Promise<void> {
+  for (const size of SIZES.slice(0, 2)) {
+    console.log(`Игроки по годам, ${size.width} × ${size.height}`)
+    const d = await Device.open(cdp, size)
+    await screen('Игроки по годам', size, async () => {
+      await openSettings(d, 'Игроки')
+      await d.waitText('Постоянные игроки')
+      await pickTheme(d, runTheme)
+      for (const name of ['Аня', 'Боря']) {
+        await d.type('input[placeholder="Имя игрока"]', name)
+        await submit(d, 'input[placeholder="Имя игрока"]')
+        await d.waitText(name)
+      }
+      await d.goto('#/')
+      await d.waitText('Записать игру')
+      await d.click('Записать игру')
+      await d.click('Вручную')
+      await d.waitText('Участники: 2 из 2')
+      await d.click('Создать')
+      await d.waitText('Записать всем закуп')
+      await d.click('Да')
+      await d.waitText('Закрыть игру')
+      await recordExit(d, 'Аня', 1500)
+      await recordExit(d, 'Боря', 500)
+      await d.click('Закрыть игру')
+      await d.waitText('Открыть снова')
+      await d.eval(LAST_YEAR_GAMES)
+      await d.goto('#/players')
+      await d.waitText('Аня')
+      // По умолчанию — текущий год (в нём игра); касание «Всё время» — все три игры
+      const year = await d.eval<number>('new Date().getFullYear()')
+      await d.waitText(`из 1 за ${year}`)
+      await d.shot('07b-igroki-god')
+      await d.click('Всё время')
+      await d.waitText('из 3 за всё время')
+      await d.shot('07c-igroki-vse-vremya')
+    })
+  }
+}
+
 // Гамма — касанием в «Оформлении» на открытых «Настройках»; «Ночь» — как у того, кто не выбирал
 async function pickTheme(d: Device, theme: Theme): Promise<void> {
   if (theme === 'night') return
@@ -3249,7 +3324,9 @@ async function main(): Promise<void> {
     const onlySeated = process.argv.includes('sidim') // npm run shots -- sidim: «Стол: я внизу / как сидим» (#315)
     const onlyShuffle = process.argv.includes('peremeshat') // npm run shots -- peremeshat: «Перемешать места» (#316)
     const onlySitOut = process.argv.includes('otoiti') // npm run shots -- otoiti: «Отойти» по правилам румов (#323)
+    const onlyYears = process.argv.includes('gody') // npm run shots -- gody: «Игроки» по годам (#328)
     const part =
+      onlyYears ||
       onlySitOut ||
       onlyShuffle ||
       onlySeated ||
@@ -3279,6 +3356,7 @@ async function main(): Promise<void> {
       onlyOwnBack ||
       onlyStraddle ||
       onlyOwnGames
+    if (onlyYears) await playersYearsOnly(cdp)
     if (onlySitOut) await sitOutOnly(cdp)
     if (onlyShuffle) await shuffleOnly(cdp)
     if (onlySeated) await seatedOnly(cdp)
@@ -3330,6 +3408,7 @@ async function main(): Promise<void> {
     if (!onlyTable && !uchet && !part) await sitOutOnly(cdp)
     if (!onlyTable && !part) await whatsNewOnly(cdp)
     if (!onlyTable && !part) await syncOnly(cdp)
+    if (!onlyTable && !part) await playersYearsOnly(cdp)
     if (!process.env.SHOTS_THEME && !onlyTable && !uchet && !part) {
       for (const other of ['club', 'day'] as const) for (const size of SIZES) await themeScenario(cdp, size, other)
     }

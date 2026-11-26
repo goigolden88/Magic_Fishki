@@ -24,15 +24,36 @@ export type RegularStat = {
   rebuys: number // записей «Докуп» всего
 }
 
+// Период статистики (#328, Р-120): календарный год игры (`date`) или null — всё время
+export type Period = number | null
+
 export type Stats = {
+  period: Period // за какой период
   closedGames: number // в статистике
-  totalGames: number // всего игр без демо: открытые видны разницей
+  totalGames: number // всего игр периода без демо: открытые видны разницей
   rows: RegularStat[] // по итогу в рублях, сверху — самый большой плюс; без игр — внизу
 }
 
-// Статистика постоянных игроков: только закрытые игры без демо, только участники со связью (гости — нет)
-export function regularStats(regulars: Regular[], games: Game[]): Stats {
-  const real = games.filter((g) => !g.demo)
+// Год игры — по её дате «YYYY-MM-DD»
+function yearOf(game: Game): number {
+  return Number(game.date.slice(0, 4))
+}
+
+// Годы, в которых есть закрытые игры без демо, — новые первыми
+export function statsYears(games: Game[]): number[] {
+  const years = new Set(games.filter((g) => !g.demo && g.closed).map(yearOf))
+  return [...years].sort((a, b) => b - a)
+}
+
+// Период по умолчанию: текущий год, если в нём есть закрытые игры, иначе всё время
+export function defaultPeriod(years: number[], currentYear: number): Period {
+  return years.includes(currentYear) ? currentYear : null
+}
+
+// Статистика постоянных игроков: только закрытые игры без демо, только участники со связью (гости — нет);
+// period — только игры этого года (по дате игры), null — все
+export function regularStats(regulars: Regular[], games: Game[], period: Period = null): Stats {
+  const real = games.filter((g) => !g.demo && (period === null || yearOf(g) === period))
   const closed = real.filter((g) => g.closed).sort((a, b) => a.date.localeCompare(b.date))
   const rows: RegularStat[] = regulars.map((r) => ({
     regularId: r.id,
@@ -82,14 +103,19 @@ export function regularStats(regulars: Regular[], games: Game[]): Stats {
   // Равный итог — порядок настроек (сортировка устойчивая)
   const played = rows.filter((row) => row.games > 0).sort((a, b) => b.kopecks - a.kopecks)
   const idle = rows.filter((row) => row.games === 0)
-  return { closedGames: closed.length, totalGames: real.length, rows: [...played, ...idle] }
+  return { period, closedGames: closed.length, totalGames: real.length, rows: [...played, ...idle] }
 }
 
-// Основание статистики: «По 2 закрытым играм из 3», «По 1 закрытой игре из 1»
+// Период словами: «за 2026», «за всё время»
+export function periodText(period: Period): string {
+  return period === null ? 'за всё время' : `за ${period}`
+}
+
+// Основание статистики: «По 2 закрытым играм из 3 за 2026», «По 1 закрытой игре из 1 за всё время»
 export function basisText(stats: Stats): string {
   const n = stats.closedGames
   const one = n % 10 === 1 && n % 100 !== 11
-  return `По ${n} ${one ? 'закрытой игре' : 'закрытым играм'} из ${stats.totalGames}`
+  return `По ${n} ${one ? 'закрытой игре' : 'закрытым играм'} из ${stats.totalGames} ${periodText(stats.period)}`
 }
 
 // Докупов в среднем за игру; игр нет — 0
